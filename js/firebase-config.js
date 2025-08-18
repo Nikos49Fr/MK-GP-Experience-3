@@ -5,7 +5,7 @@ import { getDatabase } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-
 
 // Config Firebase
 const firebaseConfig = {
-    apiKey: "AIzaSyDLYpsehSj_Ff0v6hjqlG0D_hXVCkUo0wo",
+    apiKey: "AIzaSyA5QtPvvLNlgS9rd3zGGgR3tqFFoL0vObk",
     authDomain: "mk-gp-experience-3.firebaseapp.com",
     projectId: "mk-gp-experience-3",
     storageBucket: "mk-gp-experience-3.firebasestorage.app",

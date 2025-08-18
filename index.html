@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accueil - MK GP Experience 3</title>
+    <link rel="stylesheet" href="css/main.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600&family=Poppins&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="top"></div>
+
+    <header class="site-header">
+        <h1>Mario Kart Grand Prix Experience 3</h1>
+    </header>
+
+    <nav class="quick-links">
+        <a href="#" class="btn-link">Overlay Scoreboard</a>
+        <a href="#" class="btn-link">Overlay Flash Info</a>
+
+        <!-- Liens admin/direction masqués par défaut, visibles si auth OK -->
+        <a href="admin.html" id="admin-link" class="btn-link" hidden>Admin</a>
+        <a href="direction.html" id="direction-link" class="btn-link" hidden>Direction de course</a>
+
+        <!-- Boutons auth -->
+        <button id="login-btn" class="btn-link">Login</button>
+        <button id="logout-btn" class="btn-link" hidden>Logout</button>
+    </nav>
+
+    <nav class="team-nav">
+        <a href="#top" class="nav-arrow up">▲</a>
+        <a href="#team-mmm"><img src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MMM"></a>
+        <a href="#team-llm"><img src="assets/images/team-2/team2_logo_ranch-lonlon-milk.png" alt="LLM"></a>
+        <a href="#team-goc"><img src="assets/images/team-3/team3_logo_goomba-cola.png" alt="GOC"></a>
+        <a href="#team-ec4"><img src="assets/images/team-4/team4_logo_pneus-sacres.png" alt="EC4"></a>
+        <a href="#team-aqj"><img src="assets/images/team-5/team5_logo_aquajet.png" alt="AQJ"></a>
+        <a href="#team-hyc"><img src="assets/images/team-6/team6_logo_hyrule-coffee.png" alt="HYC"></a>
+        <a href="#bottom" class="nav-arrow down">▼</a>
+    </nav>
+
+    <main class="teams-grid">
+        <!-- Exemple équipe -->
+        <section id="team-mmm" class="team-card" data-team="MMM">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+        <!-- Exemple équipe -->
+        <section id="team-llm" class="team-card" data-team="LLM">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+        <!-- Exemple équipe -->
+        <section id="team-goc" class="team-card" data-team="GOC">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+        <!-- Exemple équipe -->
+        <section id="team-ec4" class="team-card" data-team="EC4">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+        <!-- Exemple équipe -->
+        <section id="team-aqj" class="team-card" data-team="AQJ">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+        <!-- Exemple équipe -->
+        <section id="team-hyc" class="team-card" data-team="HYC">
+            <header class="team-header">
+                <span class="team-tag">MMM</span>
+                <img class="team-logo" src="assets/images/team-1/team1_logo_moomoo-meadows-milk.png" alt="MooMoo Meadows Milk">
+                <h2 class="team-name">MooMoo Meadows Milk</h2>
+            </header>
+
+            <div class="team-pilots">
+                <a class="pilot-card" href="pilot.html?id=p01" data-pilot="p01">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/ensuri.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p02" data-pilot="p02">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/keola.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p03" data-pilot="p03">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/narosaka.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p04" data-pilot="p04">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/oliarius.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p05" data-pilot="p05">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/petounio.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+                <a class="pilot-card" href="pilot.html?id=p06" data-pilot="p06">
+                    <figure>
+                        <div class="img-wrap">
+                            <img src="assets/images/team-1/zelldow.png" alt="Nom Pilote">
+                        </div>
+                        <figcaption class="pilot-name">Nom Pilote</figcaption>
+                    </figure>
+                </a>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <!-- code à implémenter -->
+    </footer>
+
+    <div id="bottom"></div>
+
+    <script type="module" src="./js/home-auth.js"></script>
+</body>
+</html>

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - MK GP Experience 3</title>
+    <link rel="stylesheet" href="./css/admin.css">
+</head>
+<body>
+    <header class="admin-header">
+        <h1>Console Admin - MK GP Experience 3</h1>
+        <nav>
+            <a href="index.html" id="index-link" class="btn-link">Retour</a>
+            <button id="logout-btn" class="logout-btn" hidden>Logout</button>
+        </nav>
+    </header>
+
+    <main class="admin-main">
+        <section class="admin-section" id="points-section">
+            <h2>Matrices de points</h2>
+
+            <div class="table-wrap">
+                <div class="points-controls">
+                    <button class="btn icon warning" id="points-edit-btn" title="Éditer">Éditer</button>
+                    <button class="btn icon success" id="points-save-btn" title="Sauvegarder" hidden>Sauvegarder</button>
+                    <button class="btn icon danger" id="points-cancel-btn" title="Annuler" hidden>Annuler</button>
+                </div>
+
+                <table class="admin-table" id="points-grid-table" aria-describedby="points-grid-help">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <!-- Colonnes rangs 1..24, rendues par JS -->
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- 4 lignes rendues par JS :
+                            - MK8 course (rangs 1..12 actifs, 13..24 grisés)
+                            - MKW course (1..24)
+                            - MKW Survie 1 (S1)
+                            - MKW Survie finale (S2)
+                        -->
+                    </tbody>
+                </table>
+                <p id="points-grid-help" class="table-help">
+                    En-têtes colonnes = classement (1 à 24). Lignes = MK8 course, MKW course, MKW Survie 1 (S1), MKW Survie finale (S2).
+                    Un seul mode édition global (Sauvegarder / Annuler).
+                </p>
+            </div>
+        </section>
+
+
+
+        <!-- ÉCURIES / TEAMS -->
+        <section id="section-teams" class="admin-section">
+            <h2>Écuries</h2>
+
+            <div class="table-wrap">
+
+<table class="admin-table" id="teams-table" aria-describedby="teams-help">
+    <thead>
+        <tr>
+            <th>Nom</th>
+            <th>Tag</th>
+            <th>Couleur 1</th>
+            <th>Couleur 2</th>
+            <th>Logo (URL)</th>
+            <th class="col-actions">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <!-- Ligne d'ajout -->
+        <tr class="row-add" data-mode="create">
+            <td><input type="text" id="team-name-new" placeholder="MooMoo Meadows Milk" autocomplete="off"></td>
+            <td><input type="text" id="team-tag-new" placeholder="MMM" maxlength="6" autocomplete="off"></td>
+            <td><input type="text" id="team-color1-new" placeholder="#f6b87f" pattern="^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$" autocomplete="off"></td>
+            <td><input type="text" id="team-color2-new" placeholder="#fccc88" pattern="^#([A-Fa-f0-9]{3}|[A-Fa-f0-9]{6})$" autocomplete="off"></td>
+            <td><input type="text" id="team-logo-new" placeholder="ex: team-1/logo.png" autocomplete="off"></td>
+            <td class="cell-actions">
+                <button class="btn icon success" id="team-add-btn" title="Ajouter l'écurie" aria-label="Ajouter">+</button>
+            </td>
+        </tr>
+
+        <!-- Lignes existantes rendues par JS -->
+    </tbody>
+</table>
+
+                <p id="teams-help" class="table-help">La première ligne sert à créer une écurie. Les lignes suivantes pourront être modifiées ou supprimées.</p>
+            </div>
+        </section>
+
+        <!-- PILOTES -->
+        <section id="section-pilots" class="admin-section">
+            <h2>Pilotes</h2>
+
+            <div class="table-wrap">
+<table class="admin-table" id="pilots-table" aria-describedby="pilots-help">
+    <thead>
+        <tr>
+            <th>Nom</th>
+            <th>Tag</th>
+            <th>Numéro</th>
+            <th>Jeu</th>
+            <th>Streamer</th>
+            <th>Twitch (URL)</th>
+            <th>Photo (URL)</th>
+            <th>Écurie</th>
+            <th class="col-actions">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        <!-- Ligne d'ajout -->
+        <tr class="row-add" data-mode="create">
+            <td><input type="text" id="pilot-name-new" placeholder="ENSURI" autocomplete="off"></td>
+            <td><input type="text" id="pilot-tag-new" placeholder="ENS" maxlength="6" autocomplete="off"></td>
+            <td><input type="text" id="pilot-num-new" placeholder="00 à 99" maxlength="2" inputmode="numeric" autocomplete="off"></td>
+            <td>
+                <select id="pilot-game-new">
+                <option value="MK8">MK8</option>
+                <option value="MKW">MKW</option>
+                </select>
+            </td>
+            <td class="cell-center">
+                <label class="switch">
+                <input type="checkbox" id="pilot-streamer-new">
+                <span aria-hidden="true"></span>
+                </label>
+            </td>
+            <td>
+                <input type="text" id="pilot-twitch-new" placeholder="EnsuriLive" autocomplete="off">
+            </td>
+            <td>
+                <input type="text" id="pilot-photo-new" placeholder="ex: pilots/ENS.png" autocomplete="off">
+            </td>
+            <td>
+                <!-- Liste des équipes alimentée par JS -->
+                <select id="pilot-team-new">
+                <option value="">—</option>
+                </select>
+            </td>
+            <td class="cell-actions">
+                <button class="btn icon success" id="pilot-add-btn" title="Ajouter le pilote" aria-label="Ajouter">+</button>
+            </td>
+        </tr>
+
+        <!-- Lignes existantes rendues par JS -->
+    </tbody>
+</table>
+                <p id="pilots-help" class="table-help">La première ligne sert à créer un pilote. Les champs non renseignés peuvent être complétés plus tard.</p>
+            </div>
+        </section>
+    </main>
+
+
+    <!-- Auth guard -->
+    <script type="module" src="./js/firebase-config.js"></script>
+    <script type="module" src="./js/admin-auth.js"></script>
+    <script type="module" src="./js/admin.js"></script>
+</body>
+</html>

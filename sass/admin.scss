@@ -1,0 +1,394 @@
+body {
+    font-family: 'Poppins', sans-serif;
+    background: #0c0616;
+    color: #fff;
+    margin: 0;
+}
+
+.admin-header {
+    background: linear-gradient(90deg, #111, #1a1a1a);
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+
+    h1 {
+        font-size: 1.4rem;
+        color: #fff;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    nav {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+
+        a.btn-link,
+        button {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 0.95rem;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s ease, color 0.2s ease;
+            text-decoration: none;
+
+            &:hover {
+                background: rgba(255, 255, 255, 0.1);
+            }
+        }
+
+        .logout-btn {
+            background: #d9534f;
+            color: #fff;
+            font-weight: 600;
+
+            &:hover {
+                background: #c9302c;
+            }
+        }
+    }
+}
+
+
+.admin-main {
+    padding: 1.5rem;
+    background: #121212;
+    color: #fff;
+    font-family: 'Poppins', sans-serif;
+}
+
+.admin-section {
+    margin-bottom: 3rem;
+
+    h2 {
+        font-size: 1.6rem;
+        margin-bottom: 1rem;
+        color: #ffd54f;
+        border-bottom: 2px solid rgba(255,255,255,0.1);
+        padding-bottom: 0.4rem;
+    }
+}
+
+.table-wrap {
+    overflow-x: auto;
+    background: rgba(255,255,255,0.03);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+}
+.points-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: .5rem;
+    margin-bottom: .5rem;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 900px;
+    table-layout: auto;
+
+    th, td {
+        height: 41px; 
+        font-size: 0.85rem;
+        text-align: center;
+        vertical-align: middle;
+        padding: 4px 6px;
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    th {
+        background: rgba(255,255,255,0.05);
+        font-weight: 600;
+        color: #f5f5f5;
+    }
+
+    tr {
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    tr.row-add {
+        background: rgba(255,255,255,0.03);
+    }
+
+    td input,
+    td select {
+        height: 28px;
+        width: 100%;
+        padding: 2px 6px;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.15);
+        background: rgba(0,0,0,0.4);
+        color: #fff;
+        font-size: 0.85rem;
+
+        &:focus {
+            outline: 1px solid #ffd54f;
+            border-color: #ffd54f;
+        }
+    }
+
+    .cell-actions {
+        white-space: nowrap;
+        text-align: center;
+    }
+
+    .cell-center {
+        text-align: center;
+    }
+
+    .col-actions {
+        width: 80px;
+        text-align: center;
+    }
+}
+/* ===== Largeurs colonnes — TABLE ÉCURIES ===== */
+#teams-table {
+    /* Nom | Tag | Couleur1 | Couleur2 | Logo | Actions */
+    th:nth-child(1), td:nth-child(1) { width: auto; }    /* Nom: prend l'espace restant */
+    th:nth-child(2), td:nth-child(2) { width: 80px; }    /* Tag compact */
+    th:nth-child(3), td:nth-child(3) { width: 120px; }   /* Couleur 1 (pill) */
+    th:nth-child(4), td:nth-child(4) { width: 120px; }   /* Couleur 2 (pill) */
+    th:nth-child(5), td:nth-child(5) { width: 150px; }    /* Logo */
+    th:nth-child(6), td:nth-child(6) { width: 90px; }    /* Actions */
+}
+/* ===== Largeurs colonnes — TABLE PILOTES ===== */
+#pilots-table {
+    /* Nom | Tag | Numéro | Jeu | Streamer | Twitch | Photo | Écurie | Actions */
+    th:nth-child(1), td:nth-child(1) { width: auto; }    /* Nom: flexible */
+    th:nth-child(2), td:nth-child(2) { width: 80px; }    /* Tag compact */
+    th:nth-child(3), td:nth-child(3) { width: 80px; }    /* Numéro */
+    th:nth-child(4), td:nth-child(4) { width: 70px; }    /* Jeu (select court) */
+    th:nth-child(5), td:nth-child(5) { width: 70px; }    /* Streamer (switch) */
+    th:nth-child(6), td:nth-child(6) { width: 180px; }   /* Twitch (lien/pseudo) */
+    th:nth-child(7), td:nth-child(7) { width: 150px; }    /* Photo (vignette) */
+    th:nth-child(8), td:nth-child(8) { width: 230px; }   /* Écurie (logo+tag) */
+    th:nth-child(9), td:nth-child(9) { width: 90px; }    /* Actions */
+}
+/* Lien Twitch affiché comme pseudo, discret mais visible */
+a.twitch-link {
+    color: #cda9ff;          /* légèrement violacé pour rappeler Twitch */
+    text-decoration: none;
+    font-weight: 600;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+/* Puce équipe: logo + tag alignés */
+.team-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+
+    img {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+        display: inline-block;
+        vertical-align: middle;
+    }
+    .team-tag {
+        font-weight: 700;
+        letter-spacing: 0.3px;
+    }
+}
+/* ==========================
+   Tables matrices de points
+   ========================== */
+#points-section {
+    .admin-table {
+        min-width: 400px;
+
+        th, td {
+            text-align: center;
+            vertical-align: middle;
+            height: 41px;
+            padding: 4px 6px;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.05);
+            font-weight: 600;
+        }
+
+        tbody tr {
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        td input {
+            width: 80%;
+            max-width: 70px;
+            text-align: center;
+            height: 28px;
+            padding: 2px 6px;
+        }
+    }
+
+    /* Colonne classement : réduite */
+    #points-mk8-table th:first-child,
+    #points-mk8-table td:first-child,
+    #points-mkw-table th:first-child,
+    #points-mkw-table td:first-child {
+        width: 90px;
+    }
+
+    /* Colonne actions compactes */
+    .col-actions {
+        width: 80px;
+    }
+
+    /* Boutons reset au-dessus des tables */
+    .table-header-actions {
+        margin-bottom: 0.5rem;
+
+        button {
+            font-size: 0.8rem;
+            padding: 0.3rem 0.8rem;
+            border-radius: 4px;
+        }
+    }
+    
+    .table-wrap {
+        overflow-x: hidden; /* masque toute barre horizontale */
+    }
+
+    #points-grid-table {
+        table-layout: fixed; /* colonnes à largeur fixe */
+        width: 100%;
+
+        /* 1re colonne (label de ligne) large, colonnes 1..24 étroites */
+        th:first-child, td:first-child {
+        width: 160px; /* libellé: MK8 course, etc. */
+        text-align: left;
+        padding-left: 10px;
+        }
+
+        /* colonnes rangs 1..24 : étroites */
+        th:not(:first-child), td:not(:first-child) {
+        width: 40px;        /* 25 colonnes ≈ 180 + (24*44) = 1 236px (+ paddings) => ok pour 1440 */
+        padding: 4px 4px;   /* compact */
+        font-size: 0.8rem;  /* texte plus fin */
+        }
+
+        /* inputs en édition : compacts et centrés */
+        td input[type="number"] {
+        width: 44px;
+        max-width: 44px;
+        text-align: center;
+        height: 26px;
+        padding: 0;
+        margin: 0 auto;
+        font-size: 0.85rem;
+        }
+    }
+}
+
+/* Boutons icônes */
+.btn.icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 4px;
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.2s;
+
+    &.success { background: #4caf50; }
+    &.danger { background: #f44336; }
+    &.warning { background: #ff9800; }
+
+    &:hover { opacity: 0.8; }
+}
+
+/* Switch toggle (streamer) */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 18px;
+
+    input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    span {
+        position: absolute;
+        cursor: pointer;
+        top: 0; left: 0;
+        right: 0; bottom: 0;
+        background-color: #ccc;
+        transition: .4s;
+        border-radius: 18px;
+
+        &:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 2px;
+            bottom: 2px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+    }
+
+    input:checked + span {
+        background-color: #4caf50;
+    }
+
+    input:checked + span:before {
+        transform: translateX(18px);
+    }
+}
+
+.table-help {
+    font-size: 0.85rem;
+    color: rgba(255,255,255,0.6);
+    margin-top: 0.4rem;
+}
+
+/* admin.scss — vignettes logo dans le tableau Écuries */
+.logo-thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: contain;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+}
+
+/* Ajustement spécifique colonne logo */
+#teams-table td:nth-child(5) {
+    text-align: center;
+}
+/* “Pill” pour afficher les codes couleurs (le fond ne couvre pas toute la cellule) */
+.color-badge {
+    display: inline-block;
+    padding: 8px 30px;         /* haut/bas très faible, côtés plus longs */
+    border-radius: 6px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    line-height: 1.2;          /* garde un petit volume sans dépasser 40px */
+    margin: 0 8px;             /* déborde un peu sur les côtés visuellement */
+    /* la couleur de texte et de fond seront posées en inline-style via JS */
+}

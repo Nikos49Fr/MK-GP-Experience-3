@@ -1,0 +1,279 @@
+@charset "UTF-8";
+/* Variables couleurs d’équipe via CSS custom properties (fallback inclus) */
+.team-card {
+  --c1:#bdbdbd;
+  --c2:#e0e0e0;
+}
+
+.team-card[data-team=MMM] {
+  --c1:#f6b87f;
+  --c2:#fccc88;
+}
+
+.team-card[data-team=LLM] {
+  --c1:#9adaff;
+  --c2:#8ad4ff;
+}
+
+.team-card[data-team=GOC] {
+  --c1:#f27777;
+  --c2:#ff9c9c;
+}
+
+.team-card[data-team=EC4] {
+  --c1:#ffeeab;
+  --c2:#ffe57b;
+}
+
+.team-card[data-team=AQJ] {
+  --c1:#cbf7ff;
+  --c2:#dbf2ff;
+}
+
+.team-card[data-team=HYC] {
+  --c1:#75efb4;
+  --c2:#b7f39d;
+}
+
+body {
+  background-color: #0c0616;
+  color: #fff;
+  max-width: 1440px;
+  min-width: 468px;
+  margin: 0 auto;
+  padding: 0;
+  font-family: "Poppins", sans-serif;
+}
+
+.site-header {
+  text-align: center;
+  padding: 1rem;
+}
+.site-header h1 {
+  font-family: "Orbitron", sans-serif;
+  font-size: 2rem;
+}
+
+.quick-links {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+.quick-links .btn-link {
+  background: linear-gradient(135deg, #ff4747, #ff8c42);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: bold;
+  transition: transform 0.2s ease;
+}
+.quick-links .btn-link:hover {
+  background: #d63b3b;
+  transform: scale(1.05);
+}
+
+.admin-btn {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.teams-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2rem;
+  padding: 2rem;
+  margin-left: 20px;
+}
+@media (max-width: 1024px) {
+  .teams-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 768px) {
+  .teams-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Variables couleurs d’équipe via CSS custom properties (fallback inclus) */
+.team-card {
+  --c1:#bdbdbd;
+  --c2:#e0e0e0;
+}
+
+.team-card[data-team=MMM] {
+  --c1:#f6b87f;
+  --c2:#fccc88;
+}
+
+.team-card[data-team=LLM] {
+  --c1:#9adaff;
+  --c2:#8ad4ff;
+}
+
+.team-card[data-team=GOC] {
+  --c1:#f27777;
+  --c2:#ff9c9c;
+}
+
+.team-card[data-team=EC4] {
+  --c1:#bdbdbd;
+  --c2:#e0e0e0;
+}
+
+.team-card[data-team=AQJ] {
+  --c1:#cbf7ff;
+  --c2:#dbf2ff;
+}
+
+.team-card[data-team=HYC] {
+  --c1:#75efb4;
+  --c2:#b7f39d;
+}
+
+/* Card équipe (header conservé + stylé) */
+.team-card {
+  position: relative;
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1rem;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.team-header {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.team-header .team-tag {
+  font-family: "Orbitron", sans-serif;
+  font-size: 1.2rem;
+  background: rgba(0, 0, 0, 0.8);
+  color: var(--c2);
+  opacity: 0.9;
+  padding: 0.3rem 0.6rem;
+  border-radius: 0.5rem;
+}
+.team-header .team-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  border-radius: 14px;
+  background: radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c1) 20%, transparent), transparent);
+}
+.team-header .team-name {
+  flex: 1;
+  margin: 0;
+  font-family: "Orbitron", sans-serif;
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  text-align: right;
+  word-break: break-word;
+  color: var(--c1);
+}
+
+/* barre latérale de navigation */
+.team-nav {
+  position: fixed;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0.4rem;
+  border-radius: 1rem 0 0 1rem;
+  z-index: 1000;
+}
+.team-nav a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  transition: background 0.2s ease;
+}
+.team-nav a:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.team-nav a img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+}
+.team-nav a.nav-arrow {
+  font-size: 1.2rem;
+  color: #fff;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+/* Grille des 6 pilotes (2 rangées x 3 colonnes sur desktop) */
+.team-pilots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+  /*
+      @media (max-width: 768px) { grid-template-columns: repeat(2, 1fr); }
+      @media (max-width: 480px) { grid-template-columns: 1fr; }
+  */
+}
+
+/* Card pilote (cliquable) */
+a.pilot-card {
+  text-decoration: none;
+  color: inherit;
+}
+
+.pilot-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.pilot-card figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pilot-card .img-wrap {
+  aspect-ratio: 3/4; /* 540x720 */
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(60% 60% at 50% 35%, color-mix(in srgb, var(--c1) 28%, transparent), transparent 70%);
+}
+.pilot-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* respecte le PNG transparent */
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+}
+.pilot-card .pilot-name {
+  font-weight: 700;
+  padding: 0.5rem 0.6rem;
+  text-align: center;
+  font-family: "Poppins", sans-serif;
+  color: #fff;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c1) 35%, transparent), color-mix(in srgb, var(--c2) 25%, transparent));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.pilot-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 18px color-mix(in srgb, var(--c1) 25%, transparent);
+  border-color: color-mix(in srgb, var(--c1) 35%, rgba(255, 255, 255, 0.08));
+}/*# sourceMappingURL=main.css.map */

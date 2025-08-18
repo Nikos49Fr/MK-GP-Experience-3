@@ -1,34 +1,38 @@
 // js/admin-auth.js
+import { app } from "./firebase-config.js";
 import {
-    getAuth,
-    onAuthStateChanged,
-    signOut
+  getAuth, onAuthStateChanged, signOut
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
-const ALLOWED_EMAILS = ["nicolas4980@gmail.com"]; // ajouter d'autres emails plus tard
+// Ajoute ici les e-mails autorisés à accéder à l'admin
+const ALLOWED_EMAILS = ["nicolas4980@gmail.com"];
 
-const auth = getAuth(); // l'app Firebase est déjà initialisée par firebase-config.js
+const auth = getAuth(app);
+
+// Garde l'admin fermé tant qu'on ne sait pas si l'utilisateur est ok
+document.documentElement.classList.remove("is-admin");
 
 onAuthStateChanged(auth, (user) => {
-    const allowed = !!user && ALLOWED_EMAILS.includes(user.email);
+  const allowed = !!user && ALLOWED_EMAILS.includes(user.email);
 
-    if (!allowed) {
-        // Pas connecté ou pas autorisé → retour à l'accueil
-        window.location.href = "index.html";
-        return;
-    }
+  if (!allowed) {
+    // Non connecté OU non autorisé → retour à l'accueil
+    window.location.replace("index.html");
+    return;
+  }
 
-    // Optionnel: si un bouton Logout est présent dans l'admin, on l'active
-    const logoutBtn = document.getElementById("logout-btn");
-    if (logoutBtn) {
-        logoutBtn.hidden = false;
-        logoutBtn.textContent = "Logout";
-        logoutBtn.addEventListener("click", async () => {
-            await signOut(auth);
-            window.location.href = "index.html";
-        });
-    }
+  // OK admin
+  document.documentElement.classList.add("is-admin");
 
-    // Tu peux aussi marquer le DOM (utile pour du style conditionnel)
-    document.documentElement.classList.add("is-admin");
+  // Bouton logout si présent
+  const logoutBtn = document.getElementById("logout-btn");
+  if (logoutBtn) {
+    logoutBtn.hidden = false;
+    logoutBtn.textContent = "Logout";
+    logoutBtn.onclick = async () => {
+      try { await signOut(auth); } finally {
+        window.location.replace("index.html");
+      }
+    };
+  }
 });

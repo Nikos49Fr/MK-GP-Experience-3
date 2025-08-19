@@ -10,11 +10,6 @@ import {
 const IMG_PREFIX = "./assets/images/";
 const TWITCH_PREFIX = "https://twitch.tv/";
 
-const el = (sel, root = document) => root.querySelector(sel);
-const els = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-
-const byId = (id) => document.getElementById(id);
-
 function ensureImagePath(path) {
     if (!path) return "";
     const trimmed = path.trim();
@@ -49,13 +44,6 @@ function textCell(text = "") {
     const td = document.createElement("td");
     td.textContent = text ?? "";
     return td;
-}
-function actionBtn(label, className, title) {
-    const b = document.createElement("button");
-    b.className = `btn icon ${className}`;
-    b.textContent = label;
-    if (title) b.title = title;
-    return b;
 }
 // --- Icons (SVG inline) ---
 function iconSvg(name) {
@@ -759,16 +747,6 @@ function enterEditPilotRow(tr, p) {
 }
 
 /* ----------------------- CRUD ----------------------- */
-
-async function resetMK8() {
-    if (!confirm("Remettre le barème par défaut pour MK8 ?")) return;
-    await setDoc(doc(dbFirestore, "points", "mk8"), DEFAULT_MK8, { merge: false });
-}
-
-async function resetMKW() {
-    if (!confirm("Remettre le barème par défaut pour MKW ?")) return;
-    await setDoc(doc(dbFirestore, "points", "mkw"), DEFAULT_MKW, { merge: false });
-}
 
 // Add team
 async function addTeam() {

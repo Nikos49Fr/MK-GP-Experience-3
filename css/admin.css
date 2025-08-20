@@ -138,36 +138,44 @@ body {
   text-align: center;
 }
 
-/* Table écuries */
-#teams-table { /* Nom */
+/* Table écuries (avec colonne Ordre en 1) */
+#teams-table { /* Ordre */
+  /* Nom */
   /* Tag */
   /* Secrète */
-  /* Couleurs 1 et 2*/
+  /* Couleur 1 */
+  /* Couleur 2 */
   /* Logo */
   /* Actions */
 }
 #teams-table th:nth-child(1), #teams-table td:nth-child(1) {
-  width: 180px;
+  width: 60px;
 }
 #teams-table th:nth-child(2), #teams-table td:nth-child(2) {
-  width: 80px;
+  width: 180px;
 }
 #teams-table th:nth-child(3), #teams-table td:nth-child(3) {
+  width: 80px;
+}
+#teams-table th:nth-child(4), #teams-table td:nth-child(4) {
   width: 70px;
 }
-#teams-table th:nth-child(4), #teams-table td:nth-child(4),
 #teams-table th:nth-child(5), #teams-table td:nth-child(5) {
   width: 100px;
 }
 #teams-table th:nth-child(6), #teams-table td:nth-child(6) {
+  width: 100px;
+}
+#teams-table th:nth-child(7), #teams-table td:nth-child(7) {
   width: 140px;
 }
 #teams-table th.col-actions, #teams-table td.col-actions {
   width: 80px;
 }
 
-/* Table pilotes */
-#pilots-table { /* Nom */
+/* Table pilotes (avec colonne Ordre en 1) */
+#pilots-table { /* Ordre */
+  /* Nom */
   /* Tag */
   /* Numéro */
   /* Jeu */
@@ -180,33 +188,36 @@ body {
   /* Actions */
 }
 #pilots-table th:nth-child(1), #pilots-table td:nth-child(1) {
-  width: 160px;
+  width: 60px;
 }
 #pilots-table th:nth-child(2), #pilots-table td:nth-child(2) {
-  width: 70px;
+  width: 160px;
 }
 #pilots-table th:nth-child(3), #pilots-table td:nth-child(3) {
-  width: 60px;
+  width: 70px;
 }
 #pilots-table th:nth-child(4), #pilots-table td:nth-child(4) {
   width: 60px;
 }
 #pilots-table th:nth-child(5), #pilots-table td:nth-child(5) {
-  width: 80px;
+  width: 60px;
 }
 #pilots-table th:nth-child(6), #pilots-table td:nth-child(6) {
-  width: 160px;
+  width: 80px;
 }
 #pilots-table th:nth-child(7), #pilots-table td:nth-child(7) {
   width: 160px;
 }
 #pilots-table th:nth-child(8), #pilots-table td:nth-child(8) {
-  width: 140px;
+  width: 160px;
 }
 #pilots-table th:nth-child(9), #pilots-table td:nth-child(9) {
   width: 140px;
 }
 #pilots-table th:nth-child(10), #pilots-table td:nth-child(10) {
+  width: 140px;
+}
+#pilots-table th:nth-child(11), #pilots-table td:nth-child(11) {
   width: 160px;
 }
 #pilots-table th.col-actions, #pilots-table td.col-actions {

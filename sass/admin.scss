@@ -150,30 +150,32 @@ body {
         text-align: center;
     }
 }
-/* Table écuries */
+/* Table écuries (avec colonne Ordre en 1) */
 #teams-table {
-    th:nth-child(1), td:nth-child(1) { width: 180px; } /* Nom */
-    th:nth-child(2), td:nth-child(2) { width: 80px; }  /* Tag */
-    th:nth-child(3), td:nth-child(3) { width: 70px; }  /* Secrète */
-    th:nth-child(4), td:nth-child(4),
-    th:nth-child(5), td:nth-child(5) { width: 100px; } /* Couleurs 1 et 2*/
-    th:nth-child(6), td:nth-child(6) { width: 140px; }  /* Logo */
-    th.col-actions, td.col-actions   { width: 80px; }  /* Actions */
+    th:nth-child(1), td:nth-child(1) { width: 60px;  }  /* Ordre */
+    th:nth-child(2), td:nth-child(2) { width: 180px; }  /* Nom */
+    th:nth-child(3), td:nth-child(3) { width: 80px;  }  /* Tag */
+    th:nth-child(4), td:nth-child(4) { width: 70px;  }  /* Secrète */
+    th:nth-child(5), td:nth-child(5) { width: 100px; }  /* Couleur 1 */
+    th:nth-child(6), td:nth-child(6) { width: 100px; }  /* Couleur 2 */
+    th:nth-child(7), td:nth-child(7) { width: 140px; }  /* Logo */
+    th.col-actions, td.col-actions   { width: 80px;  }  /* Actions */
 }
 
-/* Table pilotes */
+/* Table pilotes (avec colonne Ordre en 1) */
 #pilots-table {
-    th:nth-child(1), td:nth-child(1) { width: 160px; } /* Nom */
-    th:nth-child(2), td:nth-child(2) { width: 70px; }  /* Tag */
-    th:nth-child(3), td:nth-child(3) { width: 60px; }  /* Numéro */
-    th:nth-child(4), td:nth-child(4) { width: 60px; }  /* Jeu */
-    th:nth-child(5), td:nth-child(5) { width: 80px; }  /* Streamer */
-    th:nth-child(6), td:nth-child(6) { width: 160px; } /* Twitch */
-    th:nth-child(7), td:nth-child(7) { width: 160px; } /* Photo */
-    th:nth-child(8), td:nth-child(8) { width: 140px; } /* Écurie */
-    th:nth-child(9), td:nth-child(9) { width: 140px; } /* Écurie secrète */
-    th:nth-child(10), td:nth-child(10) { width: 160px; } /* Mode traître */
-    th.col-actions, td.col-actions   { width: 80px; }   /* Actions */
+    th:nth-child(1),  td:nth-child(1)  { width: 60px;  }  /* Ordre */
+    th:nth-child(2),  td:nth-child(2)  { width: 160px; }  /* Nom */
+    th:nth-child(3),  td:nth-child(3)  { width: 70px;  }  /* Tag */
+    th:nth-child(4),  td:nth-child(4)  { width: 60px;  }  /* Numéro */
+    th:nth-child(5),  td:nth-child(5)  { width: 60px;  }  /* Jeu */
+    th:nth-child(6),  td:nth-child(6)  { width: 80px;  }  /* Streamer */
+    th:nth-child(7),  td:nth-child(7)  { width: 160px; }  /* Twitch */
+    th:nth-child(8),  td:nth-child(8)  { width: 160px; }  /* Photo */
+    th:nth-child(9),  td:nth-child(9)  { width: 140px; }  /* Écurie */
+    th:nth-child(10), td:nth-child(10) { width: 140px; }  /* Écurie secrète */
+    th:nth-child(11), td:nth-child(11) { width: 160px; }  /* Mode traître */
+    th.col-actions,   td.col-actions   { width: 80px;  }  /* Actions */
 }
 /* Lien Twitch affiché comme pseudo, discret mais visible */
 a.twitch-link {

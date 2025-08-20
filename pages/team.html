@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Équipe — MK GP Experience 3</title>
+
+    <!-- CSS global + spécifique page équipe -->
+    <link rel="stylesheet" href="../css/main.css">
+    <link rel="stylesheet" href="../css/team.css">
+</head>
+<body>
+
+    <!-- Ancre haut de page (pour la nav latérale si besoin) -->
+    <div id="top"></div>
+
+    <!-- Barre supérieure : retour + zone contextuelle (tournoi / course / flash info) + puce équipe -->
+    <header class="team-topbar">
+        <nav class="topbar-left">
+            <a href="../index.html" class="btn-back" aria-label="Retour">← Retour</a>
+            <div class="context">
+                <span id="ctx-game" class="pill">—</span>
+                <span id="ctx-race" class="pill">Course —</span>
+            </div>
+        </nav>
+
+        <div class="topbar-right">
+            <div id="flash-ticker" class="flash-ticker" aria-live="polite" aria-atomic="true">
+                <!-- messages flash info (RTDB) -->
+            </div>
+
+            <!-- puce équipe (logo + tag) -->
+            <div id="team-chip" class="team-chip">
+                <img id="team-logo" src="" alt="" />
+                <span id="team-tag">—</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- En-tête équipe (nom + couleurs) -->
+    <section class="team-header-band">
+        <h1 id="team-name">Nom de l’équipe</h1>
+    </section>
+
+    <!-- Grille pilotes : chaque pilote = card + sélecteur classement -->
+    <main class="team-main">
+        <section id="pilots-grid" class="pilots-grid" aria-label="Pilotes de l’équipe">
+            <!-- rempli dynamiquement par JS -->
+        </section>
+    </main>
+
+    <!-- Ancre bas de page -->
+    <div id="bottom"></div>
+
+    <!-- Scripts (ajoutés plus tard) -->
+    <script type="module" src="../js/firebase-config.js"></script>
+    <script type="module" src="../js/team.js"></script>
+</body>
+</html>

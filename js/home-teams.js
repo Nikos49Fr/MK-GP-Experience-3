@@ -26,68 +26,139 @@ function h(tag, attrs = {}, ...children) {
 function safeIdFromTag(tag) {
   return `team-${String(tag || "").toLowerCase()}`;
 }
+function ensureAnchor(id) {
+    if (!document.getElementById(id)) {
+        const marker = document.createElement("div");
+        marker.id = id;
+        // top: au tout début du body, bottom: à la fin
+        if (id === "top") {
+            document.body.prepend(marker);
+        } else {
+            document.body.appendChild(marker);
+        }
+    }
+}
+
+function buildTeamNav(teams) {
+    const nav = document.getElementById("team-nav");
+    if (!nav) return;
+
+    // Assure l'existence des ancres #top / #bottom
+    ensureAnchor("top");
+    ensureAnchor("bottom");
+
+    nav.innerHTML = "";
+
+    // Flèche haut
+    const up = document.createElement("a");
+    up.href = "#top";
+    up.className = "nav-arrow up";
+    up.textContent = "▲";
+    nav.appendChild(up);
+
+    // Équipes visibles (on suppose triées par Firestore 'order' + filtrées isSecret=false dans loadData)
+    teams.forEach(t => {
+        const a = document.createElement("a");
+        a.href = `#${safeIdFromTag(t.tag)}`;
+
+        const img = document.createElement("img");
+        img.src = (t.urlLogo || "").replace(/^\.\//, "");
+        img.alt = t.tag || t.name || "TEAM";
+
+        a.appendChild(img);
+        nav.appendChild(a);
+    });
+
+    // Flèche bas
+    const down = document.createElement("a");
+    down.href = "#bottom";
+    down.className = "nav-arrow down";
+    down.textContent = "▼";
+    nav.appendChild(down);
+
+    // Scroll doux
+    nav.querySelectorAll('a[href^="#"]').forEach(link => {
+        link.addEventListener("click", (e) => {
+            const hash = link.getAttribute("href");
+            if (!hash || hash === "#") return;
+            const id = hash.slice(1);
+            const target = document.getElementById(id);
+            if (!target) return;
+            e.preventDefault();
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+    });
+}
 
 /* --------- rendu team card (structure exacte demandée) --------- */
 function renderTeamCard(team, pilots) {
-  // Pilotes de l’écurie (affichés tels quels, triés par tag)
-  const teamPilots = pilots
-    .filter(p => (p.teamName || "") === team.name)
-    .sort((a, b) => (a.tag || "").localeCompare(b.tag || ""));
+    // Pilotes de l’écurie (pas de tri additionnel ici)
+    const teamPilots = pilots.filter(p => (p.teamName || "") === team.name);
 
-  const header = h("header", { class: "team-header" },
-    h("span", { class: "team-tag" }, team.tag || ""),
-    h("img", {
-      class: "team-logo",
-      src: (team.urlLogo || "").replace(/^\.\//, ""),
-      alt: team.name || ""
-    }),
-    h("h2", { class: "team-name" }, team.name || "")
-  );
+    const header = h("header", { class: "team-header" },
+        h("img", {
+            class: "team-logo",
+            src: (team.urlLogo || "").replace(/^\.\//, ""),
+            alt: team.name || ""
+        }),
+        h("h2", { class: "team-name" }, team.name || ""),
+        h("span", { class: "team-tag" }, team.tag || "")
+    );
 
-  const pilotsGrid = h("div", { class: "team-pilots" },
-    teamPilots.map(p =>
-      h("a", {
-        class: "pilot-card",
-        href: `pilot.html?id=${encodeURIComponent(p.tag || "")}`,
-        "data-pilot": p.tag || ""
-      },
-        h("figure", null,
-          h("div", { class: "img-wrap" },
-            h("img", {
-              src: (p.urlPhoto || "").replace(/^\.\//, ""),
-              alt: p.name || p.tag || "Nom Pilote"
-            })
-          ),
-          h("figcaption", { class: "pilot-name" }, p.name || p.tag || "")
+    const pilotsGrid = h("div", { class: "team-pilots" },
+        teamPilots.map(p =>
+            h("div", {                         // ← plus de lien ici
+                class: "pilot-card",
+                "data-pilot": p.tag || ""
+            },
+                h("figure", null,
+                    h("div", { class: "img-wrap" },
+                        h("span", { class: "pilot-num" },
+                            (p.num ?? "").toString().padStart(2, "0")
+                        ),
+                        h("img", {
+                            src: (p.urlPhoto || "").replace(/^\.\//, ""),
+                            alt: p.name || p.tag || "Nom Pilote"
+                        })
+                    ),
+                    h("figcaption", { class: "pilot-name" }, p.name || p.tag || "")
+                )
+            )
         )
-      )
-    )
-  );
+    );
 
-  const section = h("section", {
-    id: safeIdFromTag(team.tag),
-    class: "team-card",
-    "data-team": team.tag || ""
-  }, header, pilotsGrid);
+    // La card entière devient un lien vers la page équipe
+    const section = h("a", {
+        id: safeIdFromTag(team.tag),
+        class: "team-card",
+        "data-team": team.tag || "",
+        href: `team.html?id=${encodeURIComponent(team.tag || "")}`
+    }, header, pilotsGrid);
 
-  return section;
+    return section;
 }
 
 /* --------- chargement Firestore --------- */
 async function loadData() {
-  // Équipes visibles (on ignore les secrètes ici)
-  const tq = query(collection(dbFirestore, "teams"), orderBy("tag"));
-  const tsnap = await getDocs(tq);
-  const teams = tsnap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(t => !t.isSecret);
+    // Équipes visibles — tri Firestore par 'order'
+    const tq = query(
+        collection(dbFirestore, "teams"),
+        orderBy("order")
+    );
+    const tsnap = await getDocs(tq);
+    const teams = tsnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(t => !t.isSecret);
 
-  // Pilotes
-  const pq = query(collection(dbFirestore, "pilots"), orderBy("tag"));
-  const psnap = await getDocs(pq);
-  const pilots = psnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // Pilotes — tri Firestore par 'order'
+    const pq = query(
+        collection(dbFirestore, "pilots"),
+        orderBy("order")
+    );
+    const psnap = await getDocs(pq);
+    const pilots = psnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-  return { teams, pilots };
+    return { teams, pilots };
 }
 
 /* --------- init --------- */
@@ -105,6 +176,7 @@ async function loadData() {
     teams.forEach(team => {
       grid.appendChild(renderTeamCard(team, pilots));
     });
+    buildTeamNav(teams);
   } catch (err) {
     console.error("[home] Erreur chargement équipes/pilotes:", err);
     grid.innerHTML = `<p style="opacity:.7">Impossible de charger les équipes pour le moment.</p>`;

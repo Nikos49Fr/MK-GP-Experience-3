@@ -350,32 +350,35 @@ let isPointsEdit = false; // mode édition global pour la grille des points
 
 /* ----------------------- DOM refs (helpers) ----------------------- */
 
+// --- ADD ROW INPUTS ----
 function getTeamAddInputs() {
-    return {
-        name:   document.getElementById("team-name-new"),
-        tag:    document.getElementById("team-tag-new"),
-        secret:  document.getElementById("team-secret-new"),
-        color1: document.getElementById("team-color1-new"),
-        color2: document.getElementById("team-color2-new"),
-        logo:   document.getElementById("team-logo-new"),
-        addBtn: document.getElementById("team-add-btn")
-    };
+  return {
+    order:  document.getElementById("team-order-new"),
+    name:   document.getElementById("team-name-new"),
+    tag:    document.getElementById("team-tag-new"),
+    secret: document.getElementById("team-secret-new"),
+    color1: document.getElementById("team-color1-new"),
+    color2: document.getElementById("team-color2-new"),
+    logo:   document.getElementById("team-logo-new"),
+    addBtn: document.getElementById("team-add-btn")
+  };
 }
 
 function getPilotAddInputs() {
-    return {
-        name:     document.getElementById("pilot-name-new"),
-        tag:      document.getElementById("pilot-tag-new"),
-        num:      document.getElementById("pilot-num-new"),
-        game:     document.getElementById("pilot-game-new"),
-        streamer: document.getElementById("pilot-streamer-new"),
-        twitch:   document.getElementById("pilot-twitch-new"),
-        photo:    document.getElementById("pilot-photo-new"),
-        team:     document.getElementById("pilot-team-new"),
-        secretTeam:  document.getElementById("pilot-secret-team-new"),
-        traitorMode: document.getElementById("pilot-traitor-mode-new"),
-        addBtn:   document.getElementById("pilot-add-btn")
-    };
+  return {
+    order:      document.getElementById("pilot-order-new"),
+    name:       document.getElementById("pilot-name-new"),
+    tag:        document.getElementById("pilot-tag-new"),
+    num:        document.getElementById("pilot-num-new"),
+    game:       document.getElementById("pilot-game-new"),
+    streamer:   document.getElementById("pilot-streamer-new"),
+    twitch:     document.getElementById("pilot-twitch-new"),
+    photo:      document.getElementById("pilot-photo-new"),
+    team:       document.getElementById("pilot-team-new"),
+    secretTeam: document.getElementById("pilot-secret-team-new"),
+    traitorMode:document.getElementById("pilot-traitor-mode-new"),
+    addBtn:     document.getElementById("pilot-add-btn")
+  };
 }
 
 /* ----------------------- Rendering ----------------------- */
@@ -545,57 +548,10 @@ function renderPilotAddRowTeamSelect() {
   fillTeamSelect(document.getElementById("pilot-secret-team-new"));
 }
 
+// --- RENDER TABLES ----
 function renderTeamsTable() {
-  const table = document.getElementById("teams-table");
-  if (!table) return;
-  const tbody = table.querySelector("tbody");
-  if (!tbody) return;
-
-  const addRow = tbody.querySelector("tr.row-add");
-  tbody.innerHTML = "";
-  if (addRow) tbody.appendChild(addRow);
-
-  teams
-    .slice()
-    .sort((a, b) => a.tag.localeCompare(b.tag))
-    .forEach(team => {
-      const tr = document.createElement("tr");
-      tr.dataset.id = team.id;
-
-      tr.appendChild(textCell(team.name));
-      tr.appendChild(textCell(team.tag));
-
-      // Secrète: Oui/Non
-      tr.appendChild(textCell(team.isSecret ? "Oui" : "Non"));
-
-      // Couleurs (pills)
-      tr.appendChild(colorCell(team.color1 || ""));
-      tr.appendChild(colorCell(team.color2 || ""));
-
-      // Logo
-      tr.appendChild(imageCell(team.urlLogo || "", `${team.tag || team.name || "team"} logo`, "logo-thumb"));
-
-      // Actions (icônes)
-      const actions = document.createElement("td");
-      actions.className = "cell-actions";
-      const editBtn = iconBtn("edit", "warning", "Modifier");
-      const delBtn  = iconBtn("delete", "danger", "Supprimer");
-      editBtn.addEventListener("click", () => enterEditTeamRow(tr, team));
-      delBtn.addEventListener("click", () => deleteTeam(team.id));
-      actions.appendChild(editBtn);
-      actions.appendChild(delBtn);
-      tr.appendChild(actions);
-
-      tbody.appendChild(tr);
-    });
-
-  renderPilotAddRowTeamSelect();
-}
-
-function renderPilotsTable() {
-    const table = document.getElementById("pilots-table");
+    const table = document.getElementById("teams-table");
     if (!table) return;
-
     const tbody = table.querySelector("tbody");
     if (!tbody) return;
 
@@ -603,10 +559,74 @@ function renderPilotsTable() {
     tbody.innerHTML = "";
     if (addRow) tbody.appendChild(addRow);
 
-    sortPilotsArray(pilots).forEach(p => {
+    teams.forEach(team => {
+        const tr = document.createElement("tr");
+        tr.dataset.id = team.id;
+
+        tr.appendChild(textCell(Number.isFinite(team.order) ? team.order : "")); // Ordre
+        tr.appendChild(textCell(team.name));
+        tr.appendChild(textCell(team.tag));
+        tr.appendChild(textCell(team.isSecret ? "Oui" : "Non"));
+        tr.appendChild(colorCell(team.color1 || ""));
+        tr.appendChild(colorCell(team.color2 || ""));
+        tr.appendChild(imageCell(team.urlLogo || "", `${team.tag || team.name || "team"} logo`, "logo-thumb"));
+
+        const actions = document.createElement("td");
+        actions.className = "cell-actions";
+        const editBtn = iconBtn("edit", "warning", "Modifier");
+        const delBtn  = iconBtn("delete", "danger", "Supprimer");
+        editBtn.addEventListener("click", () => enterEditTeamRow(tr, team));
+        delBtn.addEventListener("click", () => deleteTeam(team.id));
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        tr.appendChild(actions);
+
+        tbody.appendChild(tr);
+    });
+
+    renderPilotAddRowTeamSelect();
+}
+// --- Tri pilotes: par ordre d'écurie puis ordre pilote (fallback tag) ---
+function getTeamOrderMap() {
+    const map = {};
+    teams.forEach(t => {
+        map[t.name] = Number.isFinite(t.order) ? t.order : 9999;
+    });
+    return map;
+}
+
+function sortPilotsByTeamThenOrder(pilotsArr) {
+    const teamOrder = getTeamOrderMap();
+    return pilotsArr.slice().sort((a, b) => {
+        const ta = teamOrder[a.teamName] ?? 9999;
+        const tb = teamOrder[b.teamName] ?? 9999;
+        if (ta !== tb) return ta - tb;
+
+        const oa = a.order ?? 9999;
+        const ob = b.order ?? 9999;
+        if (oa !== ob) return oa - ob;
+
+        const at = (a.tag || "").toLowerCase();
+        const bt = (b.tag || "").toLowerCase();
+        return at < bt ? -1 : at > bt ? 1 : 0;
+    });
+}
+
+function renderPilotsTable() {
+    const table = document.getElementById("pilots-table");
+    if (!table) return;
+    const tbody = table.querySelector("tbody");
+    if (!tbody) return;
+
+    const addRow = tbody.querySelector("tr.row-add");
+    tbody.innerHTML = "";
+    if (addRow) tbody.appendChild(addRow);
+
+    sortPilotsByTeamThenOrder(pilots).forEach(p => {
         const tr = document.createElement("tr");
         tr.dataset.id = p.id;
 
+        tr.appendChild(textCell(Number.isFinite(p.order) ? p.order : "")); // Ordre
         tr.appendChild(textCell(p.name));
         tr.appendChild(textCell(p.tag));
         tr.appendChild(textCell(p.num || ""));
@@ -614,19 +634,14 @@ function renderPilotsTable() {
         tr.appendChild(textCell(p.streamer ? "Oui" : "Non"));
         tr.appendChild(twitchCell(p.urlTwitch || ""));
         tr.appendChild(imageCell(p.urlPhoto || "", `${p.tag || p.name || "pilot"} photo`, "logo-thumb"));
-
-        // Écurie primaire (logo + tag)
         tr.appendChild(teamChipCell(p.teamName || ""));
-        // Écurie secrète (logo + tag)
         tr.appendChild(teamChipCell(p.secretTeamName || ""));
 
-        // Mode traître
         const modeLabel = p.traitorMode === "double" ? "Double (MK8)"
                         : p.traitorMode === "transfer" ? "Transfert (MKW)"
                         : "";
         tr.appendChild(textCell(modeLabel));
 
-        // Actions (icônes)
         const actions = document.createElement("td");
         actions.className = "cell-actions";
         const editBtn = iconBtn("edit", "warning", "Modifier");
@@ -639,228 +654,238 @@ function renderPilotsTable() {
 
         tbody.appendChild(tr);
     });
-    updatePilotSortIndicators();
 }
 
 /* ----------------------- Edit rows ----------------------- */
 
 function enterEditTeamRow(tr, team) {
-    tr.innerHTML = ""; // reset
+  tr.innerHTML = "";
 
-    const nameTd = document.createElement("td");
-    const tagTd = document.createElement("td");
-    const secretTd = document.createElement("td");
-    const c1Td = document.createElement("td");
-    const c2Td = document.createElement("td");
-    const logoTd = document.createElement("td");
-    const actionsTd = document.createElement("td");
-    actionsTd.className = "cell-actions";
+  const orderTd = document.createElement("td");
+  const nameTd = document.createElement("td");
+  const tagTd = document.createElement("td");
+  const secretTd = document.createElement("td");
+  const c1Td = document.createElement("td");
+  const c2Td = document.createElement("td");
+  const logoTd = document.createElement("td");
+  const actionsTd = document.createElement("td");
+  actionsTd.className = "cell-actions";
 
-    const nameInput = document.createElement("input");
-    nameInput.value = team.name || "";
-    const tagInput = document.createElement("input");
-    tagInput.value = team.tag || "";
+  const orderInput = document.createElement("input");
+  orderInput.type = "number";
+  orderInput.min = "0";
+  orderInput.step = "1";
+  orderInput.value = Number.isFinite(team.order) ? team.order : "";
 
-    const secretSwitchWrap = document.createElement("label");
-    secretSwitchWrap.className = "switch";
-    const secretInput = document.createElement("input");
-    secretInput.type = "checkbox";
-    secretInput.checked = !!team.isSecret;
-    const secretSpan = document.createElement("span");
-    secretSwitchWrap.appendChild(secretInput);
-    secretSwitchWrap.appendChild(secretSpan);
+  const nameInput = document.createElement("input");
+  nameInput.value = team.name || "";
+  const tagInput = document.createElement("input");
+  tagInput.value = team.tag || "";
 
-    const c1Input = document.createElement("input");
-    c1Input.type = "text";
-    c1Input.value = team.color1 || "";
+  const secretSwitch = document.createElement("label");
+  secretSwitch.className = "switch";
+  const secretInput = document.createElement("input");
+  secretInput.type = "checkbox";
+  secretInput.checked = !!team.isSecret;
+  const secretSpan = document.createElement("span");
+  secretSwitch.appendChild(secretInput);
+  secretSwitch.appendChild(secretSpan);
 
-    const c2Input = document.createElement("input");
-    c2Input.type = "text";
-    c2Input.value = team.color2 || "";
+  const c1Input = document.createElement("input");
+  c1Input.type = "text";
+  c1Input.value = team.color1 || "";
 
-    const logoInput = document.createElement("input");
-    logoInput.type = "text";
-    logoInput.placeholder = "ex: teams/MMM.png";
-    logoInput.value = stripImagePrefix(team.urlLogo || "");
+  const c2Input = document.createElement("input");
+  c2Input.type = "text";
+  c2Input.value = team.color2 || "";
 
-    nameTd.appendChild(nameInput);
-    tagTd.appendChild(tagInput);
-    secretTd.appendChild(secretSwitchWrap);
-    c1Td.appendChild(c1Input);
-    c2Td.appendChild(c2Input);
-    logoTd.appendChild(logoInput);
+  const logoInput = document.createElement("input");
+  logoInput.type = "text";
+  logoInput.placeholder = "ex: teams/MMM.png";
+  logoInput.value = stripImagePrefix(team.urlLogo || "");
 
-    const saveBtn = iconBtn("save", "success", "Enregistrer");
-    const cancelBtn = iconBtn("cancel", "danger", "Annuler");
+  orderTd.appendChild(orderInput);
+  nameTd.appendChild(nameInput);
+  tagTd.appendChild(tagInput);
+  secretTd.appendChild(secretSwitch);
+  c1Td.appendChild(c1Input);
+  c2Td.appendChild(c2Input);
+  logoTd.appendChild(logoInput);
 
-    saveBtn.addEventListener("click", async () => {
-        const payload = {
-        name: nameInput.value.trim(),
-        tag: tagInput.value.trim(),
-        isSecret: !!secretInput.checked,
-        color1: c1Input.value.trim(),
-        color2: c2Input.value.trim(),
-        urlLogo: ensureImagePath(logoInput.value)
-        };
-        await updateDoc(doc(dbFirestore, "teams", team.id), payload);
-    });
+  const saveBtn = iconBtn("save", "success", "Enregistrer");
+  const cancelBtn = iconBtn("cancel", "danger", "Annuler");
+  saveBtn.addEventListener("click", async () => {
+    const ord = parseInt(orderInput.value || "", 10);
+    const payload = {
+      order: Number.isFinite(ord) ? ord : 9999,
+      name: nameInput.value.trim(),
+      tag: tagInput.value.trim(),
+      isSecret: !!secretInput.checked,
+      color1: c1Input.value.trim(),
+      color2: c2Input.value.trim(),
+      urlLogo: ensureImagePath(logoInput.value)
+    };
+    await updateDoc(doc(dbFirestore, "teams", team.id), payload);
+  });
+  cancelBtn.addEventListener("click", () => renderTeamsTable());
 
-    cancelBtn.addEventListener("click", () => renderTeamsTable());
+  actionsTd.appendChild(saveBtn);
+  actionsTd.appendChild(cancelBtn);
 
-    actionsTd.appendChild(saveBtn);
-    actionsTd.appendChild(cancelBtn);
-
-    tr.appendChild(nameTd);
-    tr.appendChild(tagTd);
-    tr.appendChild(secretTd);
-    tr.appendChild(c1Td);
-    tr.appendChild(c2Td);
-    tr.appendChild(logoTd);
-    tr.appendChild(actionsTd);
+  tr.appendChild(orderTd);
+  tr.appendChild(nameTd);
+  tr.appendChild(tagTd);
+  tr.appendChild(secretTd);
+  tr.appendChild(c1Td);
+  tr.appendChild(c2Td);
+  tr.appendChild(logoTd);
+  tr.appendChild(actionsTd);
 }
 
 function enterEditPilotRow(tr, p) {
-    tr.innerHTML = "";
+  tr.innerHTML = "";
 
-    // cells
-    const nameTd = document.createElement("td");
-    const tagTd = document.createElement("td");
-    const numTd = document.createElement("td");
-    const gameTd = document.createElement("td");
-    const streamerTd = document.createElement("td");
-    const twitchTd = document.createElement("td");
-    const photoTd = document.createElement("td");
-    const teamTd = document.createElement("td");
-    const secretTeamTd = document.createElement("td");
-    const traitorTd = document.createElement("td");
-    const actionsTd = document.createElement("td");
-    actionsTd.className = "cell-actions";
+  const orderTd = document.createElement("td");
+  const nameTd = document.createElement("td");
+  const tagTd = document.createElement("td");
+  const numTd = document.createElement("td");
+  const gameTd = document.createElement("td");
+  const streamerTd = document.createElement("td");
+  const twitchTd = document.createElement("td");
+  const photoTd = document.createElement("td");
+  const teamTd = document.createElement("td");
+  const secretTeamTd = document.createElement("td");
+  const traitorTd = document.createElement("td");
+  const actionsTd = document.createElement("td");
+  actionsTd.className = "cell-actions";
 
-    // inputs
-    const nameInput = document.createElement("input");
-    nameInput.value = p.name || "";
+  const orderInput = document.createElement("input");
+  orderInput.type = "number";
+  orderInput.min = "0";
+  orderInput.step = "1";
+  orderInput.value = Number.isFinite(p.order) ? p.order : "";
 
-    const tagInput = document.createElement("input");
-    tagInput.value = p.tag || "";
+  const nameInput = document.createElement("input");
+  nameInput.value = p.name || "";
+  const tagInput = document.createElement("input");
+  tagInput.value = p.tag || "";
 
-    const numInput = document.createElement("input");
-    numInput.value = p.num || "";
-    numInput.maxLength = 2;
+  const numInput = document.createElement("input");
+  numInput.value = p.num || "";
+  numInput.maxLength = 2;
 
-    const gameSelect = document.createElement("select");
-    ["MK8", "MKW"].forEach(val => {
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = val;
-        if (p.game === val) opt.selected = true;
-        gameSelect.appendChild(opt);
-    });
+  const gameSelect = document.createElement("select");
+  ["MK8", "MKW"].forEach(val => {
+    const opt = document.createElement("option");
+    opt.value = val; opt.textContent = val;
+    if (p.game === val) opt.selected = true;
+    gameSelect.appendChild(opt);
+  });
 
-    const streamerSelect = document.createElement("select");
-    [["true","Oui"],["false","Non"]].forEach(([val,label]) => {
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = label;
-        if ((p.streamer ? "true" : "false") === val) opt.selected = true;
-        streamerSelect.appendChild(opt);
-    });
+  const streamerSelect = document.createElement("select");
+  [["true","Oui"],["false","Non"]].forEach(([val,label]) => {
+    const opt = document.createElement("option");
+    opt.value = val; opt.textContent = label;
+    if ((p.streamer ? "true" : "false") === val) opt.selected = true;
+    streamerSelect.appendChild(opt);
+  });
 
-    const twitchInput = document.createElement("input");
-    twitchInput.placeholder = "Nom chaîne Twitch";
-    twitchInput.value = stripTwitchPrefix(p.urlTwitch || "");
+  const twitchInput = document.createElement("input");
+  twitchInput.placeholder = "Nom chaîne Twitch";
+  twitchInput.value = stripTwitchPrefix(p.urlTwitch || "");
 
-    const photoInput = document.createElement("input");
-    photoInput.placeholder = "ex: pilots/ENS.png";
-    photoInput.value = stripImagePrefix(p.urlPhoto || "");
+  const photoInput = document.createElement("input");
+  photoInput.placeholder = "ex: pilots/ENS.png";
+  photoInput.value = stripImagePrefix(p.urlPhoto || "");
 
-    const teamSelect = document.createElement("select");
-    fillTeamSelect(teamSelect);
-    if (p.teamName) teamSelect.value = p.teamName;
+  const teamSelect = document.createElement("select");
+  fillTeamSelect(teamSelect);
+  if (p.teamName) teamSelect.value = p.teamName;
 
-    const secretTeamSelect = document.createElement("select");
-    fillTeamSelect(secretTeamSelect);
-    if (p.secretTeamName) secretTeamSelect.value = p.secretTeamName;
+  const secretTeamSelect = document.createElement("select");
+  fillTeamSelect(secretTeamSelect);
+  if (p.secretTeamName) secretTeamSelect.value = p.secretTeamName;
 
-    const traitorSelect = document.createElement("select");
-    [["","—"],["double","Double (MK8)"],["transfer","Transfert (MKW)"]].forEach(([val,label]) => {
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = label;
-        if ((p.traitorMode || "") === val) opt.selected = true;
-        traitorSelect.appendChild(opt);
-    });
+  const traitorSelect = document.createElement("select");
+  [["","—"],["double","Double (MK8)"],["transfer","Transfert (MKW)"]].forEach(([val,label]) => {
+    const opt = document.createElement("option");
+    opt.value = val; opt.textContent = label;
+    if ((p.traitorMode || "") === val) opt.selected = true;
+    traitorSelect.appendChild(opt);
+  });
 
-    // mount
-    nameTd.appendChild(nameInput);
-    tagTd.appendChild(tagInput);
-    numTd.appendChild(numInput);
-    gameTd.appendChild(gameSelect);
-    streamerTd.appendChild(streamerSelect);
-    twitchTd.appendChild(twitchInput);
-    photoTd.appendChild(photoInput);
-    teamTd.appendChild(teamSelect);
-    secretTeamTd.appendChild(secretTeamSelect);
-    traitorTd.appendChild(traitorSelect);
+  orderTd.appendChild(orderInput);
+  nameTd.appendChild(nameInput);
+  tagTd.appendChild(tagInput);
+  numTd.appendChild(numInput);
+  gameTd.appendChild(gameSelect);
+  streamerTd.appendChild(streamerSelect);
+  twitchTd.appendChild(twitchInput);
+  photoTd.appendChild(photoInput);
+  teamTd.appendChild(teamSelect);
+  secretTeamTd.appendChild(secretTeamSelect);
+  traitorTd.appendChild(traitorSelect);
 
-    const saveBtn = iconBtn("save", "success", "Enregistrer");
-    const cancelBtn = iconBtn("cancel", "danger", "Annuler");
+  const saveBtn = iconBtn("save", "success", "Enregistrer");
+  const cancelBtn = iconBtn("cancel", "danger", "Annuler");
+  saveBtn.addEventListener("click", async () => {
+    const ord = parseInt(orderInput.value || "", 10);
+    const payload = {
+      order: Number.isFinite(ord) ? ord : 9999,
+      name: nameInput.value.trim(),
+      tag: tagInput.value.trim(),
+      num: twoDigits(numInput.value),
+      game: gameSelect.value,
+      streamer: streamerSelect.value === "true",
+      urlTwitch: ensureTwitchUrl(twitchInput.value),
+      urlPhoto: ensureImagePath(photoInput.value),
+      teamName: teamSelect.value || "",
+      secretTeamName: secretTeamSelect.value || "",
+      traitorMode: traitorSelect.value || ""
+    };
+    await updateDoc(doc(dbFirestore, "pilots", p.id), payload);
+  });
+  cancelBtn.addEventListener("click", () => renderPilotsTable());
 
-    saveBtn.addEventListener("click", async () => {
-        const payload = {
-        name: nameInput.value.trim(),
-        tag: tagInput.value.trim(),
-        num: twoDigits(numInput.value),
-        game: gameSelect.value,
-        streamer: streamerSelect.value === "true",
-        urlTwitch: ensureTwitchUrl(twitchInput.value),
-        urlPhoto: ensureImagePath(photoInput.value),
-        teamName: teamSelect.value || "",
-        secretTeamName: secretTeamSelect.value || "",
-        traitorMode: traitorSelect.value || ""
-        };
-        await updateDoc(doc(dbFirestore, "pilots", p.id), payload);
-    });
+  actionsTd.appendChild(saveBtn);
+  actionsTd.appendChild(cancelBtn);
 
-    cancelBtn.addEventListener("click", () => renderPilotsTable());
-
-    actionsTd.appendChild(saveBtn);
-    actionsTd.appendChild(cancelBtn);
-
-    tr.appendChild(nameTd);
-    tr.appendChild(tagTd);
-    tr.appendChild(numTd);
-    tr.appendChild(gameTd);
-    tr.appendChild(streamerTd);
-    tr.appendChild(twitchTd);
-    tr.appendChild(photoTd);
-    tr.appendChild(teamTd);
-    tr.appendChild(secretTeamTd);
-    tr.appendChild(traitorTd);
-    tr.appendChild(actionsTd);
+  tr.appendChild(orderTd);
+  tr.appendChild(nameTd);
+  tr.appendChild(tagTd);
+  tr.appendChild(numTd);
+  tr.appendChild(gameTd);
+  tr.appendChild(streamerTd);
+  tr.appendChild(twitchTd);
+  tr.appendChild(photoTd);
+  tr.appendChild(teamTd);
+  tr.appendChild(secretTeamTd);
+  tr.appendChild(traitorTd);
+  tr.appendChild(actionsTd);
 }
 
 /* ----------------------- CRUD ----------------------- */
 
-// Add team
+// --- ADD DOCS ----
 async function addTeam() {
   const $ = getTeamAddInputs();
-  if (!$.name || !$.tag || !$.color1 || !$.color2 || !$.logo || !$.secret) {
-    console.error("Ligne d'ajout (teams) introuvable ou IDs manquants.");
+  if (!$.order || !$.name || !$.tag || !$.color1 || !$.color2 || !$.logo || !$.secret) {
     alert("Impossible d'ajouter l'écurie : champs introuvables.");
     return;
   }
-
+  const ord = parseInt(($.order.value || "").toString(), 10);
   const payload = {
-    name:    ($.name.value || "").trim(),
-    tag:     ($.tag.value || "").trim(),
+    order: Number.isFinite(ord) ? ord : 9999,
+    name:   ($.name.value || "").trim(),
+    tag:    ($.tag.value || "").trim(),
     isSecret: !!($.secret && $.secret.checked),
-    color1:  ($.color1.value || "").trim(),
-    color2:  ($.color2.value || "").trim(),
+    color1: ($.color1.value || "").trim(),
+    color2: ($.color2.value || "").trim(),
     urlLogo: ensureImagePath($.logo.value || "")
   };
-
   try {
     await addDoc(collection(dbFirestore, "teams"), payload);
+    $.order.value = "";
     $.name.value = "";
     $.tag.value = "";
     $.secret.checked = false;
@@ -873,16 +898,15 @@ async function addTeam() {
   }
 }
 
-// Add pilot
 async function addPilot() {
   const $ = getPilotAddInputs();
-  if (!$.name || !$.tag || !$.num || !$.game || !$.streamer || !$.twitch || !$.photo || !$.team || !$.secretTeam || !$.traitorMode) {
-    console.error("Ligne d'ajout (pilots) introuvable ou IDs manquants.");
+  if (!$.order || !$.name || !$.tag || !$.num || !$.game || !$.streamer || !$.twitch || !$.photo || !$.team || !$.secretTeam || !$.traitorMode) {
     alert("Impossible d'ajouter le pilote : champs introuvables.");
     return;
   }
-
+  const ord = parseInt(($.order.value || "").toString(), 10);
   const payload = {
+    order: Number.isFinite(ord) ? ord : 9999,
     name: ($.name.value || "").trim(),
     tag: ($.tag.value || "").trim(),
     num: twoDigits($.num.value || ""),
@@ -892,16 +916,15 @@ async function addPilot() {
     urlPhoto: ensureImagePath($.photo.value || ""),
     teamName: $.team.value || "",
     secretTeamName: $.secretTeam.value || "",
-    traitorMode: ($.traitorMode.value || "").trim() // "", "double", "transfer"
+    traitorMode: ($.traitorMode.value || "").trim()
   };
-
   try {
     await addDoc(collection(dbFirestore, "pilots"), payload);
-    // reset
+    $.order.value = "";
     $.name.value = "";
     $.tag.value = "";
     $.num.value = "";
-    if ($.streamer) $.streamer.checked = false;
+    $.streamer.checked = false;
     $.twitch.value = "";
     $.photo.value = "";
     $.team.value = "";
@@ -960,7 +983,10 @@ function listenPoints() {
 }
 
 function listenTeams() {
-    const q = query(collection(dbFirestore, "teams"), orderBy("tag"));
+    const q = query(
+        collection(dbFirestore, "teams"),
+        orderBy("order")
+    );
     onSnapshot(q, (snap) => {
         teams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         renderTeamsTable();
@@ -970,10 +996,13 @@ function listenTeams() {
 }
 
 function listenPilots() {
-    const q = query(collection(dbFirestore, "pilots"), orderBy("tag"));
+    const q = query(
+        collection(dbFirestore, "pilots"),
+        orderBy("order") // tri natif par ordre de pilote
+    );
     onSnapshot(q, (snap) => {
         pilots = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderPilotsTable();
+        renderPilotsTable(); // notre render garde le tri par ordre d'écurie → ordre pilote
     }, (err) => {
         console.error("Erreur Firestore (pilots):", err);
     });

@@ -11,32 +11,30 @@
     <div id="top"></div>
 
     <header class="site-header">
-        <h1>Mario Kart Grand Prix Experience 3</h1>
+        <div class="banner">
+            <img src="assets/images/District_presente_redim.png" alt="Logo gauche">
+            <img src="assets/images/MK_Grand_Prix-Experience_redim.png" alt="Logo droite">
+        </div>
     </header>
 
     <nav class="quick-links">
-        <a href="#" class="btn-link">Overlay Scoreboard</a>
-        <a href="#" class="btn-link">Overlay Flash Info</a>
-
-        <!-- Liens admin/direction masqués par défaut, visibles si auth OK -->
-        <a href="admin.html" id="admin-link" class="btn-link" hidden>Admin</a>
-        <a href="direction.html" id="direction-link" class="btn-link" hidden>Direction de course</a>
-
-        <!-- Boutons auth -->
-        <button id="login-btn" class="btn-link">Login</button>
-        <button id="logout-btn" class="btn-link" hidden>Logout</button>
+        <a href="#" class="btn-link overlay">Overlay Scoreboard</a>
+        <a href="#" class="btn-link overlay">Overlay Flash Info</a>
     </nav>
 
-    <nav class="team-nav">
-        <a href="#top" class="nav-arrow up">▲</a>
-        <a href="#team-mmm"><img src="assets/images/team-1/logo.png" alt="MMM"></a>
-        <a href="#team-llm"><img src="assets/images/team-2/logo.png" alt="LLM"></a>
-        <a href="#team-goc"><img src="assets/images/team-3/logo.png" alt="GOC"></a>
-        <a href="#team-ec4"><img src="assets/images/team-4/logo.png" alt="EC4"></a>
-        <a href="#team-aqj"><img src="assets/images/team-5/logo.png" alt="AQJ"></a>
-        <a href="#team-hyc"><img src="assets/images/team-6/logo.png" alt="HYC"></a>
-        <a href="#bottom" class="nav-arrow down">▼</a>
+    <nav class="user-nav">
+        <div class="auth-buttons">
+            <button id="login-btn" class="btn-auth login">Login</button>
+            <button id="logout-btn" class="btn-auth logout" hidden>Logout</button>
+        </div>
+
+        <div class="admin-links">
+            <a href="direction.html" id="direction-link" class="btn-link" hidden>Direction de course</a>
+            <a href="admin.html" id="admin-link" class="btn-link" hidden>Administration</a>
+        </div>
     </nav>
+
+    <nav id="team-nav" class="team-nav"></nav>
 
     <main id="teams-grid" class="teams-grid">
         <!-- Remplace les 6 sections statiques par ce conteneur -->

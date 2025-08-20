@@ -1,4 +1,13 @@
 @charset "UTF-8";
+/* sass/main.scss */
+/* sass/_fonts.scss */
+@font-face {
+  font-family: "MarioKartF2";
+  src: url("../assets/fonts/mario_kart_f2.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 /* Variables couleurs d’équipe via CSS custom properties (fallback inclus) */
 .team-card {
   --c1:#bdbdbd;
@@ -46,42 +55,200 @@ body {
 }
 
 .site-header {
+  position: relative;
+  /* espace à droite ~ largeur max des boutons user-nav */
+  padding-right: 240px;
   text-align: center;
   padding: 1rem;
 }
 .site-header h1 {
-  font-family: "Orbitron", sans-serif;
+  font-family: "MarioKartF2", sans-serif;
   font-size: 2rem;
 }
+.site-header .banner {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0;
+}
+.site-header .banner img {
+  display: block;
+  height: auto;
+  /* largeur fluide : mini 120px, cible 22vw, max 356px (taille source) */
+  width: clamp(120px, 22vw, 356px);
+  max-width: 100%;
+}
 
+/* Liens overlays (style Twitch violet) */
 .quick-links {
   display: flex;
   justify-content: center;
   gap: 1rem;
-  margin-bottom: 2rem;
+  margin: 1.5rem 0;
 }
 .quick-links .btn-link {
-  background: linear-gradient(135deg, #ff4747, #ff8c42);
-  color: white;
-  padding: 0.75rem 1.5rem;
+  background: rgba(145, 70, 255, 0.8);
+  color: #fff;
   border-radius: 8px;
   text-decoration: none;
   font-weight: bold;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, background 0.2s ease;
+  font-size: clamp(0.85rem, 2vw, 1rem);
+  padding: clamp(0.45rem, 1vw, 0.6rem) clamp(0.9rem, 2vw, 1.2rem);
+  /* Icône TV pour overlays */
+}
+.quick-links .btn-link::before {
+  margin-right: 0.4rem;
 }
 .quick-links .btn-link:hover {
-  background: #d63b3b;
+  background: rgba(92, 22, 197, 0.85);
   transform: scale(1.05);
 }
-
-.admin-btn {
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+.quick-links .btn-link.overlay::before {
+  content: "📺";
 }
 
+/* Zone utilisateur (login/logout + admin) */
+.user-nav {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+  z-index: 1100;
+}
+.user-nav .auth-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+.user-nav .auth-buttons .btn-auth {
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: bold;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  transition: background 0.2s ease;
+}
+.user-nav .auth-buttons .btn-auth::before {
+  margin-right: 0.4rem;
+}
+.user-nav .auth-buttons .btn-auth.login {
+  background: #28a745; /* vert */
+}
+.user-nav .auth-buttons .btn-auth.login::before {
+  content: "🔓";
+}
+.user-nav .auth-buttons .btn-auth.login:hover {
+  background: #218838;
+}
+.user-nav .auth-buttons .btn-auth.logout {
+  background: #dc3545; /* rouge */
+}
+.user-nav .auth-buttons .btn-auth.logout::before {
+  content: "🔒";
+}
+.user-nav .auth-buttons .btn-auth.logout:hover {
+  background: #b02a37;
+}
+.user-nav .admin-links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+.user-nav .admin-links .btn-link {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  text-decoration: none;
+  color: #fff;
+  font-weight: 500;
+  transition: background 0.2s ease;
+  /* Icônes admin et direction */
+}
+.user-nav .admin-links .btn-link::before {
+  margin-right: 0.4rem;
+}
+.user-nav .admin-links .btn-link:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+.user-nav .admin-links .btn-link#direction-link {
+  background: rgba(253, 216, 53, 0.8);
+  color: #000;
+  font-weight: bold;
+}
+.user-nav .admin-links .btn-link#direction-link:hover {
+  background: rgba(249, 168, 37, 0.85);
+}
+.user-nav .admin-links .btn-link#direction-link::before {
+  content: "🏁";
+}
+.user-nav .admin-links .btn-link#admin-link::before {
+  content: "⚙️";
+}
+.user-nav .auth-buttons .btn-auth,
+.user-nav .admin-links .btn-link {
+  /* tailles fluides */
+  font-size: clamp(0.78rem, 1.6vw, 0.9rem);
+  padding: clamp(0.3rem, 0.8vw, 0.5rem) clamp(0.55rem, 1.2vw, 0.8rem);
+  border-radius: 6px;
+}
+
+/* ---------- Breakpoints ---------- */
+/* ≤ 1024px : réduire un peu la réserve à droite et la taille bannière */
+@media (max-width: 1024px) {
+  .site-header {
+    padding-right: 200px;
+  }
+  .site-header .banner img {
+    width: clamp(110px, 24vw, 320px);
+  }
+}
+/* ≤ 768px : user-nav plus compact, bannière plus petite */
+@media (max-width: 768px) {
+  .site-header {
+    padding-right: 180px;
+  }
+  .site-header .banner img {
+    width: clamp(100px, 28vw, 300px);
+  }
+  .user-nav {
+    top: 0.6rem;
+    right: 0.6rem;
+  }
+  .user-nav .auth-buttons .btn-auth,
+  .user-nav .admin-links .btn-link {
+    border-radius: 5px;
+  }
+}
+/* ≤ 480px : compaction maximale, tout reste visible sans chevauchement */
+@media (max-width: 480px) {
+  .site-header {
+    padding-right: 150px;
+  }
+  .site-header .banner img {
+    width: clamp(90px, 30vw, 260px);
+  }
+  .user-nav {
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+  .user-nav .auth-buttons .btn-auth,
+  .user-nav .admin-links .btn-link {
+    font-size: 0.78rem;
+    padding: 0.28rem 0.55rem;
+  }
+}
+/* ---------- Grille des équipes ---------- */
 .teams-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 2rem;
+  gap: 1rem;
   padding: 2rem;
   margin-left: 20px;
 }
@@ -134,55 +301,129 @@ body {
 
 /* Card équipe (header conservé + stylé) */
 .team-card {
+  display: block;
+  text-decoration: none;
   position: relative;
-  padding: 1.5rem;
+  padding: 0.5rem 1rem;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 1rem;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  /* Grille des 6 pilotes (2 rangées x 3 colonnes) */
 }
-
-.team-header {
+.team-card .team-header {
   width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 2rem;
-  margin-bottom: 0.85rem;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
   padding-bottom: 0.6rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  text-decoration: none;
 }
-.team-header .team-tag {
-  font-family: "Orbitron", sans-serif;
+.team-card .team-header .team-tag {
+  font-family: "MarioKartF2", sans-serif;
   font-size: 1.2rem;
+  text-decoration: none;
   background: rgba(0, 0, 0, 0.8);
   color: var(--c2);
   opacity: 0.9;
   padding: 0.3rem 0.6rem;
   border-radius: 0.5rem;
 }
-.team-header .team-logo {
+.team-card .team-header .team-logo {
   width: 56px;
   height: 56px;
   object-fit: contain;
   border-radius: 14px;
   background: radial-gradient(60% 60% at 50% 50%, color-mix(in srgb, var(--c1) 20%, transparent), transparent);
 }
-.team-header .team-name {
+.team-card .team-header .team-name {
   flex: 1;
   margin: 0;
   font-family: "Orbitron", sans-serif;
   font-size: 1.5rem;
-  margin-bottom: 1rem;
-  text-align: right;
-  word-break: break-word;
+  text-decoration: none;
+  text-align: center;
   color: var(--c1);
+  /* Effet néon avec les deux couleurs d’équipe */
+  text-shadow: 0 0 4px var(--c1), 0 0 8px var(--c2);
+  /* petit bonus lisibilité */
+  letter-spacing: 1px;
+}
+.team-card .team-pilots {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.9rem;
+}
+.team-card .team-pilots .pilot-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.team-card .team-pilots .pilot-card figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+.team-card .team-pilots .pilot-card .img-wrap {
+  aspect-ratio: 3/4; /* 540x720 */
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(60% 60% at 50% 35%, color-mix(in srgb, var(--c1) 28%, transparent), transparent 70%);
+}
+.team-card .team-pilots .pilot-card img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* respecte le PNG transparent */
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
+}
+.team-card .team-pilots .pilot-card .pilot-name {
+  font-weight: 400;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.8rem;
+  height: 28px;
+  word-wrap: break-word;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c1) 35%, transparent), color-mix(in srgb, var(--c2) 25%, transparent));
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.team-card .team-pilots .pilot-card .pilot-num {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 2;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.5px;
+  color: var(--c1);
+  opacity: 0.9;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  user-select: none;
+  pointer-events: none;
+}
+.team-card .team-pilots .pilot-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 18px color-mix(in srgb, var(--c1) 25%, transparent);
+  border-color: color-mix(in srgb, var(--c1) 35%, rgba(255, 255, 255, 0.08));
 }
 
 /* barre latérale de navigation */
 .team-nav {
   position: fixed;
-  top: 50%;
+  top: 59%;
   left: 0;
   transform: translateY(-50%);
   display: flex;
@@ -217,63 +458,4 @@ body {
   color: #fff;
   font-weight: bold;
   text-decoration: none;
-}
-
-/* Grille des 6 pilotes (2 rangées x 3 colonnes sur desktop) */
-.team-pilots {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.9rem;
-  /*
-      @media (max-width: 768px) { grid-template-columns: repeat(2, 1fr); }
-      @media (max-width: 480px) { grid-template-columns: 1fr; }
-  */
-}
-
-/* Card pilote (cliquable) */
-a.pilot-card {
-  text-decoration: none;
-  color: inherit;
-}
-
-.pilot-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-.pilot-card figure {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.pilot-card .img-wrap {
-  aspect-ratio: 3/4; /* 540x720 */
-  position: relative;
-  overflow: hidden;
-  background: radial-gradient(60% 60% at 50% 35%, color-mix(in srgb, var(--c1) 28%, transparent), transparent 70%);
-}
-.pilot-card img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain; /* respecte le PNG transparent */
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
-}
-.pilot-card .pilot-name {
-  font-weight: 700;
-  padding: 0.5rem 0.6rem;
-  text-align: center;
-  font-family: "Poppins", sans-serif;
-  color: #fff;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--c1) 35%, transparent), color-mix(in srgb, var(--c2) 25%, transparent));
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.pilot-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 18px color-mix(in srgb, var(--c1) 25%, transparent);
-  border-color: color-mix(in srgb, var(--c1) 35%, rgba(255, 255, 255, 0.08));
 }/*# sourceMappingURL=main.css.map */

@@ -58,20 +58,22 @@
 
 <table class="admin-table" id="teams-table" aria-describedby="teams-help">
     <thead>
-        <tr>
-            <th>Nom</th>
-            <th>Tag</th>
-            <th>Secrète</th>
-            <th>Couleur 1</th>
-            <th>Couleur 2</th>
-            <th>Logo (URL)</th>
-            <th class="col-actions">Actions</th>
-        </tr>
+    <tr>
+        <th>Ordre</th>
+        <th>Nom</th>
+        <th>Tag</th>
+        <th>Secrète</th>
+        <th>Couleur 1</th>
+        <th>Couleur 2</th>
+        <th>Logo (URL)</th>
+        <th class="col-actions">Actions</th>
+    </tr>
     </thead>
 
     <tbody>
         <!-- Ligne d'ajout -->
         <tr class="row-add" data-mode="create">
+            <td><input type="number" id="team-order-new" placeholder="1" min="0" step="1" inputmode="numeric" autocomplete="off"></td>
             <td><input type="text" id="team-name-new" placeholder="MooMoo Meadows Milk" autocomplete="off"></td>
             <td><input type="text" id="team-tag-new" placeholder="MMM" maxlength="6" autocomplete="off"></td>
             <td class="cell-center">
@@ -87,6 +89,7 @@
                 <button class="btn icon success" id="team-add-btn" title="Ajouter l'écurie" aria-label="Ajouter">+</button>
             </td>
         </tr>
+
 
         <!-- Lignes existantes rendues par JS -->
     </tbody>
@@ -104,6 +107,7 @@
 <table class="admin-table" id="pilots-table" aria-describedby="pilots-help">
     <thead>
         <tr>
+            <th>Ordre</th>
             <th>Nom</th>
             <th>Tag</th>
             <th>Numéro</th>
@@ -118,54 +122,46 @@
         </tr>
     </thead>
 
+
     <tbody>
         <!-- Ligne d'ajout -->
-        <tr class="row-add" data-mode="create">
-            <td><input type="text" id="pilot-name-new" placeholder="ENSURI" autocomplete="off"></td>
-            <td><input type="text" id="pilot-tag-new" placeholder="ENS" maxlength="6" autocomplete="off"></td>
-            <td><input type="text" id="pilot-num-new" placeholder="00 à 99" maxlength="2" inputmode="numeric" autocomplete="off"></td>
-            <td>
-                <select id="pilot-game-new">
-                    <option value="MK8">MK8</option>
-                    <option value="MKW">MKW</option>
-                </select>
-            </td>
-            <td class="cell-center">
-                <label class="switch">
-                    <input type="checkbox" id="pilot-streamer-new">
-                    <span aria-hidden="true"></span>
-                </label>
-            </td>
-            <td>
-                <input type="text" id="pilot-twitch-new" placeholder="EnsuriLive" autocomplete="off">
-            </td>
-            <td>
-                <input type="text" id="pilot-photo-new" placeholder="ex: pilots/ENS.png" autocomplete="off">
-            </td>
-            <td>
-                <!-- Écurie primaire (liste alimentée par JS) -->
-                <select id="pilot-team-new">
-                    <option value="">—</option>
-                </select>
-            </td>
-            <td>
-                <!-- Écurie secrète (liste alimentée par JS) -->
-                <select id="pilot-secret-team-new">
-                    <option value="">—</option>
-                </select>
-            </td>
-            <td>
-                <!-- Mode traître -->
-                <select id="pilot-traitor-mode-new">
-                    <option value="">—</option>
-                    <option value="double">Double (MK8 — agents doubles)</option>
-                    <option value="transfer">Transfert (MKW — change d'équipe)</option>
-                </select>
-            </td>
-            <td class="cell-actions">
-                <button class="btn icon success" id="pilot-add-btn" title="Ajouter le pilote" aria-label="Ajouter">+</button>
-            </td>
-        </tr>
+    <tr class="row-add" data-mode="create">
+        <td><input type="number" id="pilot-order-new" placeholder="1" min="0" step="1" inputmode="numeric" autocomplete="off"></td>
+        <td><input type="text" id="pilot-name-new" placeholder="ENSURI" autocomplete="off"></td>
+        <td><input type="text" id="pilot-tag-new" placeholder="ENS" maxlength="6" autocomplete="off"></td>
+        <td><input type="text" id="pilot-num-new" placeholder="00 à 99" maxlength="2" inputmode="numeric" autocomplete="off"></td>
+        <td>
+            <select id="pilot-game-new">
+            <option value="MK8">MK8</option>
+            <option value="MKW">MKW</option>
+            </select>
+        </td>
+        <td class="cell-center">
+            <label class="switch">
+            <input type="checkbox" id="pilot-streamer-new">
+            <span aria-hidden="true"></span>
+            </label>
+        </td>
+        <td><input type="text" id="pilot-twitch-new" placeholder="EnsuriLive" autocomplete="off"></td>
+        <td><input type="text" id="pilot-photo-new" placeholder="ex: pilots/ENS.png" autocomplete="off"></td>
+        <td>
+            <select id="pilot-team-new"><option value="">—</option></select>
+        </td>
+        <td>
+            <select id="pilot-secret-team-new"><option value="">—</option></select>
+        </td>
+        <td>
+            <select id="pilot-traitor-mode-new">
+            <option value="">—</option>
+            <option value="double">Double (MK8)</option>
+            <option value="transfer">Transfert (MKW)</option>
+            </select>
+        </td>
+        <td class="cell-actions">
+            <button class="btn icon success" id="pilot-add-btn" title="Ajouter le pilote" aria-label="Ajouter">+</button>
+        </td>
+    </tr>
+
 
         <!-- Lignes existantes rendues par JS -->
     </tbody>

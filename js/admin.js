@@ -182,6 +182,105 @@ function teamChipCell(teamName) {
     td.appendChild(wrap);
     return td;
 }
+function fillTeamSelect(selectEl) {
+  if (!selectEl) return;
+  const current = selectEl.value || "";
+  selectEl.innerHTML = `<option value="">—</option>`;
+  teams
+    .slice()
+    .sort((a, b) => a.tag.localeCompare(b.tag))
+    .forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t.name;
+      opt.textContent = `${t.tag} — ${t.name}`;
+      selectEl.appendChild(opt);
+    });
+  if (current) {
+    selectEl.value = current;
+    if (selectEl.value !== current) selectEl.value = "";
+  }
+}
+// --- Helpers tri Pilotes ---
+const PILOT_HEADER_MAP = [
+  { key: "name" },            // 1 Nom
+  { key: "tag" },             // 2 Tag
+  { key: "num", numeric: true }, // 3 Numéro (00..99)
+  { key: "game" },            // 4 Jeu
+  { key: "streamer", boolean: true }, // 5 Streamer
+  { key: "urlTwitch", twitch: true }, // 6 Twitch (on trie sur le pseudo, pas l'URL)
+  { key: "urlPhoto" },        // 7 Photo (URL)
+  { key: "teamName" },        // 8 Écurie (nom pour l’ordre ; rendu logo+tag)
+  { key: "secretTeamName" },  // 9 Écurie secrète
+  { key: "traitorMode" }      // 10 Mode traître
+  // 11 = actions -> pas de tri
+];
+
+function fieldForSort(p, spec) {
+  const val = p[spec.key];
+  if (spec.boolean) return p.streamer ? 1 : 0;
+  if (spec.numeric) {
+    const n = parseInt((p.num ?? "").toString(), 10);
+    return Number.isFinite(n) ? n : -Infinity;
+  }
+  if (spec.twitch) {
+    const pseudo = stripTwitchPrefix(p.urlTwitch || "");
+    return (pseudo || "").toString().toLowerCase();
+  }
+  return (val ?? "").toString().toLowerCase();
+}
+
+function sortPilotsArray(arr) {
+  const spec = PILOT_HEADER_MAP.find(s => s.key === pilotSort.key) || PILOT_HEADER_MAP[0];
+  const dir = pilotSort.dir === "desc" ? -1 : 1;
+  return arr.slice().sort((a, b) => {
+    const av = fieldForSort(a, spec);
+    const bv = fieldForSort(b, spec);
+    if (av < bv) return -1 * dir;
+    if (av > bv) return  1 * dir;
+    // fallback secondaire : tag
+    const at = (a.tag || "").toLowerCase();
+    const bt = (b.tag || "").toLowerCase();
+    if (at < bt) return -1;
+    if (at > bt) return  1;
+    return 0;
+  });
+}
+
+function updatePilotSortIndicators() {
+  const thead = document.querySelector("#pilots-table thead");
+  if (!thead) return;
+  const ths = Array.from(thead.querySelectorAll("th"));
+  ths.forEach((th, idx) => {
+    // ignore la dernière colonne (Actions)
+    if (idx >= PILOT_HEADER_MAP.length) return;
+    const baseText = th.textContent.replace(/[▲▼]\s*$/, "").trim();
+    th.textContent = baseText + (pilotSort.key === PILOT_HEADER_MAP[idx].key
+      ? (pilotSort.dir === "asc" ? " ▲" : " ▼")
+      : "");
+    th.style.cursor = "pointer";
+  });
+}
+
+function initPilotSorting() {
+  const thead = document.querySelector("#pilots-table thead");
+  if (!thead) return;
+  const ths = Array.from(thead.querySelectorAll("th"));
+  ths.forEach((th, idx) => {
+    if (idx >= PILOT_HEADER_MAP.length) return; // ignore la colonne Actions
+    th.addEventListener("click", () => {
+      const key = PILOT_HEADER_MAP[idx].key;
+      if (pilotSort.key === key) {
+        pilotSort.dir = pilotSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        pilotSort.key = key;
+        pilotSort.dir = "asc";
+      }
+      renderPilotsTable(); // re-render avec le nouveau tri
+    }, { passive: true });
+  });
+  updatePilotSortIndicators(); // première mise en place des flèches
+}
+
 function numInput(value, maxWidth = 70) {
     const inp = document.createElement("input");
     inp.type = "number";
@@ -240,8 +339,10 @@ const DEFAULT_MKW = {
 
 /* ----------------------- State ----------------------- */
 
-let teams = [];   // {id, name, tag, color1, color2, urlLogo}
-let pilots = [];  // {id, name, tag, num, game, streamer, urlTwitch, urlPhoto, teamName}
+let teams = [];   // {id, name, tag, color1, color2, urlLogo, isSecret}
+let pilots = [];  // {id, name, tag, num, game, streamer, urlTwitch, urlPhoto, teamName, secretTeamName, traitorMode}
+// Tri du tableau Pilotes
+let pilotSort = { key: "tag", dir: "asc" }; // dir: "asc" | "desc"
 // Points state (synchro Firestore)
 let pointsMK8 = { ...DEFAULT_MK8 }; // { ranks: { "1":number, ... } }
 let pointsMKW = { ...DEFAULT_MKW }; // { ranks: { "1":{race,s1,s2}, ... } }
@@ -253,6 +354,7 @@ function getTeamAddInputs() {
     return {
         name:   document.getElementById("team-name-new"),
         tag:    document.getElementById("team-tag-new"),
+        secret:  document.getElementById("team-secret-new"),
         color1: document.getElementById("team-color1-new"),
         color2: document.getElementById("team-color2-new"),
         logo:   document.getElementById("team-logo-new"),
@@ -270,6 +372,8 @@ function getPilotAddInputs() {
         twitch:   document.getElementById("pilot-twitch-new"),
         photo:    document.getElementById("pilot-photo-new"),
         team:     document.getElementById("pilot-team-new"),
+        secretTeam:  document.getElementById("pilot-secret-team-new"),
+        traitorMode: document.getElementById("pilot-traitor-mode-new"),
         addBtn:   document.getElementById("pilot-add-btn")
     };
 }
@@ -435,89 +539,57 @@ function renderTeamAddRowOptions() {
 }
 
 function renderPilotAddRowTeamSelect() {
-    // Récupère le <select> à la volée pour éviter toute référence manquante
-    const select = document.getElementById("pilot-team-new");
-    if (!select) return;
-
-    const current = select.value; // mémorise la sélection courante si l’élément existait déjà
-    select.innerHTML = `<option value="">—</option>`;
-
-    teams
-        .slice()
-        .sort((a, b) => a.tag.localeCompare(b.tag))
-        .forEach(t => {
-        const opt = document.createElement("option");
-        opt.value = t.name;
-        opt.textContent = `${t.tag} — ${t.name}`;
-        select.appendChild(opt);
-        });
-
-    // Restaure la sélection si encore présente
-    if (current) {
-        select.value = current;
-        if (select.value !== current) {
-            // l’ancienne valeur n’existe plus
-            select.value = "";
-        }
-    }
+  // Écurie principale
+  fillTeamSelect(document.getElementById("pilot-team-new"));
+  // Écurie secrète
+  fillTeamSelect(document.getElementById("pilot-secret-team-new"));
 }
 
 function renderTeamsTable() {
-    const table = document.getElementById("teams-table");
-    if (!table) return;
-    const tbody = table.querySelector("tbody");
-    if (!tbody) return;
+  const table = document.getElementById("teams-table");
+  if (!table) return;
+  const tbody = table.querySelector("tbody");
+  if (!tbody) return;
 
-    const addRow = tbody.querySelector("tr.row-add");
-    tbody.innerHTML = "";
-    if (addRow) tbody.appendChild(addRow);
+  const addRow = tbody.querySelector("tr.row-add");
+  tbody.innerHTML = "";
+  if (addRow) tbody.appendChild(addRow);
 
-    teams
-        .slice()
-        .sort((a, b) => a.tag.localeCompare(b.tag))
-        .forEach(team => {
-        const tr = document.createElement("tr");
-        tr.dataset.id = team.id;
+  teams
+    .slice()
+    .sort((a, b) => a.tag.localeCompare(b.tag))
+    .forEach(team => {
+      const tr = document.createElement("tr");
+      tr.dataset.id = team.id;
 
-        // Nom + Tag
-        tr.appendChild(textCell(team.name));
-        tr.appendChild(textCell(team.tag));
+      tr.appendChild(textCell(team.name));
+      tr.appendChild(textCell(team.tag));
 
-        // Couleurs avec fond + texte contrasté
-        tr.appendChild(colorCell(team.color1 || ""));
-        tr.appendChild(colorCell(team.color2 || ""));
+      // Secrète: Oui/Non
+      tr.appendChild(textCell(team.isSecret ? "Oui" : "Non"));
 
-        // Logo en IMG (au lieu de l’URL brute)
-        const logoTd = document.createElement("td");
-        if (team.urlLogo) {
-            const img = document.createElement("img");
-            img.src = team.urlLogo;
-            img.alt = `${team.tag || team.name || "logo"} logo`;
-            img.className = "logo-thumb";
-            logoTd.appendChild(img);
-        } else {
-            logoTd.textContent = "";
-        }
-        tr.appendChild(logoTd);
+      // Couleurs (pills)
+      tr.appendChild(colorCell(team.color1 || ""));
+      tr.appendChild(colorCell(team.color2 || ""));
 
-        // Actions (icônes)
-        const actions = document.createElement("td");
-        actions.className = "cell-actions";
+      // Logo
+      tr.appendChild(imageCell(team.urlLogo || "", `${team.tag || team.name || "team"} logo`, "logo-thumb"));
 
-        const editBtn = iconBtn("edit", "warning", "Modifier");
-        const delBtn  = iconBtn("delete", "danger", "Supprimer");
+      // Actions (icônes)
+      const actions = document.createElement("td");
+      actions.className = "cell-actions";
+      const editBtn = iconBtn("edit", "warning", "Modifier");
+      const delBtn  = iconBtn("delete", "danger", "Supprimer");
+      editBtn.addEventListener("click", () => enterEditTeamRow(tr, team));
+      delBtn.addEventListener("click", () => deleteTeam(team.id));
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+      tr.appendChild(actions);
 
-        editBtn.addEventListener("click", () => enterEditTeamRow(tr, team));
-        delBtn.addEventListener("click", () => deleteTeam(team.id));
+      tbody.appendChild(tr);
+    });
 
-        actions.appendChild(editBtn);
-        actions.appendChild(delBtn);
-        tr.appendChild(actions);
-
-        tbody.appendChild(tr);
-        });
-
-    renderPilotAddRowTeamSelect();
+  renderPilotAddRowTeamSelect();
 }
 
 function renderPilotsTable() {
@@ -531,44 +603,43 @@ function renderPilotsTable() {
     tbody.innerHTML = "";
     if (addRow) tbody.appendChild(addRow);
 
-    pilots
-        .slice()
-        .sort((a, b) => a.tag.localeCompare(b.tag))
-        .forEach(p => {
-            const tr = document.createElement("tr");
-            tr.dataset.id = p.id;
+    sortPilotsArray(pilots).forEach(p => {
+        const tr = document.createElement("tr");
+        tr.dataset.id = p.id;
 
-            tr.appendChild(textCell(p.name));
-            tr.appendChild(textCell(p.tag));
-            tr.appendChild(textCell(p.num || ""));
-            tr.appendChild(textCell(p.game || ""));
-            tr.appendChild(textCell(p.streamer ? "Oui" : "Non"));
+        tr.appendChild(textCell(p.name));
+        tr.appendChild(textCell(p.tag));
+        tr.appendChild(textCell(p.num || ""));
+        tr.appendChild(textCell(p.game || ""));
+        tr.appendChild(textCell(p.streamer ? "Oui" : "Non"));
+        tr.appendChild(twitchCell(p.urlTwitch || ""));
+        tr.appendChild(imageCell(p.urlPhoto || "", `${p.tag || p.name || "pilot"} photo`, "logo-thumb"));
 
-            // Twitch: lien cliquable avec seulement le pseudo en texte
-            tr.appendChild(twitchCell(p.urlTwitch || ""));
+        // Écurie primaire (logo + tag)
+        tr.appendChild(teamChipCell(p.teamName || ""));
+        // Écurie secrète (logo + tag)
+        tr.appendChild(teamChipCell(p.secretTeamName || ""));
 
-            // Photo: vignette
-            tr.appendChild(imageCell(p.urlPhoto || "", `${p.tag || p.name || "pilot"} photo`, "logo-thumb"));
+        // Mode traître
+        const modeLabel = p.traitorMode === "double" ? "Double (MK8)"
+                        : p.traitorMode === "transfer" ? "Transfert (MKW)"
+                        : "";
+        tr.appendChild(textCell(modeLabel));
 
-            // Écurie: logo + tag (team-chip), basé sur teamName
-            tr.appendChild(teamChipCell(p.teamName || ""));
+        // Actions (icônes)
+        const actions = document.createElement("td");
+        actions.className = "cell-actions";
+        const editBtn = iconBtn("edit", "warning", "Modifier");
+        const delBtn  = iconBtn("delete", "danger", "Supprimer");
+        editBtn.addEventListener("click", () => enterEditPilotRow(tr, p));
+        delBtn.addEventListener("click", () => deletePilot(p.id));
+        actions.appendChild(editBtn);
+        actions.appendChild(delBtn);
+        tr.appendChild(actions);
 
-            // Actions (icônes)
-            const actions = document.createElement("td");
-            actions.className = "cell-actions";
-
-            const editBtn = iconBtn("edit", "warning", "Modifier");
-            const delBtn  = iconBtn("delete", "danger", "Supprimer");
-
-            editBtn.addEventListener("click", () => enterEditPilotRow(tr, p));
-            delBtn.addEventListener("click", () => deletePilot(p.id));
-
-            actions.appendChild(editBtn);
-            actions.appendChild(delBtn);
-            tr.appendChild(actions);
-
-            tbody.appendChild(tr);
-        });
+        tbody.appendChild(tr);
+    });
+    updatePilotSortIndicators();
 }
 
 /* ----------------------- Edit rows ----------------------- */
@@ -578,6 +649,7 @@ function enterEditTeamRow(tr, team) {
 
     const nameTd = document.createElement("td");
     const tagTd = document.createElement("td");
+    const secretTd = document.createElement("td");
     const c1Td = document.createElement("td");
     const c2Td = document.createElement("td");
     const logoTd = document.createElement("td");
@@ -588,6 +660,15 @@ function enterEditTeamRow(tr, team) {
     nameInput.value = team.name || "";
     const tagInput = document.createElement("input");
     tagInput.value = team.tag || "";
+
+    const secretSwitchWrap = document.createElement("label");
+    secretSwitchWrap.className = "switch";
+    const secretInput = document.createElement("input");
+    secretInput.type = "checkbox";
+    secretInput.checked = !!team.isSecret;
+    const secretSpan = document.createElement("span");
+    secretSwitchWrap.appendChild(secretInput);
+    secretSwitchWrap.appendChild(secretSpan);
 
     const c1Input = document.createElement("input");
     c1Input.type = "text";
@@ -604,6 +685,7 @@ function enterEditTeamRow(tr, team) {
 
     nameTd.appendChild(nameInput);
     tagTd.appendChild(tagInput);
+    secretTd.appendChild(secretSwitchWrap);
     c1Td.appendChild(c1Input);
     c2Td.appendChild(c2Input);
     logoTd.appendChild(logoInput);
@@ -615,6 +697,7 @@ function enterEditTeamRow(tr, team) {
         const payload = {
         name: nameInput.value.trim(),
         tag: tagInput.value.trim(),
+        isSecret: !!secretInput.checked,
         color1: c1Input.value.trim(),
         color2: c2Input.value.trim(),
         urlLogo: ensureImagePath(logoInput.value)
@@ -629,6 +712,7 @@ function enterEditTeamRow(tr, team) {
 
     tr.appendChild(nameTd);
     tr.appendChild(tagTd);
+    tr.appendChild(secretTd);
     tr.appendChild(c1Td);
     tr.appendChild(c2Td);
     tr.appendChild(logoTd);
@@ -647,6 +731,8 @@ function enterEditPilotRow(tr, p) {
     const twitchTd = document.createElement("td");
     const photoTd = document.createElement("td");
     const teamTd = document.createElement("td");
+    const secretTeamTd = document.createElement("td");
+    const traitorTd = document.createElement("td");
     const actionsTd = document.createElement("td");
     actionsTd.className = "cell-actions";
 
@@ -688,19 +774,21 @@ function enterEditPilotRow(tr, p) {
     photoInput.value = stripImagePrefix(p.urlPhoto || "");
 
     const teamSelect = document.createElement("select");
-    const emptyOpt = document.createElement("option");
-    emptyOpt.value = "";
-    emptyOpt.textContent = "—";
-    teamSelect.appendChild(emptyOpt);
-    teams
-        .slice().sort((a,b)=>a.tag.localeCompare(b.tag))
-        .forEach(t => {
+    fillTeamSelect(teamSelect);
+    if (p.teamName) teamSelect.value = p.teamName;
+
+    const secretTeamSelect = document.createElement("select");
+    fillTeamSelect(secretTeamSelect);
+    if (p.secretTeamName) secretTeamSelect.value = p.secretTeamName;
+
+    const traitorSelect = document.createElement("select");
+    [["","—"],["double","Double (MK8)"],["transfer","Transfert (MKW)"]].forEach(([val,label]) => {
         const opt = document.createElement("option");
-        opt.value = t.name;
-        opt.textContent = `${t.tag} — ${t.name}`;
-        if ((p.teamName || "") === t.name) opt.selected = true;
-        teamSelect.appendChild(opt);
-        });
+        opt.value = val;
+        opt.textContent = label;
+        if ((p.traitorMode || "") === val) opt.selected = true;
+        traitorSelect.appendChild(opt);
+    });
 
     // mount
     nameTd.appendChild(nameInput);
@@ -711,6 +799,8 @@ function enterEditPilotRow(tr, p) {
     twitchTd.appendChild(twitchInput);
     photoTd.appendChild(photoInput);
     teamTd.appendChild(teamSelect);
+    secretTeamTd.appendChild(secretTeamSelect);
+    traitorTd.appendChild(traitorSelect);
 
     const saveBtn = iconBtn("save", "success", "Enregistrer");
     const cancelBtn = iconBtn("cancel", "danger", "Annuler");
@@ -724,7 +814,9 @@ function enterEditPilotRow(tr, p) {
         streamer: streamerSelect.value === "true",
         urlTwitch: ensureTwitchUrl(twitchInput.value),
         urlPhoto: ensureImagePath(photoInput.value),
-        teamName: teamSelect.value || ""
+        teamName: teamSelect.value || "",
+        secretTeamName: secretTeamSelect.value || "",
+        traitorMode: traitorSelect.value || ""
         };
         await updateDoc(doc(dbFirestore, "pilots", p.id), payload);
     });
@@ -734,7 +826,6 @@ function enterEditPilotRow(tr, p) {
     actionsTd.appendChild(saveBtn);
     actionsTd.appendChild(cancelBtn);
 
-    // append to row
     tr.appendChild(nameTd);
     tr.appendChild(tagTd);
     tr.appendChild(numTd);
@@ -743,6 +834,8 @@ function enterEditPilotRow(tr, p) {
     tr.appendChild(twitchTd);
     tr.appendChild(photoTd);
     tr.appendChild(teamTd);
+    tr.appendChild(secretTeamTd);
+    tr.appendChild(traitorTd);
     tr.appendChild(actionsTd);
 }
 
@@ -750,69 +843,74 @@ function enterEditPilotRow(tr, p) {
 
 // Add team
 async function addTeam() {
-    const $ = getTeamAddInputs();
-    if (!$.name || !$.tag || !$.color1 || !$.color2 || !$.logo) {
-        console.error("Ligne d'ajout (teams) introuvable ou IDs manquants.");
-        alert("Impossible d'ajouter l'écurie : champs introuvables.");
-        return;
-    }
+  const $ = getTeamAddInputs();
+  if (!$.name || !$.tag || !$.color1 || !$.color2 || !$.logo || !$.secret) {
+    console.error("Ligne d'ajout (teams) introuvable ou IDs manquants.");
+    alert("Impossible d'ajouter l'écurie : champs introuvables.");
+    return;
+  }
 
-    const payload = {
-        name: ($.name.value || "").trim(),
-        tag: ($.tag.value || "").trim(),
-        color1: ($.color1.value || "").trim(),
-        color2: ($.color2.value || "").trim(),
-        urlLogo: ensureImagePath($.logo.value || "")
-    };
+  const payload = {
+    name:    ($.name.value || "").trim(),
+    tag:     ($.tag.value || "").trim(),
+    isSecret: !!($.secret && $.secret.checked),
+    color1:  ($.color1.value || "").trim(),
+    color2:  ($.color2.value || "").trim(),
+    urlLogo: ensureImagePath($.logo.value || "")
+  };
 
-    try {
-        await addDoc(collection(dbFirestore, "teams"), payload);
-        // reset
-        $.name.value = "";
-        $.tag.value = "";
-        $.color1.value = "";
-        $.color2.value = "";
-        $.logo.value = "";
-    } catch (err) {
-        console.error("Erreur ajout équipe:", err);
-        alert("Erreur lors de l'ajout de l'écurie.");
-    }
+  try {
+    await addDoc(collection(dbFirestore, "teams"), payload);
+    $.name.value = "";
+    $.tag.value = "";
+    $.secret.checked = false;
+    $.color1.value = "";
+    $.color2.value = "";
+    $.logo.value = "";
+  } catch (err) {
+    console.error("Erreur ajout équipe:", err);
+    alert("Erreur lors de l'ajout de l'écurie.");
+  }
 }
 
 // Add pilot
 async function addPilot() {
-    const $ = getPilotAddInputs();
-    if (!$.name || !$.tag || !$.num || !$.game || !$.streamer || !$.twitch || !$.photo || !$.team) {
-        console.error("Ligne d'ajout (pilots) introuvable ou IDs manquants.");
-        alert("Impossible d'ajouter le pilote : champs introuvables.");
-        return;
-    }
+  const $ = getPilotAddInputs();
+  if (!$.name || !$.tag || !$.num || !$.game || !$.streamer || !$.twitch || !$.photo || !$.team || !$.secretTeam || !$.traitorMode) {
+    console.error("Ligne d'ajout (pilots) introuvable ou IDs manquants.");
+    alert("Impossible d'ajouter le pilote : champs introuvables.");
+    return;
+  }
 
-    const payload = {
-        name: ($.name.value || "").trim(),
-        tag: ($.tag.value || "").trim(),
-        num: twoDigits($.num.value || ""),
-        game: $.game.value || "MK8",
-        streamer: !!($.streamer && $.streamer.checked),
-        urlTwitch: ensureTwitchUrl($.twitch.value || ""),
-        urlPhoto: ensureImagePath($.photo.value || ""),
-        teamName: $.team.value || ""
-    };
+  const payload = {
+    name: ($.name.value || "").trim(),
+    tag: ($.tag.value || "").trim(),
+    num: twoDigits($.num.value || ""),
+    game: $.game.value || "MK8",
+    streamer: !!($.streamer && $.streamer.checked),
+    urlTwitch: ensureTwitchUrl($.twitch.value || ""),
+    urlPhoto: ensureImagePath($.photo.value || ""),
+    teamName: $.team.value || "",
+    secretTeamName: $.secretTeam.value || "",
+    traitorMode: ($.traitorMode.value || "").trim() // "", "double", "transfer"
+  };
 
-    try {
-        await addDoc(collection(dbFirestore, "pilots"), payload);
-        // reset minimal
-        $.name.value = "";
-        $.tag.value = "";
-        $.num.value = "";
-        if ($.streamer) $.streamer.checked = false;
-        $.twitch.value = "";
-        $.photo.value = "";
-        $.team.value = "";
-    } catch (err) {
-        console.error("Erreur ajout pilote:", err);
-        alert("Erreur lors de l'ajout du pilote.");
-    }
+  try {
+    await addDoc(collection(dbFirestore, "pilots"), payload);
+    // reset
+    $.name.value = "";
+    $.tag.value = "";
+    $.num.value = "";
+    if ($.streamer) $.streamer.checked = false;
+    $.twitch.value = "";
+    $.photo.value = "";
+    $.team.value = "";
+    $.secretTeam.value = "";
+    $.traitorMode.value = "";
+  } catch (err) {
+    console.error("Erreur ajout pilote:", err);
+    alert("Erreur lors de l'ajout du pilote.");
+  }
 }
 
 // Delete team (and optionally detach pilots referencing it)
@@ -894,20 +992,18 @@ function wireAddRowButtons() {
 document.addEventListener("DOMContentLoaded", () => {
     // Brancher les boutons d’ajout (écuries/pilotes)
     wireAddRowButtons();
-
     // Firestore live listeners
     listenTeams();
     listenPilots();
     listenPoints();
-
     // UI dépendantes des données
     renderTeamAddRowOptions();
     renderPilotAddRowTeamSelect();
-
     // Icônes des boutons (+, edit/save/cancel points)
     upgradeAddButtonsIcons();
     upgradePointsButtonsIcons();
-
+    // NEW: tri Pilotes
+    initPilotSorting();
     // Points grid: boutons d’action
     const btnEdit   = document.getElementById("points-edit-btn");
     const btnSave   = document.getElementById("points-save-btn");

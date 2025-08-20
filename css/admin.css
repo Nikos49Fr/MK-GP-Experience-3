@@ -84,7 +84,6 @@ body {
 }
 
 .admin-table {
-  width: 100%;
   border-collapse: collapse;
   min-width: 900px;
   table-layout: auto;
@@ -139,74 +138,79 @@ body {
   text-align: center;
 }
 
-/* ===== Largeurs colonnes — TABLE ÉCURIES ===== */
-#teams-table {
-  /* Nom | Tag | Couleur1 | Couleur2 | Logo | Actions */
-  /* Nom: prend l'espace restant */
-  /* Tag compact */
-  /* Couleur 1 (pill) */
-  /* Couleur 2 (pill) */
+/* Table écuries */
+#teams-table { /* Nom */
+  /* Tag */
+  /* Secrète */
+  /* Couleurs 1 et 2*/
   /* Logo */
   /* Actions */
 }
 #teams-table th:nth-child(1), #teams-table td:nth-child(1) {
-  width: auto;
+  width: 180px;
 }
 #teams-table th:nth-child(2), #teams-table td:nth-child(2) {
   width: 80px;
 }
 #teams-table th:nth-child(3), #teams-table td:nth-child(3) {
-  width: 120px;
+  width: 70px;
 }
-#teams-table th:nth-child(4), #teams-table td:nth-child(4) {
-  width: 120px;
-}
+#teams-table th:nth-child(4), #teams-table td:nth-child(4),
 #teams-table th:nth-child(5), #teams-table td:nth-child(5) {
-  width: 150px;
+  width: 100px;
 }
 #teams-table th:nth-child(6), #teams-table td:nth-child(6) {
-  width: 90px;
+  width: 140px;
+}
+#teams-table th.col-actions, #teams-table td.col-actions {
+  width: 80px;
 }
 
-/* ===== Largeurs colonnes — TABLE PILOTES ===== */
-#pilots-table {
-  /* Nom | Tag | Numéro | Jeu | Streamer | Twitch | Photo | Écurie | Actions */
-  /* Nom: flexible */
-  /* Tag compact */
+/* Table pilotes */
+#pilots-table { /* Nom */
+  /* Tag */
   /* Numéro */
-  /* Jeu (select court) */
-  /* Streamer (switch) */
-  /* Twitch (lien/pseudo) */
-  /* Photo (vignette) */
-  /* Écurie (logo+tag) */
+  /* Jeu */
+  /* Streamer */
+  /* Twitch */
+  /* Photo */
+  /* Écurie */
+  /* Écurie secrète */
+  /* Mode traître */
   /* Actions */
 }
 #pilots-table th:nth-child(1), #pilots-table td:nth-child(1) {
-  width: auto;
+  width: 160px;
 }
 #pilots-table th:nth-child(2), #pilots-table td:nth-child(2) {
-  width: 80px;
+  width: 70px;
 }
 #pilots-table th:nth-child(3), #pilots-table td:nth-child(3) {
-  width: 80px;
+  width: 60px;
 }
 #pilots-table th:nth-child(4), #pilots-table td:nth-child(4) {
-  width: 70px;
+  width: 60px;
 }
 #pilots-table th:nth-child(5), #pilots-table td:nth-child(5) {
-  width: 70px;
+  width: 80px;
 }
 #pilots-table th:nth-child(6), #pilots-table td:nth-child(6) {
-  width: 180px;
+  width: 160px;
 }
 #pilots-table th:nth-child(7), #pilots-table td:nth-child(7) {
-  width: 150px;
+  width: 160px;
 }
 #pilots-table th:nth-child(8), #pilots-table td:nth-child(8) {
-  width: 230px;
+  width: 140px;
 }
 #pilots-table th:nth-child(9), #pilots-table td:nth-child(9) {
-  width: 90px;
+  width: 140px;
+}
+#pilots-table th:nth-child(10), #pilots-table td:nth-child(10) {
+  width: 160px;
+}
+#pilots-table th.col-actions, #pilots-table td.col-actions {
+  width: 80px;
 }
 
 /* Lien Twitch affiché comme pseudo, discret mais visible */

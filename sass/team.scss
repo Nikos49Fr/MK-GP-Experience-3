@@ -1,0 +1,352 @@
+/* sass/team.scss */
+/* Pré-requis : dans main.scss tu as déjà @use "variables" as *; et @use "fonts"; */
+
+:root {
+    /* fallback si JS n’a pas encore posé --c1/--c2 sur le <body> */
+    --c1: #bdbdbd;
+    --c2: #e0e0e0;
+}
+
+body {
+    background: #0c0616;
+    color: #fff;
+    margin: 0;
+    min-width: 468px;
+}
+
+/* Contrainte largeur + page pleine hauteur visuelle */
+.team-main,
+.team-header-band,
+.team-topbar {
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+/* ------------------------------------------------------ */
+/* Topbar : retour + contexte + flash + puce équipe       */
+/* ------------------------------------------------------ */
+
+.team-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 1rem;
+
+    padding: 0.75rem 1rem;
+    background: linear-gradient(180deg, rgba(0,0,0,0.65), rgba(0,0,0,0.35));
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(6px);
+
+    .topbar-left {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            padding: .45rem .75rem;
+            border-radius: 8px;
+            text-decoration: none;
+            color: #fff;
+            background: rgba(255,255,255,0.08);
+            transition: background .2s ease, transform .15s ease;
+
+            &:hover { background: rgba(255,255,255,0.18); transform: translateY(-1px); }
+        }
+
+        .context {
+            display: inline-flex;
+            gap: .5rem;
+            flex-wrap: wrap;
+
+            .pill {
+                display: inline-flex;
+                align-items: center;
+                padding: .25rem .6rem;
+                border-radius: 999px;
+                font-size: .9rem;
+                background: rgba(255,255,255,0.08);
+                border: 1px solid rgba(255,255,255,0.12);
+                white-space: nowrap;
+            }
+        }
+    }
+
+    .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+
+        .flash-ticker {
+            min-width: 360px;
+            max-width: 560px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            padding: 0 .75rem;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.12);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: .95rem;
+        }
+
+        .team-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: .5rem;
+            padding: .3rem .6rem;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.12);
+
+            img {
+                width: 28px; height: 28px;
+                object-fit: contain;
+                display: block;
+            }
+            #team-tag {
+                font-family: var(--font-title, "MarioKartF2"), system-ui, sans-serif;
+                font-weight: 700;
+                letter-spacing: .4px;
+                color: var(--c2);
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------ */
+/* Ruban d’entête équipe (nom + effet léger)              */
+/* ------------------------------------------------------ */
+
+.team-header-band {
+    padding: .75rem 1rem 1rem;
+
+    h1 {
+        margin: 0;
+        text-align: center;
+        font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
+        font-size: clamp(1.4rem, 2.2vw, 2rem);
+        color: var(--c1);
+        text-shadow:
+            0 0 4px var(--c1),
+            0 0 8px var(--c2);
+        letter-spacing: 1px;
+        font-weight: 700;
+    }
+}
+
+/* ------------------------------------------------------ */
+/* Grille des pilotes + carte pilote + sélecteur rang     */
+/* ------------------------------------------------------ */
+
+.team-main {
+    padding: 0 1rem 2rem;
+}
+
+.pilots-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* desktop : 3 par ligne */
+    gap: 1rem;
+}
+
+/* Carte visuelle (identique à l’accueil, léger ajustement) */
+.pilot-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.28);
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+
+    figure { margin: 0; display: flex; flex-direction: column; }
+
+    .img-wrap {
+        aspect-ratio: 3 / 4;
+        position: relative;
+        overflow: hidden;
+        background: radial-gradient(60% 60% at 50% 35%,
+            color-mix(in srgb, var(--c1) 28%, transparent),
+            transparent 70%);
+    }
+
+    img {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        object-fit: contain;
+        filter: drop-shadow(0 8px 16px rgba(0,0,0,0.45));
+    }
+
+    .pilot-num {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        z-index: 2;
+        font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
+        font-weight: 700;
+        font-size: 1.1rem;
+        letter-spacing: .5px;
+        color: var(--c1);
+        opacity: .9;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.55);
+        user-select: none;
+        pointer-events: none;
+    }
+
+    .pilot-name {
+        font-weight: 400;
+        font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
+        font-size: .85rem;
+        height: 30px;
+        padding: .5rem .6rem;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center;
+        color: #fff;
+        background: linear-gradient(90deg,
+            color-mix(in srgb, var(--c1) 35%, transparent),
+            color-mix(in srgb, var(--c2) 25%, transparent));
+        border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 22px rgba(0,0,0,0.35),
+                    0 0 18px color-mix(in srgb, var(--c1) 25%, transparent);
+        border-color: color-mix(in srgb, var(--c1) 35%, rgba(255,255,255,0.08));
+    }
+    .just-updated {
+        outline: 2px solid color-mix(in srgb, var(--c1) 65%, #fff);
+        box-shadow: 0 0 14px color-mix(in srgb, var(--c1) 35%, transparent);
+        transition: outline .2s ease, box-shadow .2s ease;
+    }
+}
+
+/* Item pilote = carte + contrôle */
+.pilot-item {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: .5rem;
+}
+/* === États de saisie rang (cohorte MK8) ========================== */
+/* pending = en cours; conflict = doublon; final = complet & unique */
+
+.pilot-item {
+    transition: filter .2s ease;
+
+    &[data-state="pending"] {
+        .rank-select {
+            border-color: #f5c542;
+            box-shadow: 0 0 0 2px rgba(245, 197, 66, 0.25);
+        }
+        .pilot-card {
+            outline: 2px solid rgba(245, 197, 66, 0.35);
+            box-shadow: 0 0 14px rgba(245, 197, 66, 0.25);
+        }
+    }
+
+    &[data-state="conflict"] {
+        .rank-select {
+            border-color: #e74c3c;
+            box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.25);
+        }
+        .pilot-card {
+            outline: 2px solid rgba(231, 76, 60, 0.5);
+            box-shadow: 0 0 14px rgba(231, 76, 60, 0.35);
+        }
+    }
+
+    &[data-state="final"] {
+        .rank-select {
+            border-color: #2ecc71;
+            box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.25);
+            opacity: .85;
+            cursor: not-allowed;
+        }
+        .pilot-card {
+            outline: 2px solid rgba(46, 204, 113, 0.45);
+            box-shadow: 0 0 14px rgba(46, 204, 113, 0.30);
+        }
+    }
+
+    &[data-state="empty"] {
+        .rank-select {
+            border-color: rgba(255,255,255,0.18);
+            box-shadow: none;
+        }
+        .pilot-card {
+            outline: 2px solid transparent;
+            box-shadow: none;
+        }
+    }
+}
+
+/* Petit feedback "pulse" quand une saisie vient d’être enregistrée */
+.pilot-card.just-updated {
+    outline: 2px solid color-mix(in srgb, var(--c1) 65%, #fff);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--c1) 35%, transparent);
+    transition: outline .2s ease, box-shadow .2s ease;
+}
+
+/* Contrôle de classement (gros, ergonomique, “pilote-friendly”) */
+.rank-control {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: .6rem;
+
+    .rank-label {
+        font-size: .95rem;
+        opacity: .85;
+    }
+
+    .rank-select {
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+
+        background: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.14);
+        color: #fff;
+
+        padding: .5rem .9rem;
+        border-radius: 10px;
+        min-width: 120px;
+        font-size: 1rem;
+        font-weight: 600;
+        text-align: center;
+        cursor: pointer;
+
+        /* petite flèche custom */
+        background-image:
+            linear-gradient(45deg, transparent 50%, #fff 50%),
+            linear-gradient(135deg, #fff 50%, transparent 50%);
+        background-position: calc(100% - 18px) calc(50% - 2px),
+                             calc(100% - 12px) calc(50% - 2px);
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+
+        &:hover { background-color: rgba(255,255,255,0.12); }
+        &:focus { outline: 2px solid var(--c1); outline-offset: 2px; }
+    }
+
+    .rank-hint {
+        font-size: .8rem;
+        opacity: .6;
+    }
+}
+
+/* ------------------------------------------------------ */
+/* (Optionnel) Media queries légers pour desktop large    */
+/* ------------------------------------------------------ */
+
+@media (min-width: 1280px) {
+    .pilots-grid { gap: 1.1rem; }
+    .rank-control .rank-select { min-width: 140px; }
+}

@@ -132,7 +132,7 @@ function renderTeamCard(team, pilots) {
         id: safeIdFromTag(team.tag),
         class: "team-card",
         "data-team": team.tag || "",
-        href: `team.html?id=${encodeURIComponent(team.tag || "")}`
+        href: `pages/team.html?id=${encodeURIComponent(team.tag || "")}`
     }, header, pilotsGrid);
 
     return section;

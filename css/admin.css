@@ -16,31 +16,46 @@ body {
   border-bottom: 2px solid rgba(255, 255, 255, 0.1);
 }
 .admin-header h1 {
-  margin: 0;
   font-size: 1.4rem;
-  letter-spacing: 0.5px;
-}
-.admin-header .btn-link, .admin-header #logout-btn {
-  appearance: none;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.06);
   color: #fff;
-  padding: 0.45rem 0.8rem;
-  border-radius: 0.4rem;
   font-weight: 600;
+  margin: 0;
+}
+.admin-header nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.admin-header nav a.btn-link,
+.admin-header nav button {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 0.95rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
   cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
   text-decoration: none;
-  transition: transform 0.05s ease, background 0.15s ease;
 }
-.admin-header .btn-link:hover, .admin-header #logout-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+.admin-header nav a.btn-link:hover,
+.admin-header nav button:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
-.admin-header .btn-link:active, .admin-header #logout-btn:active {
-  transform: translateY(1px);
+.admin-header nav .logout-btn {
+  background: #d9534f;
+  color: #fff;
+  font-weight: 600;
+}
+.admin-header nav .logout-btn:hover {
+  background: #c9302c;
 }
 
 .admin-main {
-  padding: 1.25rem 1rem 3rem;
+  padding: 1.5rem;
+  background: #121212;
+  color: #fff;
+  font-family: "Poppins", sans-serif;
 }
 
 .admin-section {
@@ -92,132 +107,38 @@ body {
 .admin-table tr {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
+.admin-table tr.row-add {
+  background: rgba(255, 255, 255, 0.03);
+}
+.admin-table td input,
+.admin-table td select {
+  height: 28px;
+  width: 100%;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-size: 0.85rem;
+}
+.admin-table td input:focus,
+.admin-table td select:focus {
+  outline: 1px solid #ffd54f;
+  border-color: #ffd54f;
+}
 .admin-table .cell-actions {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
+  white-space: nowrap;
+  text-align: center;
 }
 .admin-table .cell-center {
   text-align: center;
 }
-
-.table-help {
-  color: #bbb;
-  font-size: 0.85rem;
-  margin-top: 0.4rem;
+.admin-table .col-actions {
+  width: 80px;
+  text-align: center;
 }
 
-/* Boutons */
-.btn {
-  appearance: none;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.35rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.05s ease, background 0.15s ease, opacity 0.15s ease;
-}
-.btn.icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-}
-.btn.icon svg {
-  display: block;
-}
-.btn.success {
-  background: #2e7d32;
-}
-.btn.danger {
-  background: #c62828;
-}
-.btn.warning {
-  background: #ff9800;
-}
-.btn:hover {
-  opacity: 0.9;
-}
-.btn:active {
-  transform: translateY(1px);
-}
-
-/* Switch toggle (streamer) */
-.switch {
-  position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 18px;
-}
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.switch span {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  transition: 0.4s;
-  border-radius: 18px;
-}
-.switch span:before {
-  position: absolute;
-  content: "";
-  height: 14px;
-  width: 14px;
-  left: 2px;
-  top: 2px;
-  background-color: white;
-  transition: 0.2s;
-  border-radius: 50%;
-}
-.switch input:checked + span {
-  background-color: #673ab7;
-}
-.switch input:checked + span:before {
-  transform: translateX(18px);
-}
-
-/* Vignettes logos / photos */
-.logo-thumb {
-  width: 34px;
-  height: 34px;
-  object-fit: contain;
-  display: inline-block;
-  vertical-align: middle;
-}
-
-/* Chip équipe */
-.team-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-.team-chip img {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
-}
-.team-chip .team-tag {
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-/* Table TEAMS (avec colonne Ordre en 1) */
+/* Table écuries (avec colonne Ordre en 1) */
 #teams-table { /* Ordre */
   /* Nom */
   /* Tag */
@@ -228,10 +149,10 @@ body {
   /* Actions */
 }
 #teams-table th:nth-child(1), #teams-table td:nth-child(1) {
-  width: 70px;
+  width: 60px;
 }
 #teams-table th:nth-child(2), #teams-table td:nth-child(2) {
-  width: 220px;
+  width: 180px;
 }
 #teams-table th:nth-child(3), #teams-table td:nth-child(3) {
   width: 80px;
@@ -252,7 +173,7 @@ body {
   width: 80px;
 }
 
-/* Table PILOTES (avec colonne Ordre en 1) */
+/* Table pilotes (avec colonne Ordre en 1) */
 #pilots-table { /* Ordre */
   /* Nom */
   /* Tag */
@@ -303,126 +224,212 @@ body {
   width: 80px;
 }
 
-/* Lien Twitch (affiché comme pseudo) */
+/* Lien Twitch affiché comme pseudo, discret mais visible */
 a.twitch-link {
-  color: #cda9ff;
+  color: #cda9ff; /* légèrement violacé pour rappeler Twitch */
   text-decoration: none;
   font-weight: 600;
 }
 a.twitch-link:hover {
   text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
-/* Points grid */
-#points-grid-table {
-  width: 100%;
-  table-layout: fixed;
+/* Puce équipe: logo + tag alignés */
+.team-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+.team-chip img {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: inline-block;
+  vertical-align: middle;
+}
+.team-chip .team-tag {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* ==========================
+   Tables matrices de points
+   ========================== */
+#points-section {
   /* Colonne classement : réduite */
   /* Colonne actions compactes */
   /* Boutons reset au-dessus des tables */
 }
-#points-grid-table thead th:first-child {
-  width: 110px;
+#points-section .admin-table {
+  min-width: 400px;
 }
-#points-grid-table tbody td:first-child {
-  text-align: left;
-  padding-left: 10px;
+#points-section .admin-table th, #points-section .admin-table td {
+  text-align: center;
+  vertical-align: middle;
+  height: 41px;
+  padding: 4px 6px;
 }
-#points-grid-table tbody td {
-  height: 38px;
+#points-section .admin-table th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
 }
-#points-grid-table tbody td input {
+#points-section .admin-table tbody tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+#points-section .admin-table td input {
   width: 80%;
   max-width: 70px;
   text-align: center;
   height: 28px;
   padding: 2px 6px;
 }
-#points-grid-table #points-mk8-table th:first-child,
-#points-grid-table #points-mk8-table td:first-child,
-#points-grid-table #points-mkw-table th:first-child,
-#points-grid-table #points-mkw-table td:first-child {
+#points-section #points-mk8-table th:first-child,
+#points-section #points-mk8-table td:first-child,
+#points-section #points-mkw-table th:first-child,
+#points-section #points-mkw-table td:first-child {
   width: 90px;
 }
-#points-grid-table .col-actions {
+#points-section .col-actions {
   width: 80px;
 }
-#points-grid-table .table-header-actions {
+#points-section .table-header-actions {
   margin-bottom: 0.5rem;
 }
-#points-grid-table .table-header-actions button {
+#points-section .table-header-actions button {
   font-size: 0.8rem;
   padding: 0.3rem 0.8rem;
+  border-radius: 4px;
+}
+#points-section .table-wrap {
+  overflow-x: hidden; /* masque toute barre horizontale */
+}
+#points-section #points-grid-table {
+  table-layout: fixed; /* colonnes à largeur fixe */
+  width: 100%;
+  /* 1re colonne (label de ligne) large, colonnes 1..24 étroites */
+  /* colonnes rangs 1..24 : étroites */
+  /* inputs en édition : compacts et centrés */
+}
+#points-section #points-grid-table th:first-child, #points-section #points-grid-table td:first-child {
+  width: 160px; /* libellé: MK8 course, etc. */
+  text-align: left;
+  padding-left: 10px;
+}
+#points-section #points-grid-table th:not(:first-child), #points-section #points-grid-table td:not(:first-child) {
+  width: 40px; /* 25 colonnes ≈ 180 + (24*44) = 1 236px (+ paddings) => ok pour 1440 */
+  padding: 4px 4px; /* compact */
+  font-size: 0.8rem; /* texte plus fin */
+}
+#points-section #points-grid-table td input[type=number] {
+  width: 44px;
+  max-width: 44px;
+  text-align: center;
+  height: 26px;
+  padding: 0;
+  margin: 0 auto;
+  font-size: 0.85rem;
 }
 
-/* Pills couleurs */
+/* Boutons icônes */
+.btn.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 4px;
+  font-size: 1.2rem;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn.icon.success {
+  background: #4caf50;
+}
+.btn.icon.danger {
+  background: #f44336;
+}
+.btn.icon.warning {
+  background: #ff9800;
+}
+.btn.icon:hover {
+  opacity: 0.8;
+}
+
+/* Switch toggle (streamer) */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 18px;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.switch span {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  transition: 0.4s;
+  border-radius: 18px;
+}
+.switch span:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: 0.4s;
+  border-radius: 50%;
+}
+.switch input:checked + span {
+  background-color: #4caf50;
+}
+.switch input:checked + span:before {
+  transform: translateX(18px);
+}
+
+.table-help {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 0.4rem;
+}
+
+/* admin.scss — vignettes logo dans le tableau Écuries */
+.logo-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Ajustement spécifique colonne logo */
+#teams-table td:nth-child(5) {
+  text-align: center;
+}
+
+/* “Pill” pour afficher les codes couleurs (le fond ne couvre pas toute la cellule) */
 .color-badge {
   display: inline-block;
-  padding: 8px 30px;
+  padding: 8px 30px; /* haut/bas très faible, côtés plus longs */
   border-radius: 6px;
   font-weight: 600;
   letter-spacing: 0.3px;
-  line-height: 1.2;
-  margin: 0 8px;
-}
-
-/* =========================================================
-   RESET SECTION (RTDB) — largeur max 1440px, sans scrollbar
-   ========================================================= */
-#reset-section {
-  max-width: 1440px;
-  margin: 0 auto;
-}
-#reset-section .table-wrap {
-  overflow-x: visible; /* pas de barre de défilement horizontale */
-  padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 0.5rem;
-}
-#reset-section #reset-table {
-  width: 100%;
-  min-width: 0; /* override de .admin-table */
-  table-layout: fixed; /* force un calcul homogène des cellules */
-  /* Radios centrés et cliquables */
-  /* Boutons Effacer compacts */
-}
-#reset-section #reset-table thead th.group {
-  text-transform: uppercase;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: rgba(255, 255, 255, 0.06);
-}
-#reset-section #reset-table thead th:first-child { /* colonne libellés */
-  width: 240px;
-}
-#reset-section #reset-table th, #reset-section #reset-table td {
-  padding: 6px 4px;
-  font-size: 0.85rem;
-  white-space: nowrap; /* évite les retours à la ligne */
-}
-#reset-section #reset-table td input[type=radio] {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-#reset-section #reset-table td .btn {
-  font-size: 0.75rem;
-  padding: 0.3rem 0.55rem;
-  line-height: 1;
-}
-#reset-section #reset-table .cell-actions {
-  text-align: center;
-}
-#reset-section #reset-table .cell-actions #reset-all-btn {
-  display: inline-block;
-  width: 100%;
-  max-width: 560px;
-  margin: 0.4rem auto;
-}
-#reset-section .table-help {
-  margin-top: 0.5rem;
-  font-size: 0.85rem;
-  color: #c8c8c8;
+  line-height: 1.2; /* garde un petit volume sans dépasser 40px */
+  margin: 0 8px; /* déborde un peu sur les côtés visuellement */
+  /* la couleur de texte et de fond seront posées en inline-style via JS */
 }/*# sourceMappingURL=admin.css.map */

@@ -17,7 +17,7 @@ onAuthStateChanged(auth, (user) => {
 
   if (!allowed) {
     // Non connecté OU non autorisé → retour à l'accueil
-    window.location.replace("index.html");
+    window.location.replace("../index.html");
     return;
   }
 
@@ -31,7 +31,7 @@ onAuthStateChanged(auth, (user) => {
     logoutBtn.textContent = "Logout";
     logoutBtn.onclick = async () => {
       try { await signOut(auth); } finally {
-        window.location.replace("index.html");
+        window.location.replace("../index.html");
       }
     };
   }

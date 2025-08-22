@@ -320,4 +320,59 @@ body {
   .rank-control .rank-select {
     min-width: 140px;
   }
+}
+/* ----------------------- Phase switch ----------------------- */
+.phase-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #fff;
+}
+.phase-switch .phase-label {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+.phase-switch .phase-label .sep {
+  opacity: 0.6;
+}
+.phase-switch .switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 22px;
+}
+.phase-switch .switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.phase-switch .switch .slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #666;
+  border-radius: 22px;
+  transition: 0.3s;
+}
+.phase-switch .switch .slider::before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+.phase-switch .switch input:checked + .slider {
+  background-color: #9146ff; /* violet Twitch */
+}
+.phase-switch .switch input:checked + .slider::before {
+  transform: translateX(22px);
 }/*# sourceMappingURL=team.css.map */

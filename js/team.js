@@ -3,7 +3,7 @@ import { dbFirestore, dbRealtime } from "./firebase-config.js";
 import {
     collection, getDocs, query, where, orderBy, limit
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-import { ref, onValue, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { ref, onValue, off, update, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 /* ----------------------- Helpers DOM ----------------------- */
 function qs(sel, root = document) {
@@ -38,10 +38,11 @@ function getTeamTagFromURL() {
 /* ----- Contexte (UI) : jeu / course / taille grille -------- */
 
 let currentGridSize = 12; // défaut local (sera piloté par RTDB)
-let currentTeamTag = null; // défini après chargement de l’équipe
 // Portée de saisie: cohorte (ici MK8 uniquement)
 let currentPhaseKey = "mk8";   // "mk8" | "mkw" (on branche MKW plus tard)
 let phasePilotsCache = [];     // 12 pilotes du tournoi MK8 (toutes équipes)
+// handle dynamique du listener RTDB des classements selon la phase
+let ranksRef = null;
 
 /**
  * Met à jour les 2 pills dans la topbar.
@@ -164,6 +165,7 @@ function rankControl(pilotId, gridSize = 12, currentRank = "") {
 
     // Événement local (on branchera la RTDB plus tard)
     select.addEventListener("blur", () => {
+        if (currentPhaseKey !== "mk8") return;   // garde simple
         const value = select.value; // "" ou "1".."24"
         const detail = { pilotId, rank: value ? Number(value) : null };
         document.dispatchEvent(new CustomEvent("pilot-rank-change", { detail }));
@@ -217,30 +219,94 @@ function setContextPlaceholders() {
 function startContextListener() {
     const ctxRef = ref(dbRealtime, "context/current");
 
+    // petit verrou pour ne pas écrire en RTDB quand on ne fait que refléter l’état
+    let syncingPhaseFromRTDB = false;
+
     onValue(ctxRef, (snap) => {
         const v = snap.val() || {};
-        // champs attendus dans RTDB:
-        //   game: "MK8" | "MKW"
-        //   race: "Course 3/8" | "Survie 1" | ...
-        //   gridSize: 12 | 24
         const ctx = {
             game: v.game ?? "—",
             race: v.race ?? v.raceLabel ?? "Course —",
             gridSize: Number.isFinite(Number(v.gridSize)) ? Number(v.gridSize) : 12
         };
+
+        // 1) Met à jour l’UI (pills + taille des selects)
         applyContext(ctx);
+
+        // 2) Aligne le toggle UI sans déclencher d’écriture
+        const toggle = document.getElementById("phase-toggle");
+        if (toggle) {
+            syncingPhaseFromRTDB = true;
+            toggle.checked = (ctx.game === "MKW");
+            // label texte (optionnel)
+            const lbl = toggle.nextElementSibling?.querySelector(".toggle-label");
+            if (lbl) lbl.textContent = toggle.checked ? "MKW" : "MK8";
+            // anti-rebond minimal
+            setTimeout(() => { syncingPhaseFromRTDB = false; }, 0);
+        }
+
+        // 3) Adapte la phase locale + relance l’écoute des classements si besoin
+        const nextPhase = (ctx.game === "MKW") ? "mkw" : "mk8";
+        if (nextPhase !== currentPhaseKey) {
+            currentPhaseKey = nextPhase;
+            startRanksListener(); // rebranche sur live/results/<phase>/current
+        }
     }, (err) => {
         console.error("[team] RTDB context error:", err);
-        // fallback visuel doux si besoin
         applyContext({ game: "—", race: "Course —", gridSize: 12 });
     });
+
+    // Expose le flag pour l’autre bout (binding du toggle)
+    startContextListener._syncingPhaseFromRTDB = () => syncingPhaseFromRTDB;
 }
+function bindPhaseToggle() {
+    const toggle = document.getElementById("phase-toggle");
+    if (!toggle) return;
+
+    toggle.addEventListener("change", async () => {
+        // Ne rien faire si le changement vient de la synchro RTDB (miroir)
+        const syncing = typeof startContextListener._syncingPhaseFromRTDB === "function"
+            ? startContextListener._syncingPhaseFromRTDB() : false;
+        if (syncing) return;
+
+        const game = toggle.checked ? "MKW" : "MK8";
+        const gridSize = toggle.checked ? 24 : 12;
+
+        // Met à jour le petit label à droite du switch
+        const lbl = toggle.nextElementSibling?.querySelector(".toggle-label");
+        if (lbl) lbl.textContent = game;
+
+        try {
+            // Écriture en RTDB → tous les clients se mettront à jour via startContextListener()
+            await updateContext({ game, gridSize });
+            // Feedback optimiste immédiat côté UI
+            applyContext({ game, gridSize, race: undefined });
+        } catch (err) {
+            console.error("[team] toggle updateContext error:", err);
+        }
+    });
+}
+
 // ----- RTDB: écriture par PHASE (mk8/mkw), pas par équipe -----
-// live/results/<PHASE>/current/<pilotId> => { rank, updatedAt }
 async function writePilotRank(pilotId, rank) {
+    // 1) on ne pousse rien si la phase n'est pas MK8 (on branchera MKW plus tard)
+    if (currentPhaseKey !== "mk8") return;
+
+    // 2) normalisation : null ou entier dans [1..currentGridSize]
+    let safeRank = null;
+    if (rank != null && rank !== "") {
+        const n = Number(rank);
+        if (Number.isFinite(n) && n >= 1 && n <= currentGridSize) {
+            safeRank = n;
+        } else {
+            // hors bornes -> on ignore l’écriture
+            return;
+        }
+    }
+
     const node = ref(dbRealtime, `live/results/${currentPhaseKey}/current/${pilotId}`);
     const payload = {
-        rank: rank ?? null,
+        rank: safeRank,               // null ou entier valide
         updatedAt: serverTimestamp()
     };
     try {
@@ -250,6 +316,11 @@ async function writePilotRank(pilotId, rank) {
     }
 }
 
+// Écrit un patch dans context/current (phase, gridSize, etc.)
+function updateContext(partial) {
+    const ctxRef = ref(dbRealtime, "context/current");
+    return update(ctxRef, { ...partial, updatedAt: serverTimestamp() });
+}
 // Met à jour le <select> d'un pilote depuis une valeur RTDB (sans déclencher d'événement)
 function updateSelectForPilot(pilotId, rank) {
     const sel = document.querySelector(`.rank-select[data-pilot="${pilotId}"]`);
@@ -260,19 +331,30 @@ function updateSelectForPilot(pilotId, rank) {
     // feedback visuel discret
     pulsePilotCard(pilotId);
 }
-// Écoute live des classements pour la COHORTE (mk8/mkw)
+// Écoute live des classements pour la COHORTE (mk8/mkw) — détachable
 function startRanksListener() {
-    const node = ref(dbRealtime, `live/results/${currentPhaseKey}/current`);
-    onValue(node, (snap) => {
+    // démonte un éventuel ancien listener
+    if (ranksRef) {
+        try { off(ranksRef); } catch (e) {}
+        ranksRef = null;
+    }
+
+    // Tant que MKW n’est pas implémenté : on n’abonne rien
+    if (currentPhaseKey !== "mk8") {
+        console.warn("[team] MKW non encore implémenté → listener désactivé.");
+        return;
+    }
+
+    ranksRef = ref(dbRealtime, `live/results/${currentPhaseKey}/current`);
+    onValue(ranksRef, (snap) => {
         const data = snap.val() || {};
-        // data = { <pilotId>: { rank: Number|null, updatedAt: ... }, ... }
 
         // MAJ des selects visibles
         Object.entries(data).forEach(([pilotId, entry]) => {
             updateSelectForPilot(pilotId, entry && entry.rank);
         });
 
-        // Calcul des statuts cohorte → on colorera/lockera juste après
+        // Calcule et applique les statuts (pending/conflict/final/empty)
         applyStatusesFromRTDB(data);
     }, (err) => {
         console.error("[team] RTDB ranks error:", err);
@@ -360,31 +442,44 @@ function applyStatusesFromRTDB(ranksData) {
 (async function init() {
     try {
         setContextPlaceholders();
-        startContextListener(); // ← branche le contexte live (RTDB)
+        startContextListener();  // contexte live (RTDB)
+        bindPhaseToggle();       // switch MK8/MKW
 
         const tag = getTeamTagFromURL();
         if (!tag) throw new Error("Paramètre ?id=TAG manquant dans l’URL.");
 
+        // Équipe + thème
         const team = await fetchTeamByTag(tag);
-        currentTeamTag = tag; // mémorise le TAG pour le chemin RTDB
         applyTeamTheme(team);
 
+        // Grille visuelle des pilotes de CETTE équipe
         const pilots = await fetchPilotsOfTeam(team.name);
         renderPilotsGrid(pilots);
-        startRanksListener();
-        
-        // ----- Charger la cohorte MK8 (12 pilotes) filtrée + triée -----
-        const mk8Snap = await getDocs(
-            query(
-                collection(dbFirestore, "pilots"),
-                where("game", "==", "MK8"),
-                orderBy("order"),
-                limit(12)
-            )
-        );
-        phasePilotsCache = mk8Snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-        // Au blur de n’importe quel select: on pousse vers RTDB
+        // Cohorte pour la phase courante (seulement MK8 pour l’instant)
+        if (currentPhaseKey === "mk8") {
+            const mk8Snap = await getDocs(
+                query(
+                    collection(dbFirestore, "pilots"),
+                    where("game", "==", "MK8"),
+                    orderBy("order"),
+                    limit(12)
+                )
+            );
+            phasePilotsCache = mk8Snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } else {
+            // MKW non encore géré : cohorte vide pour ignorer le reste
+            phasePilotsCache = [];
+            console.warn("[team] Phase MKW non encore prise en charge.");
+        }
+
+        // Si MKW : on stoppe là (pas d’écoute RTDB, pas d’écriture)
+        if (currentPhaseKey !== "mk8") return;
+
+        // Listener RTDB (classements cohorte)
+        startRanksListener();
+
+        // Écriture : au blur d’un select, on pousse la valeur
         document.addEventListener("pilot-rank-change", (e) => {
             const { pilotId, rank } = e.detail || {};
             writePilotRank(pilotId, rank);
@@ -396,10 +491,3 @@ function applyStatusesFromRTDB(ranksData) {
         if (grid) grid.innerHTML = `<p style="opacity:.7">Impossible de charger l’équipe.</p>`;
     }
 })();
-// DEBUG local: log quand un pilote change son rang (aucun write RTDB encore)
-document.addEventListener("pilot-rank-change", (e) => {
-    const { pilotId, rank } = e.detail || {};
-    pulsePilotCard(pilotId);     // feedback immédiat (optimiste)
-    writePilotRank(pilotId, rank);
-});
-

@@ -1,5 +1,5 @@
 // js/admin.js
-import { dbFirestore } from "./firebase-config.js";
+import { dbFirestore } from "./../js/firebase-config.js";
 import {
     collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, setDoc
@@ -7,7 +7,7 @@ import {
 
 /* ----------------------- Helpers ----------------------- */
 
-const IMG_PREFIX = "./assets/images/";
+const IMG_PREFIX = "./../assets/images/";
 const TWITCH_PREFIX = "https://twitch.tv/";
 
 function ensureImagePath(path) {

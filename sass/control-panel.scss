@@ -1,0 +1,651 @@
+/* ========== control-panel.scss (MAJ complète) ========== */
+/* Page indépendante : ne dépend pas de main.scss */
+
+/* Variables */
+:root {
+    --header-h: 50px;
+    --races-h: 44px;
+    --left-col-w: 250px;
+
+    --pilot-row-h: 24px;
+    --pilot-gap: 4px;
+
+    --border: rgba(255,255,255,0.12);
+    --sep: rgba(255,255,255,0.08);
+    --bg-soft: rgba(255,255,255,0.02);
+
+    --rank-empty-bg: #ffffff;
+    --rank-filled-bg: #e8e617;
+    --rank-conflict-bg: #ed2228;
+    --rank-complete-bg: #139b49;
+    --rank-text: #0c0616;
+}
+
+/* Reset local léger */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { height: 100%; }
+body.cp-body {
+    margin: 0;
+    background: #0c0616;
+    color: #fff;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", sans-serif;
+    line-height: 1.3;
+}
+
+/* Conteneur global contraint à 1440px et 100vh */
+.cp-app {
+    max-width: 1440px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 16px;
+}
+
+/* HEADER (compacté) */
+.cp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: var(--header-h);
+    padding: 0 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    background: linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.00));
+}
+
+.cp-header-left,
+.cp-header-right {
+    display: flex;
+    align-items: center;
+}
+
+.cp-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    text-decoration: none;
+    color: #fff;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    transition: transform .16s ease, background .16s ease, border-color .16s ease;
+
+    &:hover {
+        transform: translateY(-1px);
+        background: rgba(255,255,255,0.14);
+        border-color: rgba(255,255,255,0.22);
+    }
+}
+
+.cp-title {
+    margin: 0;
+    font-weight: 700;
+    font-size: 20px; /* réduit */
+    letter-spacing: .4px;
+    color: #fff;
+}
+
+/* Switch Phase MK8/MKW */
+.cp-header-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.cp-phase-switch {
+    display: inline-flex;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255,255,255,0.06);
+}
+.cp-switch-btn {
+    padding: 6px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background .2s ease, color .2s ease;
+
+    &:hover {
+        background: rgba(255,255,255,0.12);
+        color: #fff;
+    }
+    &.is-active {
+        background: #fff;
+        color: #0c0616;
+    }
+}
+
+/* MAIN : prend tout l’espace restant ; pas de scroll global */
+.cp-main {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 4px 8px; /* réduit */
+    overflow: hidden; /* pas de scroll sur le conteneur */
+}
+
+/* === Section Races (compacte) — avec titre à gauche et piste+tuiles à droite === */
+.cp-races-section {
+    flex: 0 0 var(--races-h);
+    width: 100%;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    /* rythme partagé piste/tuile */
+    --tile-w: 44px;          /* largeur d’une tuile/segment */
+    --track-h: 18px;         /* hauteur de la piste */
+    --race-gap: 10px;        /* doit matcher l’espacement horizontal des tuiles */
+
+    .cp-races-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+        gap: 50px;
+        width: 100%;
+        padding: 0 8px;
+
+        .cp-races-title {
+            flex: 0 0 auto;
+            white-space: nowrap;
+            //margin-right: 8px;
+        }
+
+        /* Colonne droite : piste au-dessus, rangée en dessous */
+        .cp-races-right {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex: 1 1 auto;
+            min-width: 0;
+
+            .cp-races-track {
+                display: flex;
+                align-items: flex-end;
+                gap: var(--race-gap);
+                /* pas de padding interne : on hérite du padding de .cp-races-inner */
+                margin: 0; /* l'espacement vertical est géré par gap */
+                position: relative;
+                z-index: 3;
+                overflow: visible;
+            }
+
+            .cp-track-segment {
+                position: relative;
+                width: var(--tile-w);
+                height: var(--track-h);
+                flex: 0 0 var(--tile-w);
+                z-index: 1;
+                // overflow: hidden; /* coupe le zoom */
+
+                /* URLs des images (modifiable) */
+                --road-url:   url('../assets/icons/track.png');
+                --lights-url: url('../assets/icons/start.png');
+                --finish-url: url('../assets/icons/finish.png');
+                --kart-url:   url('../assets/icons/kart.png');
+
+                /* paramètres réglables (zoom / offset) */
+                --road-zoom:   1.00;
+                --road-tx:     0px;
+                --road-ty:     0px;
+
+                --lights-zoom: 1.00;
+                --lights-tx:   0px;
+                --lights-ty:   0px;
+
+                --finish-zoom: 1.00;
+                --finish-tx:   0px;
+                --finish-ty:   0px;
+
+                --kart-zoom:   3.00;
+                --kart-tx:     0px;
+                --kart-ty:     0px;
+
+                /* Base: la "route" (ou start/finish selon le segment) */
+                &::before {
+                    content: "";
+                    position: absolute;
+                    inset: 0;
+                    background: var(--road-url) center / 100% 100% no-repeat;
+                    pointer-events: none;
+                    transform-origin: center;
+                    transform:
+                        translate(var(--road-tx), var(--road-ty))
+                        scale(var(--road-zoom));
+                }
+
+                /* 1) Premier segment : utilise START comme route (au lieu de track) */
+                &.is-first {
+                    --road-url:  var(--lights-url);
+                    --road-zoom: var(--lights-zoom);
+                    --road-tx:   var(--lights-tx);
+                    --road-ty:   var(--lights-ty);
+                }
+
+                /* 2) Dernier segment : utilise FINISH comme route (au lieu de track) */
+                &.is-last {
+                    --road-url:  var(--finish-url);
+                    --road-zoom: var(--finish-zoom);
+                    --road-tx:   var(--finish-tx);
+                    --road-ty:   var(--finish-ty);
+                }
+
+                /* 3) Segment actif (course en cours) : overlay KART */
+                &.is-active {
+                    overflow: visible;  /* ne pas clipper le kart */
+                    z-index: 10;        /* passe au-dessus des segments voisins */
+                    
+                    &::after {
+                        content: "";
+                        position: absolute;
+                        left: 50%;
+                        top: 50%;
+                        width: 20px;
+                        height: 20px;
+                        background: var(--kart-url) center / contain no-repeat;
+                        pointer-events: none;
+                        transform:
+                            translate(calc(-50% + var(--kart-tx)), calc(-70% + var(--kart-ty)))
+                            scale(var(--kart-zoom));
+                        z-index: 11;
+                        pointer-events: none;/* ne bloque pas les clics sur les cases/tiles */
+                    }
+                }
+            }
+
+            .cp-races-row {
+                display: flex;
+                gap: var(--race-gap);
+                overflow: hidden; /* pas de scroll visible */
+                flex: 0 0 auto;
+                position: relative;
+                z-index: 1;
+
+                .cp-race-wrap {
+                    display: grid;
+                    grid-template-rows: 14px 40px 14px; /* check / tile / radio */
+                    justify-items: center;
+                    align-items: center;
+                    row-gap: 6px;
+                    min-width: 40px; /* largeur tuile */
+                }
+
+                .cp-race-check {
+                    display: flex;               /* toujours visible */
+                    align-items: center;
+                    justify-content: center;
+                    height: 14px;
+                    visibility: visible;
+                }
+
+                .cp-race-check-input {
+                    width: 14px;
+                    height: 14px;
+                    cursor: pointer;
+                    accent-color: var(--rank-complete-bg);
+
+                    &:disabled {
+                        opacity: 0.45;
+                        cursor: not-allowed;
+                    }
+                }
+
+                /* Option visuelle : souligner la tuile active */
+                .cp-race-tile.is-active {
+                    box-shadow: 0 0 0 2px rgba(255,255,255,0.18) inset;
+                }
+
+                /* Courses passées (finalisées) : style léger */
+                .cp-race-wrap.is-previous .cp-race-tile {
+                    opacity: 0.9;
+                }
+
+                /* Radio (en-dessous) -> icônes SVG œil */
+                .cp-race-radio {
+                    --eye-url: url('../assets/icons/eye-close.svg'); /* chemin depuis /css/ */
+                    --eye-color: rgba(255,255,255,0.50);             /* gris œil fermé */
+                    position: relative;
+                    width: 20px;
+                    height: 18px;
+
+                    &::before {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        background-color: var(--eye-color);
+                        -webkit-mask: var(--eye-url) center / contain no-repeat;
+                                mask: var(--eye-url) center / contain no-repeat;
+                        pointer-events: none;
+                        opacity: .95;
+                        transition: background-color .15s ease;
+                    }
+
+                    .cp-race-radio-input {
+                        position: absolute;
+                        inset: 0;
+                        margin: 0;
+                        opacity: 0;
+                        cursor: pointer;
+                    }
+
+                    &:has(.cp-race-radio-input:checked) {
+                        --eye-url: url('../assets/icons/eye-open.svg');
+                        --eye-color: #00b4d8;
+                    }
+
+                    &:hover { --eye-color: #cfefff; }
+                    &:has(.cp-race-radio-input:checked):hover { --eye-color: #67d7ef; }
+                }
+
+                /* option: renforcer l’œil de la course inspectée */
+                .cp-race-wrap .cp-race-tile.is-inspected ~ .cp-race-radio { color: #fff; }
+
+                /* Tuile sélectionnée via radio (inspection) */
+                .cp-race-tile.is-inspected {
+                    outline: 2px dashed rgba(255,255,255,0.35);
+                    outline-offset: 2px;
+                }
+            }
+
+            .cp-race-tile {
+                width: 40px;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 12px;
+                background: #fff;
+                color: #0c0616;
+                font-weight: 700;
+                font-size: 14px;
+                user-select: none;
+                cursor: default;
+                flex-shrink: 0;
+                white-space: nowrap;
+                letter-spacing: .4px;
+                opacity: .9;
+                margin-right: 4px;
+
+                &.is-filled   { background: var(--rank-filled-bg); color: var(--rank-text); }
+                &.is-conflict { background: var(--rank-conflict-bg); color: #fff; }
+                &.is-complete { background: var(--rank-complete-bg); color: #fff; }
+            }
+        }
+    }
+}
+
+/* === Layout principal : colonne gauche (pilotes) + workspace droite === */
+.cp-layout {
+    flex: 1 1 auto;
+    min-height: 0; /* important pour le calcul d'espace */
+    display: grid;
+    grid-template-columns: var(--left-col-w) 1fr;
+    gap: 12px;
+    align-items: stretch;
+    margin-top: 8px; /* sous la barre des courses */
+}
+
+/* Colonne gauche : panneau pilotes (bordure englobante) */
+.cp-pilots-panel {
+    height: 100%;
+    overflow: hidden; /* pas de scroll */
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--bg-soft);
+}
+
+/* Contenu colonne gauche */
+.cp-pilots-scroll {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden; /* s'assure qu'on n'affiche pas de scroll */
+}
+
+/* Bloc d'équipe : logo à gauche (centré verticalement), liste à droite */
+.cp-team-block {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 10px;
+    align-items: stretch; /* étire la colonne logo sur la hauteur du bloc */
+    min-height: 0;
+}
+
+/* Logo centré verticalement et horizontalement */
+.cp-team-logo {
+    align-self: stretch;        /* occupe toute la hauteur du bloc */
+    display: flex;
+    align-items: center;        /* centre verticalement */
+    justify-content: center;    /* centre horizontalement */
+
+    img {
+        max-width: 32px;
+        max-height: 32px;
+        object-fit: contain;
+        filter: drop-shadow(0 1px 0 rgba(0,0,0,.25));
+    }
+}
+
+/* Liste verticale des pilotes (pas côte à côte) */
+.cp-team-pilots {
+    display: flex;
+    flex-direction: column;
+    gap: var(--pilot-gap);
+    min-height: 0;
+}
+
+/* Ligne pilote : badge rang + nom */
+.cp-pilot-item {
+    height: var(--pilot-row-h);
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+    border-radius: 8px;
+
+    .cp-pilot-name {
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+/* Badge de rang (petite vignette carrée) + états */
+.cp-rank-badge {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--rank-text);
+    background: var(--rank-empty-bg);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.25);
+    user-select: none;
+
+    &.is-empty {
+        background: var(--rank-empty-bg);
+    }
+    &.is-filled {
+        background: var(--rank-filled-bg);
+    }
+    &.is-conflict {
+        background: var(--rank-conflict-bg);
+        color: #fff; /* texte blanc demandé */
+    }
+    &.is-complete {
+        background: var(--rank-complete-bg);
+        color: #fff;
+    }
+}
+
+/* Séparateur discret entre équipes */
+.cp-team-sep {
+    height: 1px;
+    background: var(--sep);
+    margin: 4px 0;
+}
+
+/* Espace de travail (droite) placeholder */
+.cp-workspace {
+    height: 100%;
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    background: var(--bg-soft);
+    overflow: auto; /* si besoin, c'est la zone droite qui scrollera */
+}
+
+.cp-right {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0; /* indispensable pour éviter le scroll vertical global */
+}
+
+/* === Modale sélection de rang === */
+
+.cp-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(2px);
+    z-index: 9999;
+}
+
+.cp-rank-cell.is-reset {
+    background: var(--rank-empty-bg);
+    color: var(--rank-text);
+    border-style: dashed;
+    font-size: 11px;
+    text-transform: lowercase;
+}
+
+.cp-modal-card {
+    position: relative;
+    background: #0f0a1b;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 12px;
+    padding: 38px 16px 16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    width: 340px; /* compact */
+    max-width: calc(100% - 32px);
+}
+
+.cp-modal-title {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    height: 28px;
+    line-height: 28px;       /* aligné verticalement avec les boutons */
+    font-weight: 700;
+    font-size: 13px;
+    color: #fff;
+    max-width: calc(100% - 160px); /* laisse la place pour Reset + Close */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;     /* évite de bloquer le clic sur les boutons */
+    opacity: 0.95;
+}
+
+.cp-modal-close {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+
+    &:hover { transform: translateY(-1px); background: rgba(255,255,255,0.12); }
+}
+.cp-modal-reset {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    height: 28px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px dashed rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.06);
+    color: #fff;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+
+    &:hover {
+        transform: translateY(-1px);
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.28);
+    }
+}
+
+.cp-rank-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 30px); /* ≤ 150% des badges (22px -> 33px max) */
+    gap: 8px;
+    justify-content: center;
+    padding: 10px 6px 2px;
+}
+
+.cp-rank-cell {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    border: 1px solid rgba(0,0,0,0.25);
+    background: var(--rank-empty-bg);
+    color: var(--rank-text);
+    font-weight: 800;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    transition: transform .12s ease, box-shadow .12s ease, background .12s ease, color .12s ease;
+
+    &:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,0.35); }
+
+    &.is-filled {
+        background: var(--rank-filled-bg);
+        color: var(--rank-text);
+    }
+    &.is-conflict {
+        background: var(--rank-conflict-bg);
+        color: #fff; /* texte blanc demandé */
+    }
+    /* .is-empty hérite du fond blanc */
+}
+
+/* FOOTER inutilisé : masqué */
+.cp-footer { display: none; }

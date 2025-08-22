@@ -368,8 +368,8 @@ body {
 
             .pilot-num {
                 position: absolute;
-                top: 8px;          // tu ajusteras dans l’inspecteur
-                right: 10px;       // idem
+                top: 4px;          // tu ajusteras dans l’inspecteur
+                right: 4px;       // idem
                 z-index: 2;
 
                 font-family: $font-subtitle; // si non défini : mets-le = $font-title dans _variables

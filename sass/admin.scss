@@ -120,6 +120,7 @@ body {
     }
 
     td input,
+    td input:not([type="radio"]),
     td select {
         height: 28px;
         width: 100%;
@@ -150,6 +151,17 @@ body {
         text-align: center;
     }
 }
+/* ==========================
+   Tables de RESET
+   ========================== */
+   
+#reset-table input[type="radio"] {
+    appearance: auto;   /* remet le rendu natif */
+    width: auto;        /* taille par défaut du navigateur */
+    height: auto;
+}
+
+
 /* Table écuries (avec colonne Ordre en 1) */
 #teams-table {
     th:nth-child(1), td:nth-child(1) { width: 60px;  }  /* Ordre */

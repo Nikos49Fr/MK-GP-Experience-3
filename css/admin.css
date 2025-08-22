@@ -111,6 +111,7 @@ body {
   background: rgba(255, 255, 255, 0.03);
 }
 .admin-table td input,
+.admin-table td input:not([type=radio]),
 .admin-table td select {
   height: 28px;
   width: 100%;
@@ -122,6 +123,7 @@ body {
   font-size: 0.85rem;
 }
 .admin-table td input:focus,
+.admin-table td input:not([type=radio]):focus,
 .admin-table td select:focus {
   outline: 1px solid #ffd54f;
   border-color: #ffd54f;
@@ -136,6 +138,15 @@ body {
 .admin-table .col-actions {
   width: 80px;
   text-align: center;
+}
+
+/* ==========================
+   Tables de RESET
+   ========================== */
+#reset-table input[type=radio] {
+  appearance: auto; /* remet le rendu natif */
+  width: auto; /* taille par défaut du navigateur */
+  height: auto;
 }
 
 /* Table écuries (avec colonne Ordre en 1) */

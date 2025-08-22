@@ -97,7 +97,9 @@ import {
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 import { ref, get, set, remove, update } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
-/* ----------------------- Helpers ----------------------- */
+/* =====================================================
+   Helpers généraux (images, twitch, tri, rendu commun)
+   ===================================================== */
 
 const IMG_PREFIX = "./../assets/images/";
 const TWITCH_PREFIX = "https://twitch.tv/";
@@ -473,7 +475,9 @@ function getPilotAddInputs() {
   };
 }
 
-/* ----------------------- Rendering ----------------------- */
+/* =====================================================
+   Rendering: Points grid / Teams / Pilots
+   ===================================================== */
 
 function renderPointsGrid() {
     const table = document.getElementById("points-grid-table");
@@ -748,7 +752,9 @@ function renderPilotsTable() {
     });
 }
 
-/* ----------------------- Edit rows ----------------------- */
+/* =====================================================
+   Edit inline: Teams / Pilots
+   ===================================================== */
 
 function enterEditTeamRow(tr, team) {
   tr.innerHTML = "";
@@ -956,7 +962,9 @@ function enterEditPilotRow(tr, p) {
   tr.appendChild(actionsTd);
 }
 
-/* ----------------------- CRUD ----------------------- */
+/* =====================================================
+   CRUD Firestore: add/update/delete Teams & Pilots
+   ===================================================== */
 
 // --- ADD DOCS ----
 async function addTeam() {
@@ -1041,7 +1049,9 @@ async function deletePilot(id) {
     await deleteDoc(doc(dbFirestore, "pilots", id));
 }
 
-/* ----------------------- Listeners ----------------------- */
+/* =====================================================
+   Live listeners Firestore: points / teams / pilots
+   ===================================================== */
 
 function listenPoints() {
     // MK8
@@ -1100,7 +1110,9 @@ function listenPilots() {
     });
 }
 
-/* ----------------------- Wire UI ----------------------- */
+/* =====================================================
+   Wire UI (DOMContentLoaded): boutons & listeners
+   ===================================================== */
 
 function wireAddRowButtons() {
     const t = getTeamAddInputs();
@@ -1137,27 +1149,38 @@ document.addEventListener("DOMContentLoaded", () => {
 
 /* =====================================================
    RESET SECTION (Realtime Database: live + context)
+   - Conformité stricte au schéma validé
+   - Efface par course (résultats + points) et ré-ouvre la course
+   - Reset global: efface 'live' + 'context' (jamais 'meta')
    ===================================================== */
 (function () {
     function $(sel, root = document) { return root.querySelector(sel); }
     function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
-    // --- API ciblée reset ---
-    async function clearRace(game, race) {
-        // Normalisation des chemins RTDB réels
-        const phase = String(game).trim().toLowerCase(); // "mk8" | "mkw"
+    // --- Normalisations alignées avec le schéma ---
+    function normalizePhase(phase) {
+        return String(phase || "").trim().toLowerCase(); // "mk8" | "mkw"
+    }
+    function normalizeRaceId(raceId) {
+        const v = String(raceId || "").trim().toUpperCase();
+        if (v === "S" || v === "SF") return v;
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) ? String(n) : v;       // "2" -> "2"
+    }
 
-        function raceKeyOf(r) {
-            const v = String(r).trim().toUpperCase();
-            if (v === "S")  return "s";
-            if (v === "SF") return "sf";
-            if (/^\d+$/.test(v)) return "c" + parseInt(v, 10); // "2" -> "c2"
-            return v.toLowerCase();
-        }
-        const raceKey = raceKeyOf(race); // ex: "2" -> "c2"
+    /**
+     * Reset par course (phase, raceId):
+     * 1) lire points/byRace/{raceId} → décrémenter totals par pilote de 'final'
+     * 2) remove points/byRace/{raceId}
+     * 3) remove results/byRace/{raceId} (ranks + doubles)
+     * 4) set races/{phase}/{raceId} = { finalized:false } (ré-ouvrir la course)
+     */
+    async function clearRace(phaseInput, raceIdInput) {
+        const phase  = normalizePhase(phaseInput);   // "mk8" | "mkw"
+        const raceId = normalizeRaceId(raceIdInput); // "1".."12" | "S" | "SF"
 
-        // --- A) Ajuster les totals (décrémenter ce qui vient de cette course) ---
-        const byRaceRef = ref(dbRealtime, `live/points/${phase}/byRace/${raceKey}`);
+        // --- A) Ajuster totals (décrémenter 'final' de cette course) ---
+        const byRaceRef = ref(dbRealtime, `live/points/${phase}/byRace/${raceId}`);
         const totalsRef = ref(dbRealtime, `live/points/${phase}/totals`);
 
         const [byRaceSnap, totalsSnap] = await Promise.all([
@@ -1169,10 +1192,11 @@ document.addEventListener("DOMContentLoaded", () => {
             const byRace = byRaceSnap.val() || {};
             const totals = totalsSnap.val() || {};
             const updates = {};
+
             for (const [pilotId, obj] of Object.entries(byRace)) {
-                const pts = Number((obj && obj.points) || 0);
-                const cur = Number(totals[pilotId] || 0);
-                const next = Math.max(0, cur - pts);
+                const finalPts = Number(obj?.final ?? 0);
+                const cur = Number(totals[pilotId] ?? 0);
+                const next = Math.max(0, cur - finalPts);
                 updates[pilotId] = next;
             }
             if (Object.keys(updates).length) {
@@ -1180,22 +1204,20 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        // --- B) Supprimer toutes les données de cette course ---
+        // --- B) Supprimer toutes les données de cette course (points & results) ---
         await Promise.allSettled([
-            // points par course
+            // Points par course
             remove(byRaceRef),
 
-            // résultats historiques, état de course, edits
-            remove(ref(dbRealtime, `live/results/${phase}/history/${raceKey}`)),
-            remove(ref(dbRealtime, `live/races/${phase}/${raceKey}`)),
-            remove(ref(dbRealtime, `live/edits/${phase}/${raceKey}`)),
-
-            // (tolérant) s'il existe des traces côté context avec la même convention
-            remove(ref(dbRealtime, `context/${phase}/races/${raceKey}`)).catch(() => {}),
-            remove(ref(dbRealtime, `context/${phase}/results/history/${raceKey}`)).catch(() => {}),
+            // Résultats figés (ranks + doubles)
+            remove(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`)),
         ]);
+
+        // --- C) Ré-ouvrir la course (finalized:false) ---
+        await set(ref(dbRealtime, `live/races/${phase}/${raceId}`), { finalized: false });
     }
 
+    // Reset global (efface 'live' + 'context' uniquement)
     async function clearAll() {
         await Promise.all([
             remove(ref(dbRealtime, "live")),
@@ -1208,15 +1230,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const table = $("#reset-table");
         if (!table) return;
 
-        // Radios présentes dans le HTML: aucun effet BDD, pas d'écouteurs nécessaires.
+        // Radios présentes dans le HTML: aucun effet BDD (décidé ensemble)
         const clearButtons = $all('button[data-action="clear"]', table);
         const resetAllBtn = $("#reset-all-btn");
 
-        // Effacement par course (live + context)
+        // Effacement par course (conforme au schéma)
         clearButtons.forEach(btn => {
             btn.addEventListener("click", async () => {
-                const game = btn.getAttribute("data-game");
-                const race = btn.getAttribute("data-race");
+                const game = btn.getAttribute("data-game"); // "mk8" | "mkw" (UI)
+                const race = btn.getAttribute("data-race"); // "1".."12" | "S" | "SF" (UI)
                 btn.disabled = true;
                 try {
                     await clearRace(game, race);

@@ -1,9 +1,10 @@
 // js/admin.js
-import { dbFirestore } from "./../js/firebase-config.js";
+import { dbFirestore, dbRealtime  } from "./../js/firebase-config.js";
 import {
     collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, setDoc
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+import { ref, get, set, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 /* ----------------------- Helpers ----------------------- */
 
@@ -1042,3 +1043,128 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnSave)   btnSave.addEventListener("click", savePointsGrid);
     if (btnCancel) btnCancel.addEventListener("click", cancelPointsEdit);
 });
+
+/* =====================================================
+   RESET SECTION (Realtime Database: live + context)
+   ===================================================== */
+(function () {
+    function $(sel, root = document) { return root.querySelector(sel); }
+    function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+
+    // --- API ---
+    async function readSimulationCurrent() {
+        const snap = await get(ref(dbRealtime, "context/simulation"));
+        return snap.exists() ? snap.val() : null;
+    }
+    async function setSimulationCurrent(game, race) {
+        const payload = {
+            game: String(game).toUpperCase(),
+            race: String(race).toUpperCase(),
+            updatedAt: Date.now()
+        };
+        await set(ref(dbRealtime, "context/simulation"), payload);
+    }
+    function candidateRacePaths(rootKey, game, race) {
+        // chemins candidats (souples) pour ne pas dépendre d’un schéma unique
+        const gL = String(game).toLowerCase();
+        const gU = String(game).toUpperCase();
+        const r  = String(race).toUpperCase();
+        return [
+            `${rootKey}/${gL}/races/${r}`,
+            `${rootKey}/${gL}/results/${r}`,
+            `${rootKey}/${gL}/points/byRace/${r}`,
+            `${rootKey}/${gL}/edits/${r}`,
+            `${rootKey}/${gU}/races/${r}`,
+            `${rootKey}/${gU}/results/${r}`,
+            `${rootKey}/${gU}/points/byRace/${r}`,
+            `${rootKey}/${gU}/edits/${r}`,
+            `${rootKey}/races/${gL}/${r}`,
+            `${rootKey}/races/${gU}/${r}`,
+            `${rootKey}/results/${gL}/${r}`,
+            `${rootKey}/results/${gU}/${r}`
+        ];
+    }
+    async function clearRace(game, race) {
+        const paths = [...new Set([
+            ...candidateRacePaths("live", game, race),
+            ...candidateRacePaths("context", game, race)
+        ])];
+        await Promise.all(paths.map(p => remove(ref(dbRealtime, p)).catch(() => {})));
+    }
+    async function clearAll() {
+        await Promise.all([
+            remove(ref(dbRealtime, "live")),
+            remove(ref(dbRealtime, "context"))
+        ]);
+    }
+
+    // --- UI wiring ---
+    function wireResetUI() {
+        const table = $("#reset-table");
+        if (!table) return;
+
+        const radios = $all('input[type="radio"][name="sim-current"]', table);
+        const clearButtons = $all('button[data-action="clear"]', table);
+        const resetAllBtn = $("#reset-all-btn");
+
+        // Pré-sélection depuis context/simulation
+        readSimulationCurrent().then(sim => {
+            if (!sim) return;
+            for (const r of radios) {
+                const g = (r.getAttribute("data-game") || "").toUpperCase();
+                const rv = (r.getAttribute("data-race") || "").toUpperCase();
+                if (g === String(sim.game).toUpperCase() && rv === String(sim.race).toUpperCase()) {
+                    r.checked = true;
+                    break;
+                }
+            }
+        }).catch(() => {});
+
+        // Choix simulation (écriture context/simulation)
+        radios.forEach(radio => {
+            radio.addEventListener("change", async () => {
+                if (!radio.checked) return;
+                const game = radio.getAttribute("data-game");
+                const race = radio.getAttribute("data-race");
+                try {
+                    await setSimulationCurrent(game, race);
+                } catch (e) {
+                    console.error("[reset] setSimulationCurrent error:", e);
+                }
+            });
+        });
+
+        // Effacement par course (live + context)
+        clearButtons.forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const game = btn.getAttribute("data-game");
+                const race = btn.getAttribute("data-race");
+                btn.disabled = true;
+                try {
+                    await clearRace(game, race);
+                } catch (e) {
+                    console.error("[reset] clearRace error:", e);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        // RESET général (confirmation)
+        if (resetAllBtn) {
+            resetAllBtn.addEventListener("click", async () => {
+                if (!confirm("Confirmer le RESET GÉNÉRAL ? (efface live + context)")) return;
+                resetAllBtn.disabled = true;
+                try {
+                    await clearAll();
+                } catch (e) {
+                    console.error("[reset] clearAll error:", e);
+                } finally {
+                    resetAllBtn.disabled = false;
+                }
+            });
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", wireResetUI);
+})();

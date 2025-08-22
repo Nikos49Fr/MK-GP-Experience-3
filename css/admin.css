@@ -143,10 +143,28 @@ body {
 /* ==========================
    Tables de RESET
    ========================== */
-#reset-table input[type=radio] {
-  appearance: auto; /* remet le rendu natif */
-  width: auto; /* taille par défaut du navigateur */
-  height: auto;
+#reset-section .reset-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+#reset-section .reset-all-btn {
+  background: #f44336;
+  color: #fff;
+  font-weight: 700;
+  border: 0;
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+#reset-section .reset-all-btn:hover {
+  background: #d32f2f;
+}
+#reset-section .reset-all-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Table écuries (avec colonne Ordre en 1) */

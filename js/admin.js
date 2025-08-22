@@ -1148,123 +1148,25 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* =====================================================
-   RESET SECTION (Realtime Database: live + context)
-   - Conformité stricte au schéma validé
-   - Efface par course (résultats + points) et ré-ouvre la course
-   - Reset global: efface 'live' + 'context' (jamais 'meta')
+   RESET (global only) — supprime 'live' + 'context' (jamais 'meta')
    ===================================================== */
 (function () {
-    function $(sel, root = document) { return root.querySelector(sel); }
-    function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
+  const btn = document.getElementById('reset-all-btn');
+  if (!btn) return;
 
-    // --- Normalisations alignées avec le schéma ---
-    function normalizePhase(phase) {
-        return String(phase || "").trim().toLowerCase(); // "mk8" | "mkw"
+  btn.addEventListener('click', async () => {
+    if (!confirm("Confirmer le RESET GÉNÉRAL ? (efface 'live' + 'context' uniquement)")) return;
+    btn.disabled = true;
+    try {
+      await Promise.allSettled([
+        remove(ref(dbRealtime, 'live')),
+        remove(ref(dbRealtime, 'context')),
+      ]);
+    } catch (e) {
+      console.error('[reset] clearAll error:', e);
+      alert('Une erreur est survenue pendant le reset.');
+    } finally {
+      btn.disabled = false;
     }
-    function normalizeRaceId(raceId) {
-        const v = String(raceId || "").trim().toUpperCase();
-        if (v === "S" || v === "SF") return v;
-        const n = parseInt(v, 10);
-        return Number.isFinite(n) ? String(n) : v;       // "2" -> "2"
-    }
-
-    /**
-     * Reset par course (phase, raceId):
-     * 1) lire points/byRace/{raceId} → décrémenter totals par pilote de 'final'
-     * 2) remove points/byRace/{raceId}
-     * 3) remove results/byRace/{raceId} (ranks + doubles)
-     * 4) set races/{phase}/{raceId} = { finalized:false } (ré-ouvrir la course)
-     */
-    async function clearRace(phaseInput, raceIdInput) {
-        const phase  = normalizePhase(phaseInput);   // "mk8" | "mkw"
-        const raceId = normalizeRaceId(raceIdInput); // "1".."12" | "S" | "SF"
-
-        // --- A) Ajuster totals (décrémenter 'final' de cette course) ---
-        const byRaceRef = ref(dbRealtime, `live/points/${phase}/byRace/${raceId}`);
-        const totalsRef = ref(dbRealtime, `live/points/${phase}/totals`);
-
-        const [byRaceSnap, totalsSnap] = await Promise.all([
-            get(byRaceRef).catch(() => null),
-            get(totalsRef).catch(() => null),
-        ]);
-
-        if (byRaceSnap && byRaceSnap.exists() && totalsSnap && totalsSnap.exists()) {
-            const byRace = byRaceSnap.val() || {};
-            const totals = totalsSnap.val() || {};
-            const updates = {};
-
-            for (const [pilotId, obj] of Object.entries(byRace)) {
-                const finalPts = Number(obj?.final ?? 0);
-                const cur = Number(totals[pilotId] ?? 0);
-                const next = Math.max(0, cur - finalPts);
-                updates[pilotId] = next;
-            }
-            if (Object.keys(updates).length) {
-                await update(totalsRef, updates);
-            }
-        }
-
-        // --- B) Supprimer toutes les données de cette course (points & results) ---
-        await Promise.allSettled([
-            // Points par course
-            remove(byRaceRef),
-
-            // Résultats figés (ranks + doubles)
-            remove(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`)),
-        ]);
-
-        // --- C) Ré-ouvrir la course (finalized:false) ---
-        await set(ref(dbRealtime, `live/races/${phase}/${raceId}`), { finalized: false });
-    }
-
-    // Reset global (efface 'live' + 'context' uniquement)
-    async function clearAll() {
-        await Promise.all([
-            remove(ref(dbRealtime, "live")),
-            remove(ref(dbRealtime, "context"))
-        ]);
-    }
-
-    // --- UI wiring ---
-    function wireResetUI() {
-        const table = $("#reset-table");
-        if (!table) return;
-
-        // Radios présentes dans le HTML: aucun effet BDD (décidé ensemble)
-        const clearButtons = $all('button[data-action="clear"]', table);
-        const resetAllBtn = $("#reset-all-btn");
-
-        // Effacement par course (conforme au schéma)
-        clearButtons.forEach(btn => {
-            btn.addEventListener("click", async () => {
-                const game = btn.getAttribute("data-game"); // "mk8" | "mkw" (UI)
-                const race = btn.getAttribute("data-race"); // "1".."12" | "S" | "SF" (UI)
-                btn.disabled = true;
-                try {
-                    await clearRace(game, race);
-                } catch (e) {
-                    console.error("[reset] clearRace error:", e);
-                } finally {
-                    btn.disabled = false;
-                }
-            });
-        });
-
-        // RESET général (confirmation)
-        if (resetAllBtn) {
-            resetAllBtn.addEventListener("click", async () => {
-                if (!confirm("Confirmer le RESET GÉNÉRAL ? (efface live + context)")) return;
-                resetAllBtn.disabled = true;
-                try {
-                    await clearAll();
-                } catch (e) {
-                    console.error("[reset] clearAll error:", e);
-                } finally {
-                    resetAllBtn.disabled = false;
-                }
-            });
-        }
-    }
-
-    document.addEventListener("DOMContentLoaded", wireResetUI);
+  });
 })();

@@ -17,99 +17,20 @@
 
     <main class="admin-main">
         <!-- RESET (live + context en RTDB) -->
-        <section class="admin-section" id="reset-section">
-            <h2>Reset (RTDB)</h2>
-            <div class="table-wrap">
-                <table class="admin-table" id="reset-table" aria-describedby="reset-help">
-                    <thead>
-                        <tr>
-                            <th></th>
-                            <th colspan="8" class="group">MK8</th>
-                            <th colspan="14" class="group">MKW</th>
-                        </tr>
-                        <tr>
-                            <th></th>
-                            <!-- MK8: 8 courses -->
-                            <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>7</th><th>8</th>
-                            <!-- MKW: 14 "courses" (1..6, S, 7..12, SF) -->
-                            <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th><th>6</th><th>S</th>
-                            <th>7</th><th>8</th><th>9</th><th>10</th><th>11</th><th>12</th><th>SF</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Choix course courante (simulation) -->
-                        <tr>
-                            <td>Course courante (simulation)</td>
-                            <!-- MK8 radios -->
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="1"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="2"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="3"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="4"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="5"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="6"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="7"></td>
-                            <td><input type="radio" name="sim-current" data-game="MK8" data-race="8"></td>
-                            <!-- MKW radios -->
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="1"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="2"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="3"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="4"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="5"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="6"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="S"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="7"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="8"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="9"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="10"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="11"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="12"></td>
-                            <td><input type="radio" name="sim-current" data-game="MKW" data-race="SF"></td>
-                        </tr>
+        <section id="reset-section" class="admin-section">
+        <h2>Reset</h2>
 
-                        <!-- Effacement course à course (exécution immédiate) -->
-                        <tr>
-                            <td>Effacer la course</td>
-                            <!-- MK8 clear -->
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="1">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="2">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="3">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="4">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="5">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="6">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="7">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MK8" data-race="8">Effacer</button></td>
-                            <!-- MKW clear -->
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="1">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="2">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="3">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="4">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="5">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="6">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="S">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="7">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="8">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="9">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="10">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="11">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="12">Effacer</button></td>
-                            <td><button class="btn danger" data-action="clear" data-game="MKW" data-race="SF">Effacer</button></td>
-                        </tr>
-
-                        <!-- Reset général -->
-                        <tr>
-                            <td colspan="23" class="cell-actions">
-                                <button class="btn danger" id="reset-all-btn">RESET GÉNÉRAL — effacer toutes les courses (live + context)</button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-                <p id="reset-help" class="table-help">
-                    Le reset n’affecte pas <code>meta</code>. Les boutons “Effacer” agissent immédiatement sans confirmation.
-                    Le “RESET GÉNÉRAL” demande une confirmation.
-                </p>
-            </div>
+        <div class="reset-actions">
+            <button id="reset-all-btn" type="button" class="reset-all-btn">
+            RESET GÉNÉRAL (supprime live + context)
+            </button>
+            <p class="table-help">
+            Ce bouton supprime toutes les données <code>live</code> et <code>context</code>.
+            La section <code>meta</code> n’est jamais touchée.
+            </p>
+        </div>
         </section>
-        
+
         <!-- MATRICE DES POINTS -->
         <section class="admin-section" id="points-section">
             <h2>Matrices de points</h2>

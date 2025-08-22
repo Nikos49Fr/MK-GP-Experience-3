@@ -3,25 +3,23 @@
  *
  * Conventions de clés
  * -------------------
- * PHASE  : "mk8" | "mkw"       // toujours en minuscules
- * RACE   : "c1".."c12" | "s" | "sf"
+ * PHASE  : "mk8" | "mkw"                  // toujours en minuscules
+ * RACE   : "1".."12" | "S" | "SF"         // identifiant lisible côté UI
  * PILOT  : id Firestore d'un pilote (ex: "E3zXtYEtrCvbvgARbBAi")
  *
  * Racine
  * ------
  * context/
  *   current/
- *      phase: "mk8" | "mkw"        // phase en cours (pour l’UI)
- *      raceId: "1".."12" | "S" | "SF"
- *      gridSize: 12                // si utile à l’UI
- *     race        : string        // ex: "Course 2/8" (affichage)
- *     updatedAt   : number (ms)
- *     // gridSize?: number        // peut exister selon usage règles/affichage
+ *     phase  : "mk8" | "mkw"              // phase en cours
+ *     raceId : "1".."12" | "S" | "SF"     // id de course dans sa phase (format UI)
+ *     rid    : string                     // identifiant global `${phase}-${raceId}` (ex: "mk8-2")
  *
  * meta/
  *   pilotsAllowed/
- *     {phase}/
- *       {pilotId} : boolean       // true = autorisé à écrire son résultat live
+ *     {phase}/                        // "mk8" | "mkw"
+ *       {pilotId} : boolean           // true = ce pilote peut écrire son résultat live
+ *                                     // (absence ou false => pas d'autorisation)
  *
  * live/
  *   results/

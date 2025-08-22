@@ -1,10 +1,109 @@
+/**
+ * MK GP Experience 3 — RTDB schema (PROD)
+ *
+ * Conventions de clés
+ * -------------------
+ * PHASE  : "mk8" | "mkw"       // toujours en minuscules
+ * RACE   : "c1".."c12" | "s" | "sf"
+ * PILOT  : id Firestore d'un pilote (ex: "E3zXtYEtrCvbvgARbBAi")
+ *
+ * Racine
+ * ------
+ * context/
+ *   current/
+ *      phase: "mk8" | "mkw"        // phase en cours (pour l’UI)
+ *      raceId: "1".."12" | "S" | "SF"
+ *      gridSize: 12                // si utile à l’UI
+ *     race        : string        // ex: "Course 2/8" (affichage)
+ *     updatedAt   : number (ms)
+ *     // gridSize?: number        // peut exister selon usage règles/affichage
+ *
+ * meta/
+ *   pilotsAllowed/
+ *     {phase}/
+ *       {pilotId} : boolean       // true = autorisé à écrire son résultat live
+ *
+ * live/
+ *   results/
+ *     {phase}/
+ *       current/
+ *         {pilotId}/
+ *           rank?     : number    // 1..12 si saisi
+ *           updatedAt : number
+ *       history/
+ *         {raceKey}/
+ *           context/
+ *             phase       : {phase}
+ *             raceKey     : {raceKey}
+ *             gridSize    : number
+ *             finalizedAt : number
+ *           results/
+ *             {pilotId}/
+ *               rank      : number
+ *               updatedAt : number
+ *           points/
+ *             {pilotId}   : number
+ *
+ *   races/
+ *     {phase}/
+ *       {raceKey}/
+ *         finalized   : boolean
+ *         finalizedAt?: number
+ *         matrixKey?  : string
+ *
+ *   points/
+ *     {phase}/
+ *       byRace/
+ *         {raceKey}/
+ *           {pilotId}/
+ *             points : number
+ *             rank   : number
+ *       totals/
+ *         {pilotId} : number       // cumul toutes courses de la phase
+ *
+ *   edits/
+ *     {phase}/
+ *       {raceKey}/
+ *         {pilotId}/
+ *           rank?     : number
+ *           updatedAt : number
+ *
+ * Helpers (à réutiliser tels quels)
+ * ---------------------------------
+ * const PHASES = ["mk8", "mkw"];
+ * function raceKeyOf(x) {
+ *     const v = String(x).trim().toUpperCase();
+ *     if (v === "S")  return "s";
+ *     if (v === "SF") return "sf";
+ *     if (/^\d+$/.test(v)) return "c" + parseInt(v, 10); // "2" -> "c2"
+ *     return v.toLowerCase();
+ * }
+ *
+ * Reset par course (attendu côté admin)
+ * -------------------------------------
+ * Pour une phase {phase} et une course {raceKey} :
+ *   1) Ajuster live/points/{phase}/totals/{pilotId} en soustrayant
+ *      live/points/{phase}/byRace/{raceKey}/{pilotId}.points
+ *   2) Supprimer :
+ *      - live/points/{phase}/byRace/{raceKey}
+ *      - live/results/{phase}/history/{raceKey}
+ *      - live/races/{phase}/{raceKey}
+ *      - live/edits/{phase}/{raceKey}
+ *
+ * Remarques
+ * ---------
+ * - Les phases et courses sont en minuscules + préfixe "c" pour les numériques.
+ * - L’écriture/suppression admin est autorisée pour nicolas4980@gmail.com.
+ */
+
+
 // js/admin.js
 import { dbFirestore, dbRealtime  } from "./../js/firebase-config.js";
 import {
     collection, doc, addDoc, updateDoc, deleteDoc,
     onSnapshot, query, orderBy, setDoc
     } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-import { ref, get, set, remove } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { ref, get, set, remove, update } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 /* ----------------------- Helpers ----------------------- */
 
@@ -1051,46 +1150,60 @@ document.addEventListener("DOMContentLoaded", () => {
     function $(sel, root = document) { return root.querySelector(sel); }
     function $all(sel, root = document) { return Array.from(root.querySelectorAll(sel)); }
 
-    // --- API ---
-    async function readSimulationCurrent() {
-        const snap = await get(ref(dbRealtime, "context/simulation"));
-        return snap.exists() ? snap.val() : null;
-    }
-    async function setSimulationCurrent(game, race) {
-        const payload = {
-            game: String(game).toUpperCase(),
-            race: String(race).toUpperCase(),
-            updatedAt: Date.now()
-        };
-        await set(ref(dbRealtime, "context/simulation"), payload);
-    }
-    function candidateRacePaths(rootKey, game, race) {
-        // chemins candidats (souples) pour ne pas dépendre d’un schéma unique
-        const gL = String(game).toLowerCase();
-        const gU = String(game).toUpperCase();
-        const r  = String(race).toUpperCase();
-        return [
-            `${rootKey}/${gL}/races/${r}`,
-            `${rootKey}/${gL}/results/${r}`,
-            `${rootKey}/${gL}/points/byRace/${r}`,
-            `${rootKey}/${gL}/edits/${r}`,
-            `${rootKey}/${gU}/races/${r}`,
-            `${rootKey}/${gU}/results/${r}`,
-            `${rootKey}/${gU}/points/byRace/${r}`,
-            `${rootKey}/${gU}/edits/${r}`,
-            `${rootKey}/races/${gL}/${r}`,
-            `${rootKey}/races/${gU}/${r}`,
-            `${rootKey}/results/${gL}/${r}`,
-            `${rootKey}/results/${gU}/${r}`
-        ];
-    }
+    // --- API ciblée reset ---
     async function clearRace(game, race) {
-        const paths = [...new Set([
-            ...candidateRacePaths("live", game, race),
-            ...candidateRacePaths("context", game, race)
-        ])];
-        await Promise.all(paths.map(p => remove(ref(dbRealtime, p)).catch(() => {})));
+        // Normalisation des chemins RTDB réels
+        const phase = String(game).trim().toLowerCase(); // "mk8" | "mkw"
+
+        function raceKeyOf(r) {
+            const v = String(r).trim().toUpperCase();
+            if (v === "S")  return "s";
+            if (v === "SF") return "sf";
+            if (/^\d+$/.test(v)) return "c" + parseInt(v, 10); // "2" -> "c2"
+            return v.toLowerCase();
+        }
+        const raceKey = raceKeyOf(race); // ex: "2" -> "c2"
+
+        // --- A) Ajuster les totals (décrémenter ce qui vient de cette course) ---
+        const byRaceRef = ref(dbRealtime, `live/points/${phase}/byRace/${raceKey}`);
+        const totalsRef = ref(dbRealtime, `live/points/${phase}/totals`);
+
+        const [byRaceSnap, totalsSnap] = await Promise.all([
+            get(byRaceRef).catch(() => null),
+            get(totalsRef).catch(() => null),
+        ]);
+
+        if (byRaceSnap && byRaceSnap.exists() && totalsSnap && totalsSnap.exists()) {
+            const byRace = byRaceSnap.val() || {};
+            const totals = totalsSnap.val() || {};
+            const updates = {};
+            for (const [pilotId, obj] of Object.entries(byRace)) {
+                const pts = Number((obj && obj.points) || 0);
+                const cur = Number(totals[pilotId] || 0);
+                const next = Math.max(0, cur - pts);
+                updates[pilotId] = next;
+            }
+            if (Object.keys(updates).length) {
+                await update(totalsRef, updates);
+            }
+        }
+
+        // --- B) Supprimer toutes les données de cette course ---
+        await Promise.allSettled([
+            // points par course
+            remove(byRaceRef),
+
+            // résultats historiques, état de course, edits
+            remove(ref(dbRealtime, `live/results/${phase}/history/${raceKey}`)),
+            remove(ref(dbRealtime, `live/races/${phase}/${raceKey}`)),
+            remove(ref(dbRealtime, `live/edits/${phase}/${raceKey}`)),
+
+            // (tolérant) s'il existe des traces côté context avec la même convention
+            remove(ref(dbRealtime, `context/${phase}/races/${raceKey}`)).catch(() => {}),
+            remove(ref(dbRealtime, `context/${phase}/results/history/${raceKey}`)).catch(() => {}),
+        ]);
     }
+
     async function clearAll() {
         await Promise.all([
             remove(ref(dbRealtime, "live")),
@@ -1103,36 +1216,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const table = $("#reset-table");
         if (!table) return;
 
-        const radios = $all('input[type="radio"][name="sim-current"]', table);
+        // Radios présentes dans le HTML: aucun effet BDD, pas d'écouteurs nécessaires.
         const clearButtons = $all('button[data-action="clear"]', table);
         const resetAllBtn = $("#reset-all-btn");
-
-        // Pré-sélection depuis context/simulation
-        readSimulationCurrent().then(sim => {
-            if (!sim) return;
-            for (const r of radios) {
-                const g = (r.getAttribute("data-game") || "").toUpperCase();
-                const rv = (r.getAttribute("data-race") || "").toUpperCase();
-                if (g === String(sim.game).toUpperCase() && rv === String(sim.race).toUpperCase()) {
-                    r.checked = true;
-                    break;
-                }
-            }
-        }).catch(() => {});
-
-        // Choix simulation (écriture context/simulation)
-        radios.forEach(radio => {
-            radio.addEventListener("change", async () => {
-                if (!radio.checked) return;
-                const game = radio.getAttribute("data-game");
-                const race = radio.getAttribute("data-race");
-                try {
-                    await setSimulationCurrent(game, race);
-                } catch (e) {
-                    console.error("[reset] setSimulationCurrent error:", e);
-                }
-            });
-        });
 
         // Effacement par course (live + context)
         clearButtons.forEach(btn => {

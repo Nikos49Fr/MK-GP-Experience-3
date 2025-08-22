@@ -1,3 +1,92 @@
+/**
+ * MK GP Experience 3 — RTDB schema (PROD)
+ *
+ * Conventions de clés
+ * -------------------
+ * PHASE  : "mk8" | "mkw"                  // toujours en minuscules
+ * RACE   : "1".."12" | "S" | "SF"         // identifiant lisible côté UI
+ * PILOT  : id Firestore d'un pilote (ex: "E3zXtYEtrCvbvgARbBAi")
+ *
+ * Racine
+ * ------
+ * context/
+ *   current/
+ *     phase  : "mk8" | "mkw"              // phase en cours
+ *     raceId : "1".."12" | "S" | "SF"     // id de course dans sa phase (format UI)
+ *     rid    : string                     // identifiant global `${phase}-${raceId}` (ex: "mk8-2")
+ *
+ * meta/
+ *   pilotsAllowed/
+ *     {phase}/                        // "mk8" | "mkw"
+ *       {pilotId} : boolean           // true = ce pilote peut écrire son résultat live
+ *                                     // (absence ou false => pas d'autorisation)
+ *
+ * live/
+ *   results/
+ *     {phase}/                          // "mk8" | "mkw" (toujours en minuscules)
+ *       current/                        // saisies temporaires par pilote (objet)
+ *         {pilotId}: {
+ *           rank: number                // 1..12 (mk8) | 1..24 (mkw) ; aucun timestamp
+ *         }
+ *
+ *       byRace/                         // résultats figés par course
+ *         {raceId}/                     // "1".."12" | "S" | "SF"
+ *           ranks/
+ *             {pilotId}: {
+ *               rank: number            // rang final figé (même forme que current)
+ *             }
+ *           doubles/
+ *             {pilotId}: true           // bonus "double points" activé AVANT la course
+ *
+ * Notes:
+ * - Forme objet {rank} partout → permet d’ajouter plus tard d’autres champs (ex: DNF, pénalité)
+ *   sans migration de schéma.
+ * - Reset par course: supprimer `live/results/{phase}/byRace/{raceId}` ; optionnel: vider
+ *   `current/` de la même phase si on veut repartir proprement.
+ *
+ * live/
+ *   races/
+ *     {phase}/                          // "mk8" | "mkw"
+ *       {raceId}/                       // "1".."12" | "S" | "SF"
+ *         finalized: boolean            // true = course figée (résultats copiés dans byRace)
+ *
+ *   points/
+ *     {phase}/                              // "mk8" | "mkw"
+ * 
+ *       byRace/                             // points calculés et stockés par course
+ *         {raceId}/                         // "1".."12" | "S" | "SF"
+ *           {pilotId}: {
+ *             rank    : number              // rang final de la course (copie pratique de results.byRace)
+ *             base    : number              // points de base issus du barème de la phase
+ *             doubled : boolean             // true si bonus "double" activé pour ce pilote sur cette course
+ *             final   : number              // points comptés pour cette course (= base * (doubled ? 2 : 1))
+ *           }
+ *
+ *       totals/                             // cumul de la phase (cache recomputable)
+ *         {pilotId} : number                // somme( final sur toutes les courses ) + bonus de phase
+ *
+ *       extras/                             // bonus de phase (non liés à une course précise)
+ *         cosplay/                          // 1 gagnant "public" (+8) et 1 gagnant "jury" (+10) par phase
+ *           public : { pilotId: string }    // peut être le même pilote que jury → +18 si cumulé
+ *           jury   : { pilotId: string }
+ *         awards/                           // autres bonus de phase confirmés
+ *           viewers : { pilotId: string }   // gagnant vote viewers → +3
+ *           hosts   : { pilotId: string }   // gagnant animateurs     → +2
+ *
+ * Notes:
+ * - Le calcul des points par course vit dans `byRace/{raceId}/{pilotId}` (rank/base/doubled/final).
+ * - Les bonus "cosplay public" (+8) et "cosplay jury" (+10) sont au niveau phase → `extras/cosplay`.
+ *   S’il s’agit du même pilote, il cumule les deux (total +18).
+ * - Les bonus viewers (+3) et hosts (+2) sont également au niveau phase → `extras/awards`.
+ * - `totals` = somme des `final` de `byRace` + points des `extras`. `totals` est un cache :
+ *   il peut être recalculé à tout moment à partir de `byRace` + `extras`.
+ * - Reset par course: supprimer `byRace/{raceId}` puis recalculer/ajuster `totals`
+ *   (les `extras` restent inchangés car ils sont de phase).
+ * - Après avoir supprimé live/results/{phase}/byRace/{raceId} et ajusté live/points,
+ *   remets aussi live/races/{phase}/{raceId}.finalized à false (ou supprime ce nœud) pour rouvrir proprement la course.
+ * - Pas de timestamps en BDD. Clés harmonisées avec `live/results` (mêmes {phase} et {raceId}).
+ *
+ */
 
 import { dbFirestore, dbRealtime } from "./firebase-config.js";
 import {

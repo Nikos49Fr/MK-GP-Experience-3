@@ -162,11 +162,12 @@ function attachContextListener() {
         const ctx = snap.val() || {};
         lastContext = ctx;
         activeTournamentPhase = (ctx.phase || 'mk8').toLowerCase();
-        activeRaceId = (ctx.raceId || '1').toString().toUpperCase();
+        activeRaceId = (ctx.raceId != null && ctx.raceId !== '') ? String(ctx.raceId).toUpperCase() : null;
 
         if (!viewPhase) viewPhase = activeTournamentPhase;
 
         updatePhaseSwitchUI();
+        updateStartSwitchUI();
         ensureCurrentResultsListener(activeTournamentPhase);
         ensurePhaseViewListeners(viewPhase);
 
@@ -189,6 +190,12 @@ function getActiveRaceIdForPhase(phase) {
         if (!finals?.[k]?.finalized) return k;
     }
     return order[order.length - 1];
+}
+
+function isPhaseStarted(phase) {
+    // Une phase est "start" seulement si context/current pointe vers cette phase
+    // ET qu'une course courante (raceId) est définie.
+    return !!(lastContext && lastContext.phase === phase && lastContext.raceId);
 }
 
 /* ============================================================
@@ -227,6 +234,7 @@ function ensurePhaseViewListeners(phase) {
     const racesCb = (snap) => {
         lastFinalizedByPhase[phase] = snap.val() || {};
         updateRaceTilesStatus();
+        updateStartSwitchUI();
     };
     onValue(racesRef, racesCb);
     listeners.races = { ref: racesRef, cb: racesCb };
@@ -240,6 +248,7 @@ function ensurePhaseViewListeners(phase) {
         byRaceResultsByPhase[phase] = snap.val() || {};
         updateRaceTilesStatus();
         refreshPilotListView();
+        updateStartSwitchUI();
     };
     onValue(byRaceRef, byRaceCb);
     listeners.byRace = { ref: byRaceRef, cb: byRaceCb };
@@ -264,6 +273,7 @@ function updatePhaseSwitchUI() {
     setActive(btnMk8, viewPhase === 'mk8');
     setActive(btnMkw, viewPhase === 'mkw');
 }
+
 function mountPhaseSwitch() {
     const header = $('.cp-header');
     const right = $('.cp-header-right', header);
@@ -275,6 +285,7 @@ function mountPhaseSwitch() {
         header.insertBefore(center, right);
     }
 
+    // Groupe phase MK8/MKW
     const group = el(
         'div',
         { class: 'cp-phase-switch', role: 'group', 'aria-label': 'Phase du tournoi (vue locale)' },
@@ -293,12 +304,53 @@ function mountPhaseSwitch() {
             'data-phase': 'mkw'
         }, 'MKW')
     );
-    center.replaceChildren(group);
+
+    // Switch "Start" (une seule direction: OFF -> ON; pas de OFF manuel)
+    const startWrap = el('div', { class: 'cp-start-toggle' },
+        el('input', {
+            id: 'cp-start-input',
+            class: 'cp-start-input',
+            type: 'checkbox',
+            role: 'switch',
+            'aria-checked': 'false'
+        }),
+        el('label', { for: 'cp-start-input', class: 'cp-start-label' }, 'Start')
+    );
+
+    center.replaceChildren(group, startWrap);
 
     $('#cp-btn-mk8', group).addEventListener('click', () => setViewPhase('mk8'));
     $('#cp-btn-mkw', group).addEventListener('click', () => setViewPhase('mkw'));
+
+    // Interactions Start
+    const startInput = $('#cp-start-input', startWrap);
+    startInput.addEventListener('change', async (e) => {
+        // Interdit de passer de ON -> OFF (si tentative, on rétablit ON)
+        if (e.target.checked === false) {
+            e.preventDefault();
+            updateStartSwitchUI();
+            return;
+        }
+        // ON demandé → lancer la phase "vue" si activable
+        if (computeStartEnabledForView(viewPhase)) {
+            try {
+                await startPhase(viewPhase);
+            } catch (err) {
+                console.error('Start phase échoué:', err);
+                e.target.checked = false;
+            }
+        } else {
+            // Non activable → annuler le check
+            e.preventDefault();
+            e.target.checked = false;
+        }
+        updateStartSwitchUI();
+    });
+
     updatePhaseSwitchUI();
+    updateStartSwitchUI();
 }
+
 function setViewPhase(phase) {
     const p = (phase || 'mk8').toLowerCase();
     if (p !== 'mk8' && p !== 'mkw') return;
@@ -318,8 +370,38 @@ function setViewPhase(phase) {
     updateRaceTilesStatus();
     refreshPilotListView();
 
-    // Rechargement éventuel des pilotes pour la vue (si UI le souhaite)
+    // IMPORTANT : recalcule l'état du bouton Start pour la phase vue
+    updateStartSwitchUI();
+
     window.__reloadPilotsForView && window.__reloadPilotsForView();
+}
+
+// --- Start switch: logique d'activation ---
+function computeStartEnabledForView(phase) {
+    if (!phase) return false;
+    const hasCurrent = !!(lastContext && lastContext.raceId); // une course "courante" existe ?
+    const finals = lastFinalizedByPhase[phase] || {};
+    const anyFinalized = Object.values(finals).some(v => v && v.finalized === true);
+    // Activable seulement s'il n'y a PAS de "current" global ET qu'aucune course de la phase n'est finalisée
+    return !hasCurrent && !anyFinalized;
+}
+
+async function startPhase(phase) {
+    const firstId = buildRaceList(phase)[0]; // "1"
+    await update(ref(dbRealtime, PATH_CONTEXT), {
+        phase,
+        raceId: firstId,
+        rid: `${phase}-${firstId}`
+    });
+}
+
+function updateStartSwitchUI() {
+    const input = document.getElementById('cp-start-input');
+    if (!input) return;
+    const isOn = !!(lastContext && lastContext.raceId) && (lastContext.phase === viewPhase);
+    input.checked = isOn;
+    input.disabled = isOn || !computeStartEnabledForView(viewPhase);
+    input.setAttribute('aria-checked', isOn ? 'true' : 'false');
 }
 
 /* ============================================================
@@ -359,6 +441,12 @@ function renderRaceStrip(phase) {
             'data-key': id
         });
         input.addEventListener('change', async (e) => {
+            // Si la phase vue n’est pas démarrée, on annule toute action
+            if (!isPhaseStarted(phase)) {
+                e.preventDefault();
+                updateRaceTilesStatus();
+                return;
+            }
             if (e.target.checked) {
                 try {
                     await finalizeRaceTile(phase, id);
@@ -455,6 +543,7 @@ function renderPilotsPanel(groups) {
             const badgeEl = item.querySelector('.cp-rank-badge');
             badgeEl.addEventListener('click', (e) => {
                 e.stopPropagation();
+                if (!isPhaseStarted(viewPhase)) return; // phase non démarrée → pas d’édition
                 openRankModal(viewPhase, p.id, item);
             });
             list.appendChild(item);
@@ -520,13 +609,23 @@ function computeRaceStatusFromResults(results, gridSize) {
 }
 
 function getResultsForDisplay(phase, raceId) {
-    // Si on regarde la course active de la phase active → current
+    // Si on regarde la course active de la phase active
     if (phase === activeTournamentPhase && raceId === activeRaceId) {
-        return currentResultsByPhase[phase] || {};
+        const current = currentResultsByPhase[phase] || {};
+        const hasCurrent = Object.values(current).some(v => v && v.rank != null);
+        if (hasCurrent) return current;
+
+        // Fallback : si current est vide (p.ex. après validation de la dernière course),
+        // on lit les rangs figés dans byRace/ranks
+        const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
+        const hasRanks = Object.values(ranks).some(v => v && v.rank != null);
+        if (hasRanks) return ranks;
+
+        return {};
     }
-    // Sinon → byRace/ranks
-    const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
-    return ranks;
+
+    // Autres phases / autres courses → lecture directe byRace/ranks
+    return byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
 }
 
 function applyResultsToUI(phase, resultsMap, gridSize) {
@@ -599,9 +698,28 @@ function getRaceStatusDeterministic(phase, raceId) {
     const grid = GRID_SIZE(phase);
     const activeId = getActiveRaceIdForPhase(phase);
 
+    // Cas "course active de la phase active"
     if (phase === activeTournamentPhase && raceId === activeId) {
-        return computeRaceStatusFromResults(currentResultsByPhase[phase], GRID_SIZE(phase));
+        const current = currentResultsByPhase[phase] || {};
+        const hasCurrent = Object.values(current).some(v => v && v.rank != null);
+        if (hasCurrent) {
+            return computeRaceStatusFromResults(current, grid);
+        }
+
+        // Fallback : current vide → regarder les rangs figés byRace/ranks
+        const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
+        const hasRanks = Object.values(ranks).some(v => v && v.rank != null);
+        if (hasRanks) {
+            // calcule l'état réel (complete/filled/conflict) sur le figé
+            return computeRaceStatusFromResults(ranks, grid) || 'filled';
+        }
+
+        // si rien, on regarde quand même l'état "finalized"
+        const finals = lastFinalizedByPhase[phase] || {};
+        return finals?.[raceId]?.finalized ? 'complete' : null;
     }
+
+    // Autres cas : logique inchangée (lecture byRace/ranks)
     const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
     const hasAny = Object.values(ranks).some(v => v && v.rank != null);
     if (!hasAny) {
@@ -654,19 +772,25 @@ function updateRaceTilesStatus() {
 
         // Checkbox enable/checked
         if (check) {
-            const isComplete  = (st === 'complete');
-            const finals      = lastFinalizedByPhase[phase] || {};
-            const isFinalized = !!finals?.[key]?.finalized;
-
-            if (isFinalized) {
-                check.checked  = true;
+            // Gate global : phase non démarrée → tout disabled (lecture seule)
+            if (!isPhaseStarted(phase)) {
+                check.checked  = !!(lastFinalizedByPhase[phase]?.[key]?.finalized); // on reflète visuellement l’historique
                 check.disabled = true;
-            } else if (isComplete) {
-                check.checked  = false;
-                check.disabled = false;
             } else {
-                check.checked  = false;
-                check.disabled = true;
+                const isComplete  = (st === 'complete');
+                const finals      = lastFinalizedByPhase[phase] || {};
+                const isFinalized = !!finals?.[key]?.finalized;
+
+                if (isFinalized) {
+                    check.checked  = true;
+                    check.disabled = true;
+                } else if (isComplete) {
+                    check.checked  = false;
+                    check.disabled = false;
+                } else {
+                    check.checked  = false;
+                    check.disabled = true;
+                }
             }
         }
     });
@@ -689,6 +813,7 @@ function selectRaceForInspection(phase, raceId) {
    - Sinon => écrit directement dans results/{phase}/byRace/{raceId}/ranks
    ============================================================ */
 function openRankModal(phase, pilotId, anchorEl) {
+    if (!isPhaseStarted(phase)) return;
     const backdrop = el('div', { class: 'cp-modal-backdrop', 'data-modal': 'rank' });
     const card = el('div', { class: 'cp-modal-card' });
 
@@ -703,7 +828,16 @@ function openRankModal(phase, pilotId, anchorEl) {
             if (phase === activeTournamentPhase && inspectedId === activeId) {
                 await remove(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`));
             } else {
+                // ÉDITION d'une course NON active → on modifie byRace/ranks et on dé-finalise
                 await remove(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`));
+                // NEW: repasser la course en "non finalisée"
+                await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
+
+                // MàJ locale immédiate (en attendant les listeners)
+                lastFinalizedByPhase[phase] = lastFinalizedByPhase[phase] || {};
+                lastFinalizedByPhase[phase][inspectedId] = { finalized: false };
+                updateRaceTilesStatus();
+                refreshPilotListView();
             }
             backdrop.remove();
         } catch (err) {
@@ -748,7 +882,16 @@ function openRankModal(phase, pilotId, anchorEl) {
                 if (useCurrent) {
                     await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), { rank: i });
                 } else {
+                    // ÉDITION d'une course NON active → on écrit directement dans byRace/ranks
                     await set(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`), { rank: i });
+                    // NEW: repasser la course en "non finalisée"
+                    await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
+
+                    // MàJ locale immédiate (en attendant les listeners)
+                    lastFinalizedByPhase[phase] = lastFinalizedByPhase[phase] || {};
+                    lastFinalizedByPhase[phase][inspectedId] = { finalized: false };
+                    updateRaceTilesStatus();
+                    refreshPilotListView();
                 }
                 backdrop.remove();
             } catch (err) {
@@ -829,6 +972,9 @@ function basePointsFor(phase, raceId, rank) {
    - Si active: on efface current et on avance context/current
    ============================================================ */
 async function finalizeRaceTile(phase, raceId) {
+    if (!isPhaseStarted(phase)) {
+        throw new Error('Phase non démarrée : aucune validation possible.');
+    }
     const gridSize = GRID_SIZE(phase);
     const activeId = getActiveRaceIdForPhase(phase);
     const useCurrent = (phase === activeTournamentPhase && raceId === activeId);
@@ -883,24 +1029,41 @@ async function finalizeRaceTile(phase, raceId) {
     // 4) Marquer finalized=true
     await set(ref(dbRealtime, `live/races/${phase}/${raceId}`), { finalized: true });
 
-    // 5) Si active: effacer current et avancer context/current
+    // 5) Si active: effacer current et gérer le contexte
     if (useCurrent) {
-        const del = ref(dbRealtime, `live/results/${phase}/current`);
-        await remove(del).catch(()=>{});
+        // Vider les saisies courantes
+        await remove(ref(dbRealtime, `live/results/${phase}/current`)).catch(()=>{});
 
         const order = buildRaceList(phase);
         const idx = order.indexOf(raceId);
-        const nextId = (idx >= 0 && idx < order.length - 1) ? order[idx + 1] : raceId;
+        const hasNext = (idx >= 0 && idx < order.length - 1);
+        const nextId = hasNext ? order[idx + 1] : null;
 
-        await update(ref(dbRealtime, `context/current`), {
-            phase: phase,
-            raceId: nextId,
-            rid: `${phase}-${nextId}`
-        });
+        if (hasNext) {
+            // Avance à la course suivante
+            await update(ref(dbRealtime, `context/current`), {
+                phase: phase,
+                raceId: nextId,
+                rid: `${phase}-${nextId}`
+            });
+            lastSelectedByPhase[phase] = nextId; // focus avance aussi
+        } else {
+            // DERNIÈRE course : aucune "current"
+            // On garde la phase, mais on retire raceId / rid
+            await update(ref(dbRealtime, `context/current`), {
+                raceId: null,
+                rid: null
+            });
+            // Focus UI: rester sur la dernière tuile validée
+            lastSelectedByPhase[phase] = raceId;
+        }
+    } else {
+        // Réédition d’une course non active -> on reste focalisé sur cette course
+        lastSelectedByPhase[phase] = raceId;
     }
 
     // rafraîchir l’UI
-    lastSelectedByPhase[phase] = useCurrent ? getActiveRaceIdForPhase(phase) : raceId;
+    updateStartSwitchUI();
     updateRaceTilesStatus();
     refreshPilotListView();
 }

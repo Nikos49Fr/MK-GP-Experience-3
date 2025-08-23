@@ -24,6 +24,7 @@
             <button id="reset-all-btn" type="button" class="reset-all-btn">
             RESET GÉNÉRAL (supprime live + context)
             </button>
+            <button id="dev-autofill-run">DEV • Auto-fill</button>
             <p class="table-help">
             Ce bouton supprime toutes les données <code>live</code> et <code>context</code>.
             La section <code>meta</code> n’est jamais touchée.
@@ -190,5 +191,9 @@
     <script type="module" src="./../js/firebase-config.js?v=3"></script>
     <script type="module" src="./../js/admin-auth.js"></script>
     <script type="module" src="./../js/admin.js"></script>
+
+    <!-- Intégration (DEV uniquement) TEMPORAIRE -->
+    <script type="module" src="../js/admin-dev-autofill.js"></script>
+
 </body>
 </html>

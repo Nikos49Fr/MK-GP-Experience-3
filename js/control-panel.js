@@ -420,38 +420,72 @@ function updateStartSwitchUI() {
 let lastSelectedByPhase = { mk8: null, mkw: null };
 
 function renderRaceStrip(phase) {
-    const host = $('#cp-races');
-    if (!host) return;
+    const racesRoot = $('#cp-races');
+    if (!racesRoot) return;
 
-    const ids = buildRaceList(phase);
-    const titleText = (phase === 'mkw') ? 'Mario Kart World' : 'Mario Kart 8';
+    // On ne garde que .cp-races-inner
+    let inner = $('.cp-races-inner', racesRoot);
+    if (!inner) {
+        inner = el('div', { class: 'cp-races-inner' });
+        racesRoot.replaceChildren(inner);
+    } else {
+        inner.replaceChildren(); // reset propre
+    }
 
-    const inner   = el('div', { class: 'cp-races-inner' });
-    const titleEl = el('div', { class: 'cp-races-title' }, titleText);
-    const right   = el('div', { class: 'cp-races-right' });
+    const order = buildRaceList(phase);
+    const activeKey = getActiveRaceIdForPhase(phase);
+    const inspectedKey = (lastSelectedByPhase[phase] && order.includes(lastSelectedByPhase[phase]))
+        ? lastSelectedByPhase[phase]
+        : activeKey;
 
-    // Piste
+    // PISTE (segments: start/road/kart/finish) + RANGÉE TUILES
     const track = el('div', { class: 'cp-races-track' });
-    ids.forEach(id => {
-        const seg = el('div', { class: 'cp-track-segment', 'data-key': id });
+    const row   = el('div', { class: 'cp-races-row' });
+
+    order.forEach((key, idx) => {
+        // --- Segment piste (⚠️ on pose data-key pour updateRaceTilesStatus)
+        const seg = el('div', { class: 'cp-track-segment', dataset: { key } });
+        if (idx === 0) seg.classList.add('is-first');
+        if (idx === order.length - 1) seg.classList.add('is-last');
+        if (key === activeKey) seg.classList.add('is-active');
         track.appendChild(seg);
-    });
 
-    // Rangée de tiles
-    const row = el('div', { class: 'cp-races-row' });
-    ids.forEach((id) => {
-        const type = (phase === 'mkw') ? (id === 'S' ? 'survival' : id === 'SF' ? 'survival-final' : 'race') : 'race';
-        const wrap = el('div', { class: 'cp-race-wrap', 'data-key': id });
+        // --- Wrap tuile + check + radio
+        const wrap = el('div', { class: 'cp-race-wrap', dataset: { key } });
 
-        // Checkbox (finaliser)
-        const checkWrap = el('div', { class: 'cp-race-check' });
-        const input = el('input', {
-            type: 'checkbox',
-            class: 'cp-race-check-input',
-            'data-key': id
+        // CHECK (au-dessus)
+        const checkBox = el('div', { class: 'cp-race-check' },
+            el('input', {
+                class: 'cp-race-check-input',
+                type: 'checkbox',
+                'aria-label': `Valider la course ${key}`
+            })
+        );
+
+        // TUILE
+        const tile = el('div', { class: 'cp-race-tile' }, key);
+        if (key === activeKey) tile.classList.add('is-active');
+        if (key === inspectedKey) tile.classList.add('is-inspected');
+
+        // RADIO (au-dessous)
+        const radio = el('div', { class: 'cp-race-radio' },
+            el('input', {
+                class: 'cp-race-radio-input',
+                type: 'radio',
+                name: 'cp-race-inspect',
+                value: key,
+                checked: key === inspectedKey ? 'checked' : null,
+                'aria-label': `Inspecter la course ${key}`
+            })
+        );
+
+        // Handlers
+        $('.cp-race-radio-input', radio).addEventListener('change', (e) => {
+            const selKey = e.target.value;
+            selectRaceForInspection(phase, selKey);
         });
-        input.addEventListener('change', async (e) => {
-            // Si la phase vue n’est pas démarrée, on annule toute action
+
+        $('.cp-race-check-input', checkBox).addEventListener('change', async (e) => {
             if (!isPhaseStarted(phase)) {
                 e.preventDefault();
                 updateRaceTilesStatus();
@@ -459,42 +493,21 @@ function renderRaceStrip(phase) {
             }
             if (e.target.checked) {
                 try {
-                    await finalizeRaceTile(phase, id);
+                    await finalizeRaceTile(phase, key);
                 } catch (err) {
                     console.error('Finalisation échouée:', err);
                     e.target.checked = false;
                 }
             }
         });
-        checkWrap.appendChild(input);
 
-        // Tuile
-        const tile = el('div', {
-            class: 'cp-race-tile',
-            'data-type': type,
-            'data-key': id,
-            title: type.startsWith('survival') ? 'Survie' : 'Course'
-        }, id);
-
-        // Radio (inspection)
-        const radioWrap = el('div', { class: 'cp-race-radio' });
-        const radio = el('input', {
-            type: 'radio',
-            class: 'cp-race-radio-input',
-            name: 'cp-race-select',
-            'data-key': id
-        });
-        radio.addEventListener('change', () => selectRaceForInspection(phase, id));
-        radioWrap.appendChild(radio);
-
-        wrap.append(checkWrap, tile, radioWrap);
+        wrap.append(checkBox, tile, radio);
         row.appendChild(wrap);
     });
 
-    right.append(track, row);
-    inner.append(titleEl, right);
-    host.replaceChildren(inner);
+    inner.append(track, row);
 
+    // Mise à jour couleurs/états
     updateRaceTilesStatus();
 }
 
@@ -573,29 +586,59 @@ function mountPilotsPanelSection() {
     const main = $('#cp-main');
     if (!main) return;
 
+    // Nouveau layout: [aside gauche: pilotes] | [centre] | [aside droite: leaderboard]
     let layout = $('.cp-layout', main);
     if (!layout) {
         layout = el('div', { class: 'cp-layout' },
             el('aside', { id: 'cp-pilots-panel', class: 'cp-pilots-panel' }),
-            el('section', { class: 'cp-right' },
-                el('div', { id: 'cp-races', class: 'cp-races-section' }),
-                el('section', { class: 'cp-workspace' })
-            )
+            el('section', { class: 'cp-main-center' },
+                el('header', { class: 'cp-center-header' },
+                    el('div', { id: 'cp-races', class: 'cp-races-section' },
+                        el('div', { class: 'cp-races-inner' })
+                    )
+                ),
+                el('section', { class: 'cp-center-body' })
+            ),
+            el('aside', { id: 'cp-leaderboard', class: 'cp-leaderboard' })
         );
         main.replaceChildren(layout);
     }
 
-    const load = async () => {
-        if (!viewPhase) return;
-        const gameLabel = viewPhase === 'mkw' ? 'MKW' : 'MK8';
-        const [teams, pilots] = await Promise.all([fetchTeamsOrdered(), fetchPilotsByGameOrdered(gameLabel)]);
+    // Expose un reloader basé sur la PHASE DE VUE (switch MK8/MKW)
+    window.__reloadPilotsForView = async function() {
+        const phaseView = (viewPhase || 'mk8').toLowerCase();
+        const gameLabel = phaseView === 'mkw' ? 'MKW' : 'MK8';
+
+        // Body classes selon la VUE, pas le contexte actif
+        document.body.classList.toggle('phase-mkw', phaseView === 'mkw');
+        document.body.classList.toggle('phase-mk8', phaseView === 'mk8');
+
+        const [teams, pilots] = await Promise.all([
+            fetchTeamsOrdered(),
+            fetchPilotsByGameOrdered(gameLabel)
+        ]);
         const groups = groupPilotsByTeam(teams, pilots);
         renderPilotsPanel(groups);
+
+        // La barre des courses et le leaderboard suivent aussi la VUE
+        renderRaceStrip(phaseView);
+        ensureLeaderboardListeners(phaseView);
+        renderLeaderboardPanel();
+
+        // Rafraîchir les badges (selon course inspectée/active pour la VUE)
         refreshPilotListView();
+        updateRaceTilesStatus();
     };
 
-    window.__reloadPilotsForView = load;
-    load();
+    // RTDB context: sert surtout à connaître l'état global, mais on rend par RAPPORT à la VUE
+    onValue(ref(dbRealtime, PATH_CONTEXT), async (snap) => {
+        try {
+            lastContext = snap.val() || {};
+            await window.__reloadPilotsForView();
+        } catch (err) {
+            console.error('Erreur rendu layout:', err);
+        }
+    });
 }
 
 /* ============================================================
@@ -1180,19 +1223,9 @@ function formatPts(n) {
    ============================================================ */
 
 async function renderLeaderboardPanel() {
-    // conteneur : on réutilise la zone droite .cp-right .cp-workspace comme section classement
-    const right = document.querySelector('.cp-right');
-    if (!right) return;
-    let panel = right.querySelector('#cp-leaderboard');
-    if (!panel) {
-        panel = document.createElement('section');
-        panel.id = 'cp-leaderboard';
-        panel.className = 'cp-leaderboard';
-        // remplace l'ancien workspace si présent
-        const ws = right.querySelector('.cp-workspace');
-        if (ws) ws.replaceWith(panel);
-        else right.appendChild(panel);
-    }
+    // L’aside #cp-leaderboard est désormais créé dans mountPilotsPanelSection()
+    const aside = $('#cp-leaderboard');
+    if (!aside) return;
 
     const phase = viewPhase || 'mk8';
     const gridSize = GRID_SIZE(phase);
@@ -1202,7 +1235,6 @@ async function renderLeaderboardPanel() {
         fetchTeamsOrdered(),
         fetchPilotsByGameOrdered(gameLabel)
     ]);
-    // index par défaut (ordre équipes puis pilotes)
     const defaultIndex = new Map(pilots.map((p, i) => [p.id, i]));
     const teamMapByName = getTeamByNameMap(teams);
 
@@ -1212,54 +1244,32 @@ async function renderLeaderboardPanel() {
 
     const sortedPilots = sortPilotsForLeaderboard(phase, pilots, totals, tieCounters, gridSize, defaultIndex);
 
-    // Build DOM
-    const header = document.createElement('div');
-    header.className = 'cp-lb-header';
-    header.textContent = (phase === 'mkw') ? 'Classement — Mario Kart Wii' : 'Classement — Mario Kart 8';
+    // Contenu
+    const header = el('div', { class: 'cp-lb-header' },
+        phase === 'mkw' ? 'Classement — Mario Kart Wii' : 'Classement — Mario Kart 8'
+    );
 
-    const list = document.createElement('div');
-    list.className = 'cp-lb-list';
-
+    const list = el('div', { class: 'cp-lb-list' });
     sortedPilots.forEach((p, idx) => {
-        const row = document.createElement('div');
-        row.className = 'cp-lb-row';
+        const row = el('div', { class: 'cp-lb-row' });
 
-        const rankCell = document.createElement('div');
-        rankCell.className = 'cp-lb-rank';
-        if (hasAnyPoints) {
-            rankCell.textContent = String(idx + 1);
-        } else {
-            rankCell.textContent = ''; // pas de classement affiché en début de phase
-        }
+        const rankCell = el('div', { class: 'cp-lb-rank' }, hasAnyPoints ? String(idx + 1) : '');
 
-        const teamCell = document.createElement('div');
-        teamCell.className = 'cp-lb-team';
+        const teamCell = el('div', { class: 'cp-lb-team' });
         const t = teamMapByName.get((p.teamName || '').toLowerCase());
         if (t && t.urlLogo) {
-            const img = document.createElement('img');
-            img.alt = t.name || 'Team';
-            img.src = teamLogoUrl(t);
+            const img = el('img', { alt: t.name || 'Team', src: teamLogoUrl(t) });
             teamCell.appendChild(img);
         }
 
-        const nameCell = document.createElement('div');
-        nameCell.className = 'cp-lb-name';
-        nameCell.textContent = p.name || '';
-
-        const ptsCell = document.createElement('div');
-        ptsCell.className = 'cp-lb-pts';
-        if (hasAnyPoints) {
-            const v = Number(totals?.[p.id] || 0);
-            ptsCell.textContent = formatPts(v);
-        } else {
-            ptsCell.textContent = ''; // pas d’affichage de points en début de phase
-        }
+        const nameCell = el('div', { class: 'cp-lb-name' }, p.name || '');
+        const ptsCell  = el('div', { class: 'cp-lb-pts'  }, hasAnyPoints ? formatPts(Number(totals?.[p.id] || 0)) : '');
 
         row.append(rankCell, teamCell, nameCell, ptsCell);
         list.appendChild(row);
     });
 
-    panel.replaceChildren(header, list);
+    aside.replaceChildren(header, list);
 }
 
 /* ============================================================
@@ -1316,19 +1326,6 @@ function mountRaceSection() {
 document.addEventListener('DOMContentLoaded', async () => {
     mountPhaseSwitch();
     mountPilotsPanelSection();
-    mountRaceSection();
-
-    const tryInit = setInterval(() => {
-        if (viewPhase) {
-            ensurePhaseViewListeners(viewPhase);
-            clearInterval(tryInit);
-            window.__reloadPilotsForView && window.__reloadPilotsForView();
-            renderRaceStrip(viewPhase);
-            updateRaceTilesStatus();
-            refreshPilotListView();
-            ensureLeaderboardListeners(viewPhase);
-            renderLeaderboardPanel();
-        }
-    }, 50);
-    setTimeout(() => clearInterval(tryInit), 2000);
+    // Le contexte va piloter tout le reste :
+    attachContextListener();
 });

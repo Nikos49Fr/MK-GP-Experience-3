@@ -727,6 +727,103 @@ body.cp-body {
   color: #fff; /* texte blanc demandé */
 }
 
+/* === Panneau Classement (droite) === */
+.cp-leaderboard {
+  /* même look que les autres sections */
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-soft);
+  padding: 8px 10px;
+  /* occupe l’espace disponible à droite, sans créer de scroll interne */
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* indispensable pour éviter un overflow */
+  overflow: hidden; /* pas de scroll visible */
+}
+
+.cp-lb-header {
+  margin: 0 0 6px 0;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.3px;
+  color: #fff;
+  opacity: 0.95;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+/* Liste des lignes (pas de scroll, on s’aligne sur la hauteur dispo) */
+.cp-lb-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pilot-gap); /* cohérent avec la colonne de gauche */
+  overflow: hidden; /* pas de scroll */
+}
+
+/* Ligne pilote — même hauteur que la colonne de gauche pour un alignement visuel */
+.cp-lb-row {
+  height: var(--pilot-row-h);
+  display: grid;
+  grid-template-columns: 24px 26px 1fr 54px; /* rang | logo | nom | points */
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+
+/* Rang (petit badge neutre) */
+.cp-lb-rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--rank-empty-bg);
+  color: var(--rank-text);
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  user-select: none;
+}
+
+/* Logo équipe */
+.cp-lb-team {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cp-lb-team img {
+  max-width: 22px;
+  max-height: 22px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+}
+
+/* Nom pilote (ellipse si long) */
+.cp-lb-name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Points (aligné à droite) */
+.cp-lb-pts {
+  font-weight: 800;
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Ajustement pour MKW (24 lignes) : compacter très légèrement */
+.phase-mkw .cp-lb-row {
+  height: calc(var(--pilot-row-h) - 2px);
+}
+
 /* FOOTER inutilisé : masqué */
 .cp-footer {
   display: none;

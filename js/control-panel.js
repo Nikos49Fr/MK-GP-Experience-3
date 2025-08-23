@@ -121,6 +121,14 @@ const listeners = {
     byRace: { ref: null, cb: null }        // live/results/{viewPhase}/byRace
 };
 
+// --- Leaderboard state (par phase) ---
+let lbTotalsByPhase = {};          // { phase: { pilotId: totalPts } }
+let lbRanksByRaceByPhase = {};     // { phase: { raceId: { pilotId: {rank} } } }
+
+// listeners RTDB (classement)
+let lbTotalsRef = null, lbTotalsCb = null;
+let lbByRaceRef = null, lbByRaceCb = null;
+
 /* ============================================================
    Constantes utilitaires
    ============================================================ */
@@ -366,6 +374,8 @@ function setViewPhase(phase) {
 
     ensurePhaseViewListeners(viewPhase);
     renderRaceStrip(viewPhase);
+    ensureLeaderboardListeners(viewPhase);
+    renderLeaderboardPanel();
     updatePhaseSwitchUI();
     updateRaceTilesStatus();
     refreshPilotListView();
@@ -1105,6 +1115,198 @@ async function recomputeTotalsForPhase(phase) {
 }
 
 /* ============================================================
+   Panneau des classements
+   ============================================================ */
+function getTeamByNameMap(teams) {
+    const map = new Map();
+    (teams || []).forEach(t => map.set((t.name || '').toLowerCase(), t));
+    return map;
+}
+function teamLogoUrl(team) {
+    if (!team || !team.urlLogo) return '';
+    // BDD stocke "./../assets/images/..." ; depuis /pages/ => "../assets/images/..."
+    return team.urlLogo.replace(/^\.\//, '').replace(/^\.\.\//, '../').replace(/^\.\/\.\.\//, '../');
+}
+
+function computeTieBreakCounters(phase) {
+    const byRace = lbRanksByRaceByPhase?.[phase] || {};
+    const counters = {}; // pilotId -> {1:cnt,2:cnt,...}
+    Object.values(byRace).forEach(ranksObj => {
+        Object.entries(ranksObj || {}).forEach(([pid, v]) => {
+            const r = Number(v?.rank);
+            if (!Number.isInteger(r) || r <= 0) return;
+            if (!counters[pid]) counters[pid] = {};
+            counters[pid][r] = (counters[pid][r] || 0) + 1;
+        });
+    });
+    return counters;
+}
+
+function sortPilotsForLeaderboard(phase, pilots, totals, tieCounters, gridSize, defaultOrderIndex) {
+    const hasAnyPoints = totals && Object.values(totals).some(n => Number(n) > 0);
+    if (!hasAnyPoints) {
+        // aucun point → tri par ordre par défaut (équipes puis pilotes)
+        return [...pilots];
+    }
+    const maxRank = gridSize || 24;
+    return [...pilots].sort((a, b) => {
+        const ta = Number(totals?.[a.id] || 0);
+        const tb = Number(totals?.[b.id] || 0);
+        if (tb !== ta) return tb - ta; // points décroissant
+
+        const ca = tieCounters[a.id] || {};
+        const cb = tieCounters[b.id] || {};
+        for (let r = 1; r <= maxRank; r++) {
+            const cbr = Number(cb[r] || 0);
+            const car = Number(ca[r] || 0);
+            if (cbr !== car) return cbr - car; // plus de 1ères, puis 2èmes, etc.
+        }
+
+        // fallback ordre par défaut
+        const ia = defaultOrderIndex.get(a.id) ?? 99999;
+        const ib = defaultOrderIndex.get(b.id) ?? 99999;
+        return ia - ib;
+    });
+}
+
+function formatPts(n) {
+    const v = Number(n || 0);
+    if (v === 0) return '0 pt';      // affichage homogène si on est dans un contexte "points existants"
+    return v + (v === 1 ? ' pt' : ' pts');
+}
+
+/* ============================================================
+   Rendu DOM (panel)
+   ============================================================ */
+
+async function renderLeaderboardPanel() {
+    // conteneur : on réutilise la zone droite .cp-right .cp-workspace comme section classement
+    const right = document.querySelector('.cp-right');
+    if (!right) return;
+    let panel = right.querySelector('#cp-leaderboard');
+    if (!panel) {
+        panel = document.createElement('section');
+        panel.id = 'cp-leaderboard';
+        panel.className = 'cp-leaderboard';
+        // remplace l'ancien workspace si présent
+        const ws = right.querySelector('.cp-workspace');
+        if (ws) ws.replaceWith(panel);
+        else right.appendChild(panel);
+    }
+
+    const phase = viewPhase || 'mk8';
+    const gridSize = GRID_SIZE(phase);
+    const gameLabel = (phase === 'mkw') ? 'MKW' : 'MK8';
+
+    const [teams, pilots] = await Promise.all([
+        fetchTeamsOrdered(),
+        fetchPilotsByGameOrdered(gameLabel)
+    ]);
+    // index par défaut (ordre équipes puis pilotes)
+    const defaultIndex = new Map(pilots.map((p, i) => [p.id, i]));
+    const teamMapByName = getTeamByNameMap(teams);
+
+    const totals = lbTotalsByPhase?.[phase] || {};
+    const tieCounters = computeTieBreakCounters(phase);
+    const hasAnyPoints = totals && Object.values(totals).some(n => Number(n) > 0);
+
+    const sortedPilots = sortPilotsForLeaderboard(phase, pilots, totals, tieCounters, gridSize, defaultIndex);
+
+    // Build DOM
+    const header = document.createElement('div');
+    header.className = 'cp-lb-header';
+    header.textContent = (phase === 'mkw') ? 'Classement — Mario Kart Wii' : 'Classement — Mario Kart 8';
+
+    const list = document.createElement('div');
+    list.className = 'cp-lb-list';
+
+    sortedPilots.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = 'cp-lb-row';
+
+        const rankCell = document.createElement('div');
+        rankCell.className = 'cp-lb-rank';
+        if (hasAnyPoints) {
+            rankCell.textContent = String(idx + 1);
+        } else {
+            rankCell.textContent = ''; // pas de classement affiché en début de phase
+        }
+
+        const teamCell = document.createElement('div');
+        teamCell.className = 'cp-lb-team';
+        const t = teamMapByName.get((p.teamName || '').toLowerCase());
+        if (t && t.urlLogo) {
+            const img = document.createElement('img');
+            img.alt = t.name || 'Team';
+            img.src = teamLogoUrl(t);
+            teamCell.appendChild(img);
+        }
+
+        const nameCell = document.createElement('div');
+        nameCell.className = 'cp-lb-name';
+        nameCell.textContent = p.name || '';
+
+        const ptsCell = document.createElement('div');
+        ptsCell.className = 'cp-lb-pts';
+        if (hasAnyPoints) {
+            const v = Number(totals?.[p.id] || 0);
+            ptsCell.textContent = formatPts(v);
+        } else {
+            ptsCell.textContent = ''; // pas d’affichage de points en début de phase
+        }
+
+        row.append(rankCell, teamCell, nameCell, ptsCell);
+        list.appendChild(row);
+    });
+
+    panel.replaceChildren(header, list);
+}
+
+/* ============================================================
+   Listeners RTDB (totaux & détails par course) — attach/detach selon la phase vue
+   ============================================================ */
+
+function ensureLeaderboardListeners(phase) {
+    // Detach anciens
+    if (lbTotalsRef && lbTotalsCb) {
+        off(lbTotalsRef, 'value', lbTotalsCb);
+        lbTotalsRef = lbTotalsCb = null;
+    }
+    if (lbByRaceRef && lbByRaceCb) {
+        off(lbByRaceRef, 'value', lbByRaceCb);
+        lbByRaceRef = lbByRaceCb = null;
+    }
+
+    // Totaux
+    lbTotalsRef = ref(dbRealtime, `live/points/${phase}/totals`);
+    lbTotalsCb = (snap) => {
+        lbTotalsByPhase[phase] = snap.exists() ? (snap.val() || {}) : {};
+        renderLeaderboardPanel();
+    };
+    onValue(lbTotalsRef, lbTotalsCb);
+
+    // Points par course (pour tie-break via "rank")
+    lbByRaceRef = ref(dbRealtime, `live/points/${phase}/byRace`);
+    lbByRaceCb = (snap) => {
+        lbRanksByRaceByPhase[phase] = {};
+        if (snap.exists()) {
+            const byRace = snap.val() || {};
+            Object.entries(byRace).forEach(([raceId, perPilot]) => {
+                // on récupère seulement le champ "rank" pour chaque pilote
+                const ranksOnly = {};
+                Object.entries(perPilot || {}).forEach(([pid, obj]) => {
+                    const r = Number(obj?.rank ?? 0);
+                    if (r > 0) ranksOnly[pid] = { rank: r };
+                });
+                lbRanksByRaceByPhase[phase][raceId] = ranksOnly;
+            });
+        }
+        renderLeaderboardPanel();
+    };
+    onValue(lbByRaceRef, lbByRaceCb);
+}
+
+   /* ============================================================
    Montage global
    ============================================================ */
 function mountRaceSection() {
@@ -1124,6 +1326,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             renderRaceStrip(viewPhase);
             updateRaceTilesStatus();
             refreshPilotListView();
+            ensureLeaderboardListeners(viewPhase);
+            renderLeaderboardPanel();
         }
     }, 50);
     setTimeout(() => clearInterval(tryInit), 2000);

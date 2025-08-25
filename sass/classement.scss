@@ -16,9 +16,10 @@ $font-tag: $font-f1;
 $font-tag-weight: 700;
 $font-tag-size: 14px;
 
-$font-points: $font-subtitle;
+$font-points: $font-f1;
 $font-points-weight: 400;
-$font-points-size: 14px;
+$font-points-size: 12px;
+$font-points-color: #aaa;
 
 // ----------------------
 // Variables globales
@@ -36,6 +37,8 @@ $h-state: 26px;
 $pad-state-y: 4px;
 
 $border-state-color: rgba(255, 255, 255, 0.25);
+
+$row-h: ($h-widget - $h-header - $h-state) / 24; // hauteur fixe d’une ligne
 
 // ----------------------
 // Variables couleurs de fond (tes valeurs de test)
@@ -58,106 +61,113 @@ $bg-other: #222;       // team/tag/bonus/points
 // Presets d’affichage (SCSS map) + classes modifieurs
 // ----------------------------------------------------
 $classement-presets: (
-    'mk8-12': (
-        rows: 12
-    ),
-    'mkw-24': (
-        rows: 24
-    ),
-    'teams-6': (
-        rows: 6
-    ),
-    'teams-8': (
-        rows: 8
-    ),
-    'msg-prestart': (
-        rows: 0
-    ),
-    'msg-mk8-noscores': (
-        rows: 0
-    ),
-    'msg-mkw-noscores': (
-        rows: 0
-    )
+    'mk8-12': (rows: 12),
+    'mkw-24': (rows: 24),
+    'teams-6': (rows: 6),
+    'teams-8': (rows: 8),
+    'msg-prestart': (rows: 0),
+    'msg-mk8-noscores': (rows: 0),
+    'msg-mkw-noscores': (rows: 0)
 );
 
-// Génération des classes .classement-widget--<preset>
 @each $key, $conf in $classement-presets {
     .classement-widget--#{$key} {
-        // Par défaut : on laisse le header & state tels quels
-        // On ajuste seulement la zone liste selon le preset
-
-        // --- LISTE CLASSIQUE (rows > 0) ---
         @if map-get($conf, rows) > 0 {
             .cw-list {
-                // base liste = grid
+                // on N'IMPOSE PAS de template-rows ici
+                // la hauteur vient du nb d’enfants + grid-auto-rows
                 display: grid;
-                grid-template-rows: repeat(#{map-get($conf, rows)}, 1fr);
-                // on respecte les contraintes globales (pas de padding/margin/gap/border/arrondi/ombre)
-                padding: 0;
-                margin: 0;
-                gap: 0;
-                border: 0;
-                border-radius: 0;
-                box-shadow: none;
+                grid-auto-rows: $row-h;
+                padding: 0; margin: 0; gap: 0; border: 0; border-radius: 0; box-shadow: none;
             }
-
-            // (Placeholders si, plus tard, on doit masquer/afficher des colonnes selon le preset)
-            // &.classement-widget--teams-6,
-            // &.classement-widget--teams-8 {
-            //     // Exemple : masquer la colonne bonus si inutile en mode équipe
-            //     // .cw-row .col-bonus { display: none; }
-            // }
-        }
-
         // --- MODES MESSAGE (rows = 0) ---
+        }
         @else {
             .cw-list {
-                // On remplace la grille par un conteneur centré
+                // conteneur centre + padding autorisé pour les messages
                 display: flex;
                 align-items: center;
                 justify-content: center;
 
-                // On conserve l'arrière-plan défini pour .cw-list (bg-other + $opacity-secondary)
-                // Les contraintes restent : pas de padding/margin/gap/border/arrondi/ombre
-                padding: 0;
+                // on garde le fond défini globalement (bg-other + $opacity-secondary)
+                padding: 50px 12px; // padding autorisé UNIQUEMENT pour les presets message
                 margin: 0;
                 gap: 0;
                 border: 0;
                 border-radius: 0;
                 box-shadow: none;
 
-                // Bloc message injecté par le JS (renderMessageBlock)
                 .cw-message {
-                    // pas de margin/padding imposés ; on laisse le texte respirer naturellement
+                    // largeur max pour aérer un peu le texte
+                    max-width: 220px;
                     text-align: center;
-                    line-height: 1.15;
 
-                    // Typographies de base (ajuste si besoin)
-                    h2, h3, p, span { margin: 0; }
+                    // Vertical rhythm global
+                    line-height: 2;
 
+                    // Reset marges par défaut
+                    h2, h3, p, span { margin: 0; padding: 0; }
+
+                    // TITRE principal (Formula1)
                     h2 {
-                        font-family: $font-rank;          // réutilise une de tes familles
-                        font-weight: $font-rank-weight;
-                        font-size: 18px;
+                        font-family: $font-f1;      // Formula1
+                        font-weight: 700;           // gras fourni par @font-face
+                        font-size: 24px;
                         letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                        line-height: 1.1;
+
+                        // petite respiration sous le titre
+                        margin-bottom: 6px;
                     }
 
+                    // Le premier <span> après h2 (le “3”) — style badge
+                    // (fonctionne avec ton HTML actuel : <h2>...</h2><span>3</span>)
+                    h2 + span {
+                        display: inline-block;
+                        font-family: $font-f1;
+                        font-weight: 700;
+                        font-size: 24px;
+                        line-height: 1;
+                        padding: 4px 10px;
+                        border-radius: 999px;
+                        background: rgba(255,255,255,0.12);
+                        color: $text-color;
+                        margin-bottom: 10px;
+                    }
+
+                    // Sous-titres (Formula1)
                     h3 {
-                        font-family: $font-tag;
-                        font-weight: $font-tag-weight;
-                        font-size: 14px;
-                        margin-top: 6px;
+                        font-family: $font-f1;      // Formula1
+                        font-weight: 700;
+                        font-size: 20px;
+                        letter-spacing: 0.4px;
+                        text-transform: uppercase;
+                        margin-top: 10px;
+                        margin-bottom: 4px;
                     }
 
+                    // Lignes d’info (spans/p) — un poil plus grandes et lisibles
                     p, span {
-                        font-family: $font-points;
+                        display: block;
+                        font-family: $font-points;   // tu peux switcher vers $font-f1 si tu préfères
                         font-weight: $font-points-weight;
-                        font-size: 13px;
+                        font-size: 16px;            // un peu plus grand
+                        letter-spacing: 0.2px;
+                        opacity: 0.95;
+                    }
+                    p {
+                        padding-top: 10px;
+                        border-top: 1px solid #999;
                     }
 
-                    // petite séparation visuelle entre blocs (option très légère)
-                    h3 + span { margin-top: 2px; display: inline-block; }
+                    // Micro-espacement entre les lignes
+                    p + p, p + span, span + p, span + span {
+                        margin-top: 3px;
+                    }
+
+                    // Un léger séparateur visuel entre blocs
+                    h3 + span { margin-top: 4px; }
                 }
             }
         }
@@ -171,7 +181,7 @@ $classement-presets: (
 .classement-widget {
     box-sizing: border-box;
     width: $w-widget;
-    height: $h-widget;
+    height: auto; // ← au lieu de height: $h-widget
     background: transparent;
     color: $text-color;
     overflow: hidden;
@@ -237,9 +247,10 @@ $classement-presets: (
 // ----------------------
 .cw-list {
     box-sizing: border-box;
-    height: calc(#{$h-widget} - #{$h-header} - #{$h-state});
+    //height: calc(#{$h-widget} - #{$h-header} - #{$h-state}); // hauteur fixe désactivée
     display: grid;
-    grid-template-rows: repeat(24, 1fr);
+    grid-auto-rows: $row-h; // ← chaque ligne a la même hauteur qu’en mode 24
+    // grid-template-rows: repeat(24, 1fr);
     background: rgba($bg-other, $opacity-secondary);
 }
 
@@ -312,6 +323,7 @@ $classement-presets: (
         font-family: $font-points;
         font-weight: $font-points-weight;
         font-size: $font-points-size;
+        color: $font-points-color;
         letter-spacing: 0.4px;
         @include text-ellipsis;
     }

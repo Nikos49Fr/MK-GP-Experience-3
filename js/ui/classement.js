@@ -506,30 +506,36 @@ function applyMode(modeKey) {
     if (m.type === 'message') {
         if (modeKey === 'msg-prestart') {
             renderMessageBlock(`
-                <h2>Mario Kart<br/>GP Expérience</h2>
+                <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
-                <p>A venir :</p>
-                <h3>Tournoi MK 8 :</h3>
-                <span>8 courses</span>
-                <h3>Tournoi MKWorld :</h3>
-                <span>6 courses</span>
-                <span>1 survie</span>
-                <span>6 courses</span>
-                <span>1 survie finale</span>
+                <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart 8</h3>
+                <span>🔴 8 courses</span>
+                <p>🏁🏁🏁 Phase 2 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart World</h3>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie</span>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie finale</span>
             `);
         } else if (modeKey === 'msg-mk8-noscores') {
             renderMessageBlock(`
-                <h2>Mario Kart<br/>GP Expérience</h2>
+                <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
-                <h3>Phase 1 - MK 8 :</h3>
-                <span>8 courses</span>
+                <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart 8</h3>
+                <span>🔴 8 courses</span>
             `);
         } else if (modeKey === 'msg-mkw-noscores') {
             renderMessageBlock(`
-                <h2>Mario Kart<br/>GP Expérience</h2>
+                <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
-                <h3>Phase 2 - MK World :</h3>
-                <span>6 courses + 1 survie + 6 courses + 1 survie finale</span>
+                <p>🏁🏁🏁 Phase 2 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart World</h3>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie</span>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie finale</span>
             `);
         }
         return;

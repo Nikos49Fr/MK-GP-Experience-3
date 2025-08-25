@@ -54,6 +54,117 @@ $bg-other: #222;       // team/tag/bonus/points
     text-overflow: ellipsis;
 }
 
+// ----------------------------------------------------
+// Presets d’affichage (SCSS map) + classes modifieurs
+// ----------------------------------------------------
+$classement-presets: (
+    'mk8-12': (
+        rows: 12
+    ),
+    'mkw-24': (
+        rows: 24
+    ),
+    'teams-6': (
+        rows: 6
+    ),
+    'teams-8': (
+        rows: 8
+    ),
+    'msg-prestart': (
+        rows: 0
+    ),
+    'msg-mk8-noscores': (
+        rows: 0
+    ),
+    'msg-mkw-noscores': (
+        rows: 0
+    )
+);
+
+// Génération des classes .classement-widget--<preset>
+@each $key, $conf in $classement-presets {
+    .classement-widget--#{$key} {
+        // Par défaut : on laisse le header & state tels quels
+        // On ajuste seulement la zone liste selon le preset
+
+        // --- LISTE CLASSIQUE (rows > 0) ---
+        @if map-get($conf, rows) > 0 {
+            .cw-list {
+                // base liste = grid
+                display: grid;
+                grid-template-rows: repeat(#{map-get($conf, rows)}, 1fr);
+                // on respecte les contraintes globales (pas de padding/margin/gap/border/arrondi/ombre)
+                padding: 0;
+                margin: 0;
+                gap: 0;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+            }
+
+            // (Placeholders si, plus tard, on doit masquer/afficher des colonnes selon le preset)
+            // &.classement-widget--teams-6,
+            // &.classement-widget--teams-8 {
+            //     // Exemple : masquer la colonne bonus si inutile en mode équipe
+            //     // .cw-row .col-bonus { display: none; }
+            // }
+        }
+
+        // --- MODES MESSAGE (rows = 0) ---
+        @else {
+            .cw-list {
+                // On remplace la grille par un conteneur centré
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                // On conserve l'arrière-plan défini pour .cw-list (bg-other + $opacity-secondary)
+                // Les contraintes restent : pas de padding/margin/gap/border/arrondi/ombre
+                padding: 0;
+                margin: 0;
+                gap: 0;
+                border: 0;
+                border-radius: 0;
+                box-shadow: none;
+
+                // Bloc message injecté par le JS (renderMessageBlock)
+                .cw-message {
+                    // pas de margin/padding imposés ; on laisse le texte respirer naturellement
+                    text-align: center;
+                    line-height: 1.15;
+
+                    // Typographies de base (ajuste si besoin)
+                    h2, h3, p, span { margin: 0; }
+
+                    h2 {
+                        font-family: $font-rank;          // réutilise une de tes familles
+                        font-weight: $font-rank-weight;
+                        font-size: 18px;
+                        letter-spacing: 0.5px;
+                    }
+
+                    h3 {
+                        font-family: $font-tag;
+                        font-weight: $font-tag-weight;
+                        font-size: 14px;
+                        margin-top: 6px;
+                    }
+
+                    p, span {
+                        font-family: $font-points;
+                        font-weight: $font-points-weight;
+                        font-size: 13px;
+                    }
+
+                    // petite séparation visuelle entre blocs (option très légère)
+                    h3 + span { margin-top: 2px; display: inline-block; }
+                }
+            }
+        }
+    }
+}
+
+
 // ----------------------
 // Racine du composant
 // ----------------------

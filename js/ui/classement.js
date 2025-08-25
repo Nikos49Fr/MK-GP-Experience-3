@@ -1,11 +1,9 @@
 // /js/ui/classement.js
 // ----------------------------------------------------
 // Classement Widget — MK GP Experience 3
-// - Remplit la <section.classement-widget> (250x800)
-// - Logo header (chemin relatif robuste)
-// - État de course (RTDB: /context/current + live/races finals) avec texte défilant si besoin
-// - Classement 24 lignes (RTDB: /live/points/{phase}/totals), logos d'équipe (Firestore: teams), tags pilotes (Firestore: pilots)
-// - Colonne bonus (vide pour l’instant) avant la colonne points
+// - Modes d’affichage (pilotes 12/24, équipes 6/8, messages)
+// - Texte d’état + défilement (marquee)
+// - Données: Firestore (teams/pilots), RTDB (context, totals, finals, overrides)
 // ----------------------------------------------------
 
 import { dbFirestore, dbRealtime } from '../firebase-config.js';
@@ -19,25 +17,32 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
 // ----------------------
+// Modes / Presets
+// ----------------------
+const MODES = {
+    'mk8-12':   { rows: 12, className: 'classement-widget--mk8-12', type: 'pilot'  },
+    'mkw-24':   { rows: 24, className: 'classement-widget--mkw-24', type: 'pilot'  },
+    'teams-6':  { rows: 6,  className: 'classement-widget--teams-6', type: 'team'  },
+    'teams-8':  { rows: 8,  className: 'classement-widget--teams-8', type: 'team'  },
+
+    // Messages
+    'msg-prestart':      { rows: 0, className: 'classement-widget--msg-prestart', type: 'message' },
+    'msg-mk8-noscores':  { rows: 0, className: 'classement-widget--msg-mk8-noscores', type: 'message' },
+    'msg-mkw-noscores':  { rows: 0, className: 'classement-widget--msg-mkw-noscores', type: 'message' }
+};
+
+// ----------------------
 // Helpers
 // ----------------------
-
-/**
- * Retourne un chemin asset correct quel que soit le niveau de sous-dossier.
- * La BDD/constantes stockent des chemins du type "./assets/images/…"
- * - Depuis /index.html => "./assets/images/…"
- * - Depuis /pages/*.html => "../assets/images/…"
- */
 function resolveAssetPath(storedPath) {
     if (!storedPath) return '';
-    const stripped = storedPath.replace(/^\.\//, ''); // "assets/images/…"
+    const stripped = storedPath.replace(/^\.\//, '');
     const segments = window.location.pathname.replace(/\/+$/, '').split('/');
     const depth = Math.max(0, segments.length - 2);
     const prefix = depth > 0 ? '../'.repeat(depth) : './';
     return prefix + stripped;
 }
 
-/** Format points: 0=>"", 1=>"1 pt", n=>"n pts" */
 function formatPoints(n) {
     const v = Number(n) || 0;
     if (v <= 0) return '';
@@ -45,7 +50,6 @@ function formatPoints(n) {
     return `${v} pts`;
 }
 
-/** Affichage simple phase/course pour fallback */
 function simpleRaceLabel({ phase, raceId }) {
     if (!phase) return '—';
     const up = String(phase).toUpperCase();
@@ -59,86 +63,120 @@ function isNumericRaceId(rid) {
     return typeof rid === 'string' && /^[0-9]+$/.test(rid);
 }
 
+function totalsAllZeroOrEmpty(map) {
+    if (!map || map.size === 0) return true;
+    for (const [, v] of map) {
+        if ((Number(v) || 0) > 0) return false;
+    }
+    return true;
+}
+
 // ----------------------
-// Marquee (texte défilant) — injecte du CSS depuis le JS
+// Marquee (texte défilant)
 // ----------------------
-let marqueeStyleEl = null;
-function ensureMarqueeStyles() {
-    if (marqueeStyleEl) return;
-    const css = `
-.classement-widget .race-state.marquee { overflow: hidden; position: relative; }
-.classement-widget .race-state .marquee-track { display: inline-flex; align-items: center; gap: 48px; will-change: transform; }
-@keyframes rs-marquee-{ID} { from { transform: translateX(0); } to { transform: translateX(-{DIST}px); } }
-`.trim();
-    marqueeStyleEl = document.createElement('style');
-    marqueeStyleEl.id = 'classement-marquee-style';
-    document.head.appendChild(marqueeStyleEl);
+// Gestion timers/listeners pour éviter les fuites entre changements de texte
+let _marqueeTimers = [];
+let _marqueeOnEnd = null;
+
+function _clearMarqueeRuntime() {
+    _marqueeTimers.forEach(t => clearTimeout(t));
+    _marqueeTimers = [];
+    if (_marqueeOnEnd && _marqueeOnEnd.el) {
+        _marqueeOnEnd.el.removeEventListener('transitionend', _marqueeOnEnd.fn);
+    }
+    _marqueeOnEnd = null;
 }
 
 /**
- * Active un défilement continu gauche si le texte dépasse.
- * Crée un @keyframes unique avec la distance exacte.
+ * Affiche le texte du state sur une seule ligne, sans overflow visible.
+ * Si le texte déborde, on anime:
+ *   - pause 2s au début (on voit le début du texte)
+ *   - scroll linéaire 5s vers la gauche (pour révéler la suite)
+ *   - pause 2s en fin
+ *   - retour 5s au point de départ
+ * …et on boucle ainsi.
  */
+
 function setRaceStateTextWithMarquee($state, text) {
-    // Réinitialise
+    _clearMarqueeRuntime();
+
+    const GUTTER = 8;     // marge visible à gauche et à droite
+    const EDGE_PAD = 3;   // anti-rognage des glyphes
+
+    // Reset visuel
     $state.classList.remove('marquee');
-    $state.textContent = text;
+    $state.innerHTML = '';
+    $state.style.whiteSpace = 'nowrap';
+    $state.style.overflow = 'hidden';
+    $state.style.alignItems = 'center';
+    $state.style.justifyContent = 'flex-start';
+    $state.style.padding = '0'; // on ne s’appuie plus sur padding ici
 
-    // Mesure si ça déborde
-    // Laisse le browser rendre d’abord :
+    // Piste
+    const track = document.createElement('div');
+    track.className = 'marquee-track';
+    track.style.display = 'inline-block';
+    track.style.willChange = 'transform';
+    track.style.transition = 'none';
+
+    // Texte
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.padding = `0 ${EDGE_PAD}px`;
+
+    track.appendChild(span);
+    $state.appendChild(track);
+
     requestAnimationFrame(() => {
-        const needsMarquee = $state.scrollWidth > $state.clientWidth + 4; // petite tolérance
-        if (!needsMarquee) return;
+        const visible = $state.clientWidth - (GUTTER * 2);
+        const full = track.scrollWidth;
+        const overflow = Math.max(0, full - visible);
 
-        ensureMarqueeStyles();
+        // Décalage initial : décale toute la piste de +GUTTER
+        track.style.transform = `translateX(${GUTTER}px)`;
 
-        // Construit la structure
-        $state.classList.add('marquee');
-        const track = document.createElement('div');
-        track.className = 'marquee-track';
+        if (overflow <= 0) {
+            // Rien à défiler → on reste centré avec gouttières
+            track.style.transform = `translateX(${GUTTER}px)`;
+            return;
+        }
 
-        const span1 = document.createElement('span');
-        span1.className = 'marquee-item';
-        span1.textContent = text;
+        const START_DELAY = 2000;
+        const END_DELAY = 2000;
+        const DURATION = 2000;
+        let directionLeft = true;
 
-        const span2 = document.createElement('span');
-        span2.className = 'marquee-item';
-        span2.textContent = text;
-        span2.setAttribute('aria-hidden', 'true');
+        function goOnce() {
+            track.style.transition = `transform ${DURATION}ms linear`;
+            const targetX = directionLeft ? -(overflow - EDGE_PAD) : GUTTER;
+            requestAnimationFrame(() => {
+                track.style.transform = `translateX(${targetX}px)`;
+            });
 
-        track.appendChild(span1);
-        track.appendChild(span2);
+            const onEnd = () => {
+                track.removeEventListener('transitionend', onEnd);
+                _marqueeOnEnd = null;
+                const t2 = setTimeout(() => {
+                    directionLeft = !directionLeft;
+                    track.style.transition = 'none';
+                    track.style.transform = directionLeft
+                        ? `translateX(${GUTTER}px)`
+                        : `translateX(${-(overflow - EDGE_PAD)}px)`;
+                    requestAnimationFrame(goOnce);
+                }, END_DELAY);
+                _marqueeTimers.push(t2);
+            };
+            _marqueeOnEnd = { el: track, fn: onEnd };
+            track.addEventListener('transitionend', onEnd);
+        }
 
-        // Remplace le contenu
-        $state.innerHTML = '';
-        $state.appendChild(track);
-
-        // Mesure la distance de demi-cycle (largeur d’un item + gap ~ 48px)
-        requestAnimationFrame(() => {
-            const itemWidth = span1.offsetWidth;
-            // distance = itemWidth + gap (48)
-            const dist = Math.max(64, itemWidth + 48);
-
-            // Crée une règle @keyframes dédiée avec un ID unique (évite conflits)
-            const animId = `rs-marquee-${Math.random().toString(36).slice(2, 8)}`;
-            const css = marqueeStyleEl.textContent || '';
-            // Retire ancienne règle si besoin (on garde simple : on concatène)
-            marqueeStyleEl.textContent = css + `\n@keyframes ${animId} { from { transform: translateX(0); } to { transform: translateX(-${dist}px); } }`;
-
-            // Durée proportionnelle à la longueur (plus long => plus long à lire)
-            const pxPerSec = 40; // vitesse ~ 40px/s (agréable)
-            const duration = Math.max(8, Math.round((dist / pxPerSec)));
-
-            track.style.animationName = animId;
-            track.style.animationDuration = `${duration}s`;
-            track.style.animationTimingFunction = 'linear';
-            track.style.animationIterationCount = 'infinite';
-        });
+        const t1 = setTimeout(goOnce, START_DELAY);
+        _marqueeTimers.push(t1);
     });
 }
 
 // ----------------------
-// DOM construction
+// DOM scaffold
 // ----------------------
 function ensureScaffold($root) {
     $root.innerHTML = '';
@@ -160,10 +198,6 @@ function ensureScaffold($root) {
     const $list = document.createElement('div');
     $list.className = 'cw-list';
     $list.id = 'cw-list';
-
-    for (let i = 0; i < 24; i++) {
-        $list.appendChild(buildRowSkeleton(i + 1));
-    }
 
     $root.appendChild($header);
     $root.appendChild($state);
@@ -206,33 +240,61 @@ function buildRowSkeleton(position) {
     return $row;
 }
 
+function renderRowsSkeleton(rowCount) {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return;
+    $list.innerHTML = '';
+    for (let i = 0; i < rowCount; i++) {
+        $list.appendChild(buildRowSkeleton(i + 1));
+    }
+}
+
+function renderMessageBlock(htmlString) {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return;
+    $list.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'cw-message';
+    wrap.innerHTML = htmlString;
+    $list.appendChild(wrap);
+}
+
 // ----------------------
-// State & data
+// State global
 // ----------------------
 const state = {
+    // contexte course
     phase: 'mk8',
     raceId: null,
-    pilotsById: new Map(),   // { id -> { tag, teamName, game } }
-    teamsByName: new Map(),  // { teamName -> { urlLogo } }
-    totals: new Map(),       // { pilotId -> number }
+
+    // données
+    pilotsById: new Map(),
+    teamsByName: new Map(),
+    totals: new Map(),
     unsubTotals: null,
 
-    // Finals
-    mk8LastFinalized: false, // live/races/mk8/8/finalized
-    mkwFinalFinalized: false // live/races/mkw/SF/finalized
+    // finals
+    mk8LastFinalized: false,  // live/races/mk8/8/finalized
+    mkwFinalFinalized: false, // live/races/mkw/SF/finalized
+
+    // mode courant calculé ou forcé
+    modeKey: 'mkw-24',
+
+    // overrides (Direction de course)
+    viewModeOverride: null,   // 'auto' | <un des MODES> | null
+    viewScope: 'pilot'        // 'pilot' | 'team'
 };
 
+// ----------------------
+// Firestore preload
+// ----------------------
 async function preloadFirestore() {
-    // Teams
     const teamsSnap = await getDocs(collection(dbFirestore, 'teams'));
     teamsSnap.forEach(docSnap => {
         const data = docSnap.data() || {};
-        state.teamsByName.set(data.name, {
-            urlLogo: data.urlLogo || ''
-        });
+        state.teamsByName.set(data.name, { urlLogo: data.urlLogo || '' });
     });
 
-    // Pilots
     const pilotsSnap = await getDocs(collection(dbFirestore, 'pilots'));
     pilotsSnap.forEach(docSnap => {
         const data = docSnap.data() || {};
@@ -244,7 +306,9 @@ async function preloadFirestore() {
     });
 }
 
-// ---- subscriptions
+// ----------------------
+// Subscriptions RTDB
+// ----------------------
 function subscribeContext() {
     const ctxRef = ref(dbRealtime, 'context/current');
     onValue(ctxRef, (snap) => {
@@ -252,31 +316,45 @@ function subscribeContext() {
         const phase = (v.phase || 'mk8').toString().toLowerCase();
         const raceId = v.raceId || null;
 
-        const changedPhase = phase !== state.phase;
+        const phaseChanged = phase !== state.phase;
         state.phase = phase;
         state.raceId = raceId;
 
-        // MAJ affichage état
         updateRaceStateDisplay();
+        chooseAndApplyMode();
 
-        // Resubscribe totals si la phase change
-        if (changedPhase) resubscribeTotals();
+        if (phaseChanged) resubscribeTotals();
+    });
+
+    // Overrides de vue (Direction de course)
+    const viewModeRef = ref(dbRealtime, 'context/viewMode'); // 'auto' | explicit
+    onValue(viewModeRef, (snap) => {
+        const val = snap.val();
+        state.viewModeOverride = val || null;
+        chooseAndApplyMode();
+    });
+
+    const viewScopeRef = ref(dbRealtime, 'context/viewScope'); // 'pilot' | 'team'
+    onValue(viewScopeRef, (snap) => {
+        const val = snap.val();
+        state.viewScope = (val === 'team') ? 'team' : 'pilot';
+        chooseAndApplyMode();
     });
 }
 
 function subscribeFinals() {
-    // MK8 — course 8 finalized
     const mk8ref = ref(dbRealtime, 'live/races/mk8/8/finalized');
     onValue(mk8ref, (snap) => {
         state.mk8LastFinalized = Boolean(snap.val());
         updateRaceStateDisplay();
+        chooseAndApplyMode();
     });
 
-    // MKW — Survie Finale finalized
     const mkwref = ref(dbRealtime, 'live/races/mkw/SF/finalized');
     onValue(mkwref, (snap) => {
         state.mkwFinalFinalized = Boolean(snap.val());
         updateRaceStateDisplay();
+        chooseAndApplyMode();
     });
 }
 
@@ -293,27 +371,26 @@ function resubscribeTotals() {
         Object.entries(obj).forEach(([pilotId, pts]) => {
             state.totals.set(pilotId, Number(pts) || 0);
         });
-        renderList();
+        chooseAndApplyMode();
+        renderList(); // si mode lignes
     });
     state.unsubTotals = unsubscribe;
 }
 
 // ----------------------
-// Race state rendering logic
+// Texte d’état
 // ----------------------
 function computeRaceStateText() {
-    // Priorité 1: tournoi fini
     if (state.mkwFinalFinalized) {
-        return 'Tournois terminé';
+        return 'Tournoi terminé';
     }
 
-    // MKW en cours
     if (state.phase === 'mkw') {
         const rid = state.raceId;
         if (!rid) {
-            // pas encore démarré (après MK8 terminé ?)
-            return state.mk8LastFinalized
-                ? 'MK 8 - Phase 1 terminée. À suivre... Tournoi MK World'
+            // Après final MKW: rester sur scores finaux tant qu’on n’a pas quitté la phase
+            return state.mkwFinalFinalized
+                ? 'MK World - Tournoi terminé - Scores finaux'
                 : 'MK World - En attente de départ';
         }
         if (rid === 'S') return 'MK World - Survie 1';
@@ -321,42 +398,27 @@ function computeRaceStateText() {
 
         if (isNumericRaceId(rid)) {
             const n = parseInt(rid, 10);
-            if (n >= 1 && n <= 6) {
-                // Affiche "Course X / 14"
-                return `MK World - Course ${n} / 14`;
-            }
-            if (n >= 8 && n <= 13) {
-                // Décalage voulu : 8 => Course 7 / 14 ... 13 => Course 12 / 14
-                return `MK World - Course ${n - 1} / 14`;
-            }
+            if (n >= 1 && n <= 6) return `MK World - Course ${n} / 14`;
+            if (n >= 7 && n <= 12) return `MK World - Course ${n + 1} / 14`;
         }
-        // fallback lisible
         return simpleRaceLabel({ phase: 'mkw', raceId: rid });
     }
 
-    // MK8 / entre phases
     if (state.phase === 'mk8') {
         const rid = state.raceId;
-
         if (!rid) {
-            // Avant départ OU après phase 1 terminée (en attente MKW)
+            // Après final MK8: rester sur scores finaux tant qu’on n’a pas basculé sur MKW
             return state.mk8LastFinalized
-                ? 'MK 8 - Phase 1 terminée. À suivre... Tournois MK World'
+                ? 'MK 8 - Phase 1 terminée - Scores finaux'
                 : 'MK 8 - Le tournoi va commencer';
         }
-
         if (isNumericRaceId(rid)) {
             const n = parseInt(rid, 10);
-            if (n >= 1 && n <= 8) {
-                return `MK 8 - Course ${n} / 8`;
-            }
+            if (n >= 1 && n <= 8) return `MK 8 - Course ${n} / 8`;
         }
-
-        // fallback
         return simpleRaceLabel({ phase: 'mk8', raceId: rid });
     }
 
-    // Autres phases (sécurité)
     return simpleRaceLabel({ phase: state.phase, raceId: state.raceId });
 }
 
@@ -369,11 +431,142 @@ function updateRaceStateDisplay() {
 }
 
 // ----------------------
-// Classement rendering
+// Sélection du mode
+// ----------------------
+function computeModeKeyAuto() {
+    // Scope équipe prioritaire si demandé
+    if (state.viewScope === 'team') {
+        // MK8 => base 6 équipes, MKW => 8 équipes (avec équipes secrètes)
+        return (state.phase === 'mk8') ? 'teams-6' : 'teams-8';
+    }
+
+    // Scope pilote (auto)
+    if (state.phase === 'mk8') {
+        const rid = state.raceId;
+        if (!rid) {
+            // Si MK8 finalisé et pas encore basculé MKW -> rester sur scores finaux MK8
+            return state.mk8LastFinalized ? 'mk8-12' : 'msg-prestart';
+        }
+        // En course MK8
+        if (totalsAllZeroOrEmpty(state.totals)) {
+            return 'msg-mk8-noscores';
+        }
+        return 'mk8-12';
+    }
+
+    if (state.phase === 'mkw') {
+        const rid = state.raceId;
+        if (!rid) {
+            // Si MKW finalisé -> rester sur scores finaux MKW
+            return state.mkwFinalFinalized ? 'mkw-24' : 'msg-mkw-noscores';
+        }
+        // En course MKW (numérique, S, SF)
+        if (totalsAllZeroOrEmpty(state.totals)) {
+            return 'msg-mkw-noscores';
+        }
+        return 'mkw-24';
+    }
+
+    // Fallback
+    return 'mkw-24';
+}
+
+function computeModeKey() {
+    // 1) Override local (debug) via window force ?
+    if (window.__CL_FORCE_MODE && MODES[window.__CL_FORCE_MODE]) {
+        return window.__CL_FORCE_MODE;
+    }
+    // 2) Override via RTDB (Direction de course)
+    const ov = state.viewModeOverride;
+    if (ov && ov !== 'auto' && MODES[ov]) {
+        return ov;
+    }
+    // 3) Auto
+    return computeModeKeyAuto();
+}
+
+function applyMode(modeKey) {
+    const $host = document.querySelector('.classement-widget');
+    const $list = document.getElementById('cw-list');
+    if (!$host || !$list) return;
+
+    // Nettoie anciennes classes
+    Object.values(MODES).forEach(m => $host.classList.remove(m.className));
+
+    const m = MODES[modeKey] || MODES['mkw-24'];
+    $host.classList.add(m.className);
+    state.modeKey = modeKey;
+
+    if (m.type === 'message') {
+        if (modeKey === 'msg-prestart') {
+            renderMessageBlock(`
+                <h2>Mario Kart<br/>GP Expérience</h2>
+                <span>3</span>
+                <p>A venir :</p>
+                <h3>Tournoi MK 8 :</h3>
+                <span>8 courses</span>
+                <h3>Tournoi MKWorld :</h3>
+                <span>6 courses</span>
+                <span>1 survie</span>
+                <span>6 courses</span>
+                <span>1 survie finale</span>
+            `);
+        } else if (modeKey === 'msg-mk8-noscores') {
+            renderMessageBlock(`
+                <h2>Mario Kart<br/>GP Expérience</h2>
+                <span>3</span>
+                <h3>Phase 1 - MK 8 :</h3>
+                <span>8 courses</span>
+            `);
+        } else if (modeKey === 'msg-mkw-noscores') {
+            renderMessageBlock(`
+                <h2>Mario Kart<br/>GP Expérience</h2>
+                <span>3</span>
+                <h3>Phase 2 - MK World :</h3>
+                <span>6 courses + 1 survie + 6 courses + 1 survie finale</span>
+            `);
+        }
+        return;
+    }
+
+    // Sinon: lignes
+    renderRowsSkeleton(m.rows);
+    renderList();
+}
+
+function chooseAndApplyMode() {
+    const key = computeModeKey();
+    if (key !== state.modeKey) {
+        applyMode(key);
+    } else {
+        const m = MODES[key] || MODES['mkw-24'];
+        if (m.type !== 'message') renderList();
+    }
+}
+
+// Expose helpers (debug / autres pages)
+window.CLASSEMENT_forceMode = function (key) {
+    if (!MODES[key]) {
+        console.warn('[classement] Mode inconnu:', key);
+        return;
+    }
+    window.__CL_FORCE_MODE = key;
+    applyMode(key);
+};
+window.CLASSEMENT_clearForce = function () {
+    delete window.__CL_FORCE_MODE;
+    chooseAndApplyMode();
+};
+
+// ----------------------
+// Rendering liste (modes pilotes actuels)
 // ----------------------
 function renderList() {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
+
+    const m = MODES[state.modeKey] || MODES['mkw-24'];
+    if (m.type === 'message') return;
 
     const items = [];
     state.totals.forEach((points, pilotId) => {
@@ -381,8 +574,8 @@ function renderList() {
         if (!p) return;
 
         const gameNorm = (p.game || '').toString().toLowerCase(); // "mk8" | "mkw"
-        if (state.phase === 'mk8' && gameNorm !== 'mk8') return;
-        if (state.phase === 'mkw' && gameNorm !== 'mkw') return;
+        if (state.modeKey === 'mk8-12' && gameNorm !== 'mk8') return;
+        if (state.modeKey === 'mkw-24' && gameNorm !== 'mkw') return;
 
         const team = state.teamsByName.get(p.teamName) || {};
         const logo = team.urlLogo ? resolveAssetPath(team.urlLogo) : '';
@@ -396,7 +589,6 @@ function renderList() {
         });
     });
 
-    // points desc, puis tag asc
     items.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
         const ta = a.tag || '';
@@ -405,7 +597,9 @@ function renderList() {
     });
 
     const rows = $list.children;
-    for (let i = 0; i < 24; i++) {
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
         const $row = rows[i];
         if (!$row) continue;
 
@@ -455,11 +649,7 @@ function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
     }
 
     if ($tag) $tag.textContent = tag || '';
-
-    if ($bonus) {
-        $bonus.innerHTML = bonusContent || '';
-    }
-
+    if ($bonus) $bonus.innerHTML = bonusContent || '';
     if ($pts) $pts.textContent = pointsText || '';
 }
 
@@ -482,6 +672,9 @@ function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
     }
 
     subscribeContext();
-    subscribeFinals();  // <- écoute les fins de phase/courses importantes
+    subscribeFinals();
     resubscribeTotals();
+
+    // Premier choix
+    chooseAndApplyMode();
 })();

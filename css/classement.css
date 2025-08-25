@@ -27,6 +27,170 @@
   font-style: normal;
   font-display: swap;
 }
+.classement-widget--mk8-12 .cw-list {
+  display: grid;
+  grid-template-rows: repeat(12, 1fr);
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.classement-widget--mkw-24 .cw-list {
+  display: grid;
+  grid-template-rows: repeat(24, 1fr);
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.classement-widget--teams-6 .cw-list {
+  display: grid;
+  grid-template-rows: repeat(6, 1fr);
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.classement-widget--teams-8 .cw-list {
+  display: grid;
+  grid-template-rows: repeat(8, 1fr);
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.classement-widget--msg-prestart .cw-list {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.classement-widget--msg-prestart .cw-list .cw-message {
+  text-align: center;
+  line-height: 1.15;
+}
+.classement-widget--msg-prestart .cw-list .cw-message h2, .classement-widget--msg-prestart .cw-list .cw-message h3, .classement-widget--msg-prestart .cw-list .cw-message p, .classement-widget--msg-prestart .cw-list .cw-message span {
+  margin: 0;
+}
+.classement-widget--msg-prestart .cw-list .cw-message h2 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+.classement-widget--msg-prestart .cw-list .cw-message h3 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin-top: 6px;
+}
+.classement-widget--msg-prestart .cw-list .cw-message p, .classement-widget--msg-prestart .cw-list .cw-message span {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+}
+.classement-widget--msg-prestart .cw-list .cw-message h3 + span {
+  margin-top: 2px;
+  display: inline-block;
+}
+
+.classement-widget--msg-mk8-noscores .cw-list {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message {
+  text-align: center;
+  line-height: 1.15;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message h2, .classement-widget--msg-mk8-noscores .cw-list .cw-message h3, .classement-widget--msg-mk8-noscores .cw-list .cw-message p, .classement-widget--msg-mk8-noscores .cw-list .cw-message span {
+  margin: 0;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message h2 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message h3 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin-top: 6px;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message p, .classement-widget--msg-mk8-noscores .cw-list .cw-message span {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+}
+.classement-widget--msg-mk8-noscores .cw-list .cw-message h3 + span {
+  margin-top: 2px;
+  display: inline-block;
+}
+
+.classement-widget--msg-mkw-noscores .cw-list {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message {
+  text-align: center;
+  line-height: 1.15;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message h2, .classement-widget--msg-mkw-noscores .cw-list .cw-message h3, .classement-widget--msg-mkw-noscores .cw-list .cw-message p, .classement-widget--msg-mkw-noscores .cw-list .cw-message span {
+  margin: 0;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message h2 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message h3 {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin-top: 6px;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message p, .classement-widget--msg-mkw-noscores .cw-list .cw-message span {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+}
+.classement-widget--msg-mkw-noscores .cw-list .cw-message h3 + span {
+  margin-top: 2px;
+  display: inline-block;
+}
+
 .classement-widget {
   box-sizing: border-box;
   width: 250px;

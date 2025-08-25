@@ -4,6 +4,7 @@
 // - Modes d’affichage (pilotes 12/24, équipes 6/8, messages)
 // - Texte d’état + défilement (marquee)
 // - Données: Firestore (teams/pilots), RTDB (context, totals, finals, overrides)
+// - Swap périodique TAG ↔ FICHE PILOTE (photo + numéro + nom défilant)
 // ----------------------------------------------------
 
 import { dbFirestore, dbRealtime } from '../firebase-config.js';
@@ -15,6 +16,19 @@ import {
     ref,
     onValue
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
+
+// ----------------------
+// Config timings (ajustables)
+// ----------------------
+const CFG = {
+    tagStandbyMs: 5000,     // temps d’attente en affichage TAG avant bascule sur fiche
+    pilotScrollMs: 5000,     // durée du défilement (aller) de la fiche
+    pilotPauseEndMs: 2000,   // pause en fin de défilement (avant retour au TAG)
+    pilotBackPauseMs: 2000,   // pause après le défilement retour, avant de réafficher le TAG
+    pilotStartDelayMs: 2000,   // délai avant de lancer le défilement aller
+    gutterPx: 6,             // marge visuelle à gauche/droite dans la cellule tag
+    edgePadPx: 2             // micro pad anti-overhang sur le scroller
+};
 
 // ----------------------
 // Modes / Presets
@@ -72,9 +86,8 @@ function totalsAllZeroOrEmpty(map) {
 }
 
 // ----------------------
-// Marquee (texte défilant)
+// Marquee (texte défilant pour le state)
 // ----------------------
-// Gestion timers/listeners pour éviter les fuites entre changements de texte
 let _marqueeTimers = [];
 let _marqueeOnEnd = null;
 
@@ -86,16 +99,6 @@ function _clearMarqueeRuntime() {
     }
     _marqueeOnEnd = null;
 }
-
-/**
- * Affiche le texte du state sur une seule ligne, sans overflow visible.
- * Si le texte déborde, on anime:
- *   - pause 2s au début (on voit le début du texte)
- *   - scroll linéaire 5s vers la gauche (pour révéler la suite)
- *   - pause 2s en fin
- *   - retour 5s au point de départ
- * …et on boucle ainsi.
- */
 
 function setRaceStateTextWithMarquee($state, text) {
     _clearMarqueeRuntime();
@@ -132,24 +135,22 @@ function setRaceStateTextWithMarquee($state, text) {
         const full = track.scrollWidth;
         const overflow = Math.max(0, full - visible);
 
-        // Décalage initial : décale toute la piste de +GUTTER
+        // Décalage initial : gouttière gauche
         track.style.transform = `translateX(${GUTTER}px)`;
 
-        // SI PAS DE DÉBORDEMENT → CENTRER + MARGES
+        // Si pas de débordement → centrer + petite marge
         if (overflow <= 0) {
-            // Centre le contenu
             $state.style.justifyContent = 'center';
-            // remets une petite marge visuelle sur le conteneur
             $state.style.padding = `0 ${GUTTER}px`;
-            // neutralise toute transition/translation du track
             track.style.transition = 'none';
             track.style.transform = 'translateX(0)';
             return;
         }
 
-        const START_DELAY = 2000;
+        // Timings (tu peux ajuster)
+        const START_DELAY = 4000;
         const END_DELAY = 2000;
-        const DURATION = 2000;
+        const DURATION = 3000;
         let directionLeft = true;
 
         function goOnce() {
@@ -249,6 +250,9 @@ function buildRowSkeleton(position) {
 function renderRowsSkeleton(rowCount) {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
+
+    stopSwapCycle(); // <-- stoppe le cycle sync avant de reconstruire
+
     $list.innerHTML = '';
     for (let i = 0; i < rowCount; i++) {
         $list.appendChild(buildRowSkeleton(i + 1));
@@ -258,6 +262,9 @@ function renderRowsSkeleton(rowCount) {
 function renderMessageBlock(htmlString) {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
+
+    stopSwapCycle(); // <-- stoppe le cycle sync si on passe en mode message
+
     $list.innerHTML = '';
     const wrap = document.createElement('div');
     wrap.className = 'cw-message';
@@ -274,20 +281,20 @@ const state = {
     raceId: null,
 
     // données
-    pilotsById: new Map(),
+    pilotsById: new Map(), // { id -> { tag, teamName, game, name, num, urlPhoto } }
     teamsByName: new Map(),
     totals: new Map(),
     unsubTotals: null,
 
     // finals
-    mk8LastFinalized: false,  // live/races/mk8/8/finalized
-    mkwFinalFinalized: false, // live/races/mkw/SF/finalized
+    mk8LastFinalized: false,
+    mkwFinalFinalized: false,
 
     // mode courant calculé ou forcé
     modeKey: 'mkw-24',
 
     // overrides (Direction de course)
-    viewModeOverride: null,   // 'auto' | <un des MODES> | null
+    viewModeOverride: null,   // 'auto' | explicit
     viewScope: 'pilot'        // 'pilot' | 'team'
 };
 
@@ -307,7 +314,10 @@ async function preloadFirestore() {
         state.pilotsById.set(docSnap.id, {
             tag: data.tag || '',
             teamName: data.teamName || '',
-            game: data.game || '' // "MK8" | "MKW"
+            game: (data.game || '').toString(), // "MK8" | "MKW"
+            name: data.name || '',
+            num: data.num || '',
+            urlPhoto: data.urlPhoto || ''
         });
     });
 }
@@ -332,7 +342,6 @@ function subscribeContext() {
         if (phaseChanged) resubscribeTotals();
     });
 
-    // Overrides de vue (Direction de course)
     const viewModeRef = ref(dbRealtime, 'context/viewMode'); // 'auto' | explicit
     onValue(viewModeRef, (snap) => {
         const val = snap.val();
@@ -388,13 +397,12 @@ function resubscribeTotals() {
 // ----------------------
 function computeRaceStateText() {
     if (state.mkwFinalFinalized) {
-        return 'Tournoi terminé';
+        return 'MK World - Tournoi terminé - Scores finaux';
     }
 
     if (state.phase === 'mkw') {
         const rid = state.raceId;
         if (!rid) {
-            // Après final MKW: rester sur scores finaux tant qu’on n’a pas quitté la phase
             return state.mkwFinalFinalized
                 ? 'MK World - Tournoi terminé - Scores finaux'
                 : 'MK World - En attente de départ';
@@ -413,7 +421,6 @@ function computeRaceStateText() {
     if (state.phase === 'mk8') {
         const rid = state.raceId;
         if (!rid) {
-            // Après final MK8: rester sur scores finaux tant qu’on n’a pas basculé sur MKW
             return state.mk8LastFinalized
                 ? 'MK 8 - Phase 1 terminée - Scores finaux'
                 : 'MK 8 - Le tournoi va commencer';
@@ -440,20 +447,15 @@ function updateRaceStateDisplay() {
 // Sélection du mode
 // ----------------------
 function computeModeKeyAuto() {
-    // Scope équipe prioritaire si demandé
     if (state.viewScope === 'team') {
-        // MK8 => base 6 équipes, MKW => 8 équipes (avec équipes secrètes)
         return (state.phase === 'mk8') ? 'teams-6' : 'teams-8';
     }
 
-    // Scope pilote (auto)
     if (state.phase === 'mk8') {
         const rid = state.raceId;
         if (!rid) {
-            // Si MK8 finalisé et pas encore basculé MKW -> rester sur scores finaux MK8
             return state.mk8LastFinalized ? 'mk8-12' : 'msg-prestart';
         }
-        // En course MK8
         if (totalsAllZeroOrEmpty(state.totals)) {
             return 'msg-mk8-noscores';
         }
@@ -463,32 +465,31 @@ function computeModeKeyAuto() {
     if (state.phase === 'mkw') {
         const rid = state.raceId;
         if (!rid) {
-            // Si MKW finalisé -> rester sur scores finaux MKW
             return state.mkwFinalFinalized ? 'mkw-24' : 'msg-mkw-noscores';
         }
-        // En course MKW (numérique, S, SF)
         if (totalsAllZeroOrEmpty(state.totals)) {
             return 'msg-mkw-noscores';
         }
         return 'mkw-24';
     }
 
-    // Fallback
     return 'mkw-24';
 }
 
 function computeModeKey() {
-    // 1) Override local (debug) via window force ?
     if (window.__CL_FORCE_MODE && MODES[window.__CL_FORCE_MODE]) {
         return window.__CL_FORCE_MODE;
     }
-    // 2) Override via RTDB (Direction de course)
     const ov = state.viewModeOverride;
     if (ov && ov !== 'auto' && MODES[ov]) {
         return ov;
     }
-    // 3) Auto
     return computeModeKeyAuto();
+}
+
+function chooseAndApplyMode() {
+    const key = computeModeKey();
+    applyMode(key);
 }
 
 function applyMode(modeKey) {
@@ -504,8 +505,9 @@ function applyMode(modeKey) {
     state.modeKey = modeKey;
 
     if (m.type === 'message') {
-        if (modeKey === 'msg-prestart') {
-            renderMessageBlock(`
+        renderMessageBlock(
+            modeKey === 'msg-prestart'
+            ? `
                 <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
                 <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
@@ -517,17 +519,16 @@ function applyMode(modeKey) {
                 <span>🔴 1 survie</span>
                 <span>🔴 6 courses</span>
                 <span>🔴 1 survie finale</span>
-            `);
-        } else if (modeKey === 'msg-mk8-noscores') {
-            renderMessageBlock(`
+              `
+            : modeKey === 'msg-mk8-noscores'
+            ? `
                 <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
                 <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
                 <h3>Tournoi Mario Kart 8</h3>
                 <span>🔴 8 courses</span>
-            `);
-        } else if (modeKey === 'msg-mkw-noscores') {
-            renderMessageBlock(`
+              `
+            : `
                 <h2>Mario Kart Grand Prix Expérience</h2>
                 <span>3</span>
                 <p>🏁🏁🏁 Phase 2 🏁🏁🏁</p>
@@ -536,8 +537,8 @@ function applyMode(modeKey) {
                 <span>🔴 1 survie</span>
                 <span>🔴 6 courses</span>
                 <span>🔴 1 survie finale</span>
-            `);
-        }
+              `
+        );
         return;
     }
 
@@ -546,17 +547,7 @@ function applyMode(modeKey) {
     renderList();
 }
 
-function chooseAndApplyMode() {
-    const key = computeModeKey();
-    if (key !== state.modeKey) {
-        applyMode(key);
-    } else {
-        const m = MODES[key] || MODES['mkw-24'];
-        if (m.type !== 'message') renderList();
-    }
-}
-
-// Expose helpers (debug / autres pages)
+// Debug helpers
 window.CLASSEMENT_forceMode = function (key) {
     if (!MODES[key]) {
         console.warn('[classement] Mode inconnu:', key);
@@ -597,7 +588,11 @@ function renderList() {
             tag: p.tag || '',
             teamName: p.teamName || '',
             logo,
-            points: Number(points) || 0
+            points: Number(points) || 0,
+            // extra pour swap fiche
+            name: p.name || '',
+            num: p.num || '',
+            urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : ''
         });
     });
 
@@ -625,6 +620,8 @@ function renderList() {
                 bonusContent: '',
                 pointsText: ''
             });
+            // aussi nettoyer dataset
+            $row.dataset.pilotId = '';
             continue;
         }
 
@@ -636,7 +633,16 @@ function renderList() {
             bonusContent: '',
             pointsText: formatPoints(entry.points)
         });
+
+        // stocke les infos utiles pour le swap
+        $row.dataset.pilotId = entry.pilotId;
+        $row.dataset.pilotName = entry.name;
+        $row.dataset.pilotNum = entry.num;
+        $row.dataset.pilotPhoto = entry.urlPhoto || '';
     }
+
+    // (Ré)lance le cycle synchronisé après le rendu
+    restartSwapCycle();
 }
 
 function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
@@ -660,9 +666,252 @@ function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
         }
     }
 
-    if ($tag) $tag.textContent = tag || '';
+    // Mise à jour de la colonne tag :
+    // - si on est actuellement en mode "fiche", on MAJ la fiche
+    // - sinon, on affiche le tag simple
+    if ($tag) {
+        if ($tag.classList.contains('mode-pilot')) {
+            // on reconstruit la fiche avec les datasets courants
+            renderPilotCardInto($tag, {
+                name: $row.dataset.pilotName || '',
+                num: $row.dataset.pilotNum || '',
+                urlPhoto: $row.dataset.pilotPhoto || ''
+            });
+        } else {
+            $tag.textContent = tag || '';
+        }
+    }
+
     if ($bonus) $bonus.innerHTML = bonusContent || '';
     if ($pts) $pts.textContent = pointsText || '';
+}
+
+// ----------------------
+// Tag swapper (synchronisé pour toutes les lignes)
+// ----------------------
+
+// Contrôleur global — un seul cycle pour toutes les lignes visibles
+const swapCtrl = {
+    tNextPilotStart: null,
+    tStartBackPhase: null,
+    tBackToTag: null
+};
+
+function stopSwapCycle() {
+    if (swapCtrl.tNextPilotStart) { clearTimeout(swapCtrl.tNextPilotStart); swapCtrl.tNextPilotStart = null; }
+    if (swapCtrl.tStartBackPhase) { clearTimeout(swapCtrl.tStartBackPhase); swapCtrl.tStartBackPhase = null; }
+    if (swapCtrl.tBackToTag) { clearTimeout(swapCtrl.tBackToTag); swapCtrl.tBackToTag = null; }
+}
+
+function restartSwapCycle() {
+    stopSwapCycle();
+    // Si mode "message", on ne schedule rien
+    const m = MODES[state.modeKey] || MODES['mkw-24'];
+    if (m.type === 'message') return;
+    // Si aucune ligne, on ne schedule pas
+    const $list = document.getElementById('cw-list');
+    if (!$list || !$list.querySelector('.cw-row')) return;
+
+    // Démarre un cycle : attendre TAG puis passer à la fiche pour tout le monde
+    swapCtrl.tNextPilotStart = setTimeout(startPilotPhaseAll, CFG.tagStandbyMs);
+}
+
+function startPilotPhaseAll() {
+    swapCtrl.tNextPilotStart = null;
+
+    const rows = getActiveRows();
+    if (rows.length === 0) {
+        restartSwapCycle();
+        return;
+    }
+
+    // Rendu des fiches pour toutes les lignes (position de départ = gouttière)
+    rows.forEach(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        if (!$tagCell) return;
+        renderPilotCardInto($tagCell, {
+            name: ($row.dataset.pilotName || '').toString(),
+            num: ($row.dataset.pilotNum || '').toString(),
+            urlPhoto: ($row.dataset.pilotPhoto || '').toString()
+        });
+    });
+
+    // Mesures d’overflow
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell);
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    // Démarre l’aller pour toutes les lignes APRÈS un délai commun
+    setTimeout(() => {
+        rows.forEach(($row, idx) => {
+            const $tagCell = $row.querySelector('.col-tag');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+        });
+    }, CFG.pilotStartDelayMs);
+
+    // Planifie la PHASE RETOUR synchronisée (aller + pause fin)
+    swapCtrl.tStartBackPhase = setTimeout(
+        startPilotBackPhaseAll,
+        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
+    );
+
+    // Planifie le retour au TAG (aller + pause fin + retour + pause avant TAG)
+    swapCtrl.tBackToTag = setTimeout(
+        backToTagAll,
+        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs + CFG.pilotScrollMs + CFG.pilotBackPauseMs
+    );
+}
+
+function startPilotBackPhaseAll() {
+    swapCtrl.tStartBackPhase = null;
+
+    const rows = getActiveRows();
+    if (rows.length === 0) return;
+
+    // Mesure overflows de nouveau (au cas où la largeur a changé)
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell);
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    // Lancer le scroll "retour" pour chaque ligne (durée proportionnelle, même vitesse commune)
+    rows.forEach(($row, idx) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+    });
+}
+
+function getOverflowForCell($tagCell) {
+    if (!$tagCell) return 0;
+    const scroller = $tagCell.querySelector('.tagcard-scroller');
+    if (!scroller) return 0;
+
+    // largeur visible dispo dans la cellule (moins gouttières visuelles)
+    const visible = Math.max(0, $tagCell.clientWidth - (CFG.gutterPx * 2));
+    // largeur totale du bloc défilant (image+num+nom)
+    const full = scroller.scrollWidth;
+
+    // NE PAS toucher à transform/transition ici (sinon on casse l'état courant)
+    return Math.max(0, full - visible);
+}
+
+function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
+    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
+    if (!scroller) return;
+
+    if (overflow <= 0 || maxOverflow <= 0) {
+        scroller.style.transition = 'none';
+        scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+        return;
+    }
+
+    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
+    const startX = - (overflow - CFG.edgePadPx);
+    const targetX = CFG.gutterPx;
+
+    // Place explicitement le point de départ (fin d’aller)
+    scroller.style.transition = 'none';
+    scroller.style.transform = `translateX(${startX}px)`;
+
+    // ⚠️ Reflow avant de définir la transition retour
+    void scroller.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+        scroller.style.transition = `transform ${durationMs}ms linear`;
+        scroller.style.transform = `translateX(${targetX}px)`;
+    });
+}
+
+function backToTagAll() {
+    swapCtrl.tBackToTag = null;
+
+    const rows = getActiveRows();
+    rows.forEach(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        if (!$tagCell) return;
+        $tagCell.classList.remove('mode-pilot');
+        // remet le tag textuel
+        const p = state.pilotsById.get($row.dataset.pilotId || '');
+        $tagCell.textContent = (p && p.tag) ? p.tag : '';
+    });
+
+    // Puis on relance un cycle complet
+    restartSwapCycle();
+}
+
+function getActiveRows() {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return [];
+    const rows = Array.from($list.querySelectorAll('.cw-row')).filter(el => !el.classList.contains('is-empty'));
+    return rows;
+}
+
+/**
+ * Rend la fiche pilote DANS un scroller horizontal (image + numéro + nom)
+ * L’ensemble défile comme un bloc.
+ */
+function renderPilotCardInto($container, { name, num, urlPhoto }) {
+    $container.classList.add('mode-pilot');
+    const safeName = (name || '').toUpperCase();
+    const safeNum = (num || '').toString();
+    const photo = urlPhoto ? resolveAssetPath(urlPhoto) : '';
+
+    // scroller = élément qui se translate; on lui applique des paddings anti-overhang
+    $container.innerHTML = `
+        <div class="tagcard-scroller" style="
+            display:inline-flex;align-items:center;gap:6px;
+            transform: translateX(0); transition: none;
+            padding: 0 ${CFG.edgePadPx}px;
+        ">
+            <img class="tagcard-photo" alt="" src="${photo}" style="
+                width:24px;height:24px;object-fit:cover;border-radius:3px;${photo ? '' : 'display:none;'}
+            " />
+            <div class="tagcard-line" style="display:inline-flex;align-items:center;gap:4px;">
+                ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
+                <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+            </div>
+        </div>
+    `;
+    // Position de départ sûre (gouttière)
+    const scroller = $container.querySelector('.tagcard-scroller');
+    if (scroller) {
+        scroller.style.transition = 'none';
+        scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+    }
+}
+
+/**
+ * Fait défiler le scroller à gauche (aller) en durée fixe; s’il n’y a pas d’overflow
+ * on ne bouge pas mais on attend la même durée (synchro globale).
+ */
+function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
+    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
+    if (!scroller) return;
+
+    // Position de départ (gouttière gauche) — déjà posée par renderPilotCardInto,
+    // mais on s’assure de l’état:
+    scroller.style.transition = 'none';
+    scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+
+    if (overflow <= 0 || maxOverflow <= 0) {
+        return; // rien à défiler pour cette ligne, elle attendra les autres
+    }
+
+    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
+    const targetX = - (overflow - CFG.edgePadPx);
+
+    // ⚠️ Force un reflow pour garantir l’application du transform de départ
+    // avant de poser la transition, sinon certains navigateurs sautent directement à la fin
+    // (ce qui donnait l’effet “instantané”).
+    void scroller.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+        scroller.style.transition = `transform ${durationMs}ms linear`;
+        scroller.style.transform = `translateX(${targetX}px)`;
+    });
 }
 
 // ----------------------

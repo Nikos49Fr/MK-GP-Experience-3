@@ -1,0 +1,220 @@
+// /sass/classement.scss
+// ----------------------------------------------------
+// Classement Widget (250x800) — MK GP Experience 3
+// ----------------------------------------------------
+@use 'variables' as *; // import globales (couleurs, polices, etc.)
+@use 'fonts';          // import des polices locales
+
+// ----------------------
+// Variables locales polices (famille + poids + taille)
+// ----------------------
+$font-rank: $font-f1;
+$font-rank-weight: $font-weight-f1bold;
+$font-rank-size: 14px;
+
+$font-tag: $font-f1;
+$font-tag-weight: 700;
+$font-tag-size: 14px;
+
+$font-points: $font-subtitle;
+$font-points-weight: 400;
+$font-points-size: 14px;
+
+// ----------------------
+// Variables globales
+// ----------------------
+$opacity-rank: 0.95;
+$opacity-state: 0.9;
+$opacity-secondary: 0.85;
+$opacity-header: 1;
+
+$w-widget: 250px;
+$h-widget: 800px;
+
+$h-header: 60px;
+$h-state: 26px;
+$pad-state-y: 4px;
+
+$border-state-color: rgba(255, 255, 255, 0.25);
+
+// ----------------------
+// Variables couleurs de fond (tes valeurs de test)
+// ----------------------
+$bg-header: $bg-color; // header
+$bg-state: #333;      // state
+$bg-rank: $bg-color;   // rank
+$bg-other: #222;       // team/tag/bonus/points
+
+// ----------------------
+// Helpers
+// ----------------------
+@mixin text-ellipsis {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+// ----------------------
+// Racine du composant
+// ----------------------
+.classement-widget {
+    box-sizing: border-box;
+    width: $w-widget;
+    height: $h-widget;
+    background: transparent;
+    color: $text-color;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+
+    padding: 0;
+    margin: 0;
+    gap: 0;
+    border: none;
+    box-shadow: none;
+
+    border-top-left-radius: 16px;
+    border-top-right-radius: 16px;
+
+    margin-left: 100px; // pour test
+}
+
+// ----------------------
+// Header (logo)
+// ----------------------
+.cw-header {
+    box-sizing: border-box;
+    height: $h-header;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba($bg-header, $opacity-header);
+
+    img {
+        display: block;
+        max-height: 100%;
+        max-width: 100%;
+        height: auto;
+    }
+}
+
+// ----------------------
+// État de la course
+// ----------------------
+.race-state {
+    box-sizing: border-box;
+    height: $h-state;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: rgba($bg-state, $opacity-state);
+
+    border-top: 1px solid $border-state-color;
+    border-bottom: 1px solid $border-state-color;
+    padding-top: $pad-state-y;
+    padding-bottom: $pad-state-y;
+
+    font-family: $font-tag;
+    font-weight: $font-tag-weight;
+    font-size: $font-tag-size;
+    letter-spacing: 0.5px;
+}
+
+// ----------------------
+// Liste du classement
+// ----------------------
+.cw-list {
+    box-sizing: border-box;
+    height: calc(#{$h-widget} - #{$h-header} - #{$h-state});
+    display: grid;
+    grid-template-rows: repeat(24, 1fr);
+    background: rgba($bg-other, $opacity-secondary);
+}
+
+// ----------------------
+// Ligne de classement
+// ----------------------
+.cw-row {
+    display: grid;
+    grid-template-columns: 28px 34px 1fr 34px 60px; // rank | logo | tag | bonus | points
+    align-items: stretch; // <-- étire TOUTES les colonnes à la hauteur complète du track
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+
+    // Colonne Rank (fond propre)
+    .col-rank {
+        background: rgba($bg-rank, $opacity-rank);
+        height: 100%;                 // <-- s'assure de prendre toute la hauteur
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        font-family: $font-rank;
+        font-weight: $font-rank-weight;
+        font-size: $font-rank-size;
+        line-height: 1;
+        letter-spacing: 0.2px;
+        padding: 0;
+    }
+
+    // Autres colonnes (fond = hérité du bloc .cw-list)
+    .col-team,
+    .col-tag,
+    .col-bonus,
+    .col-points {
+        background: transparent;
+        height: 100%;                 // <-- prend toute la hauteur pour aligner visuellement
+        display: flex;
+        align-items: center;
+    }
+
+    .col-team {
+        justify-content: center;
+
+        .team-logo {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+            display: block;
+        }
+    }
+
+    .col-tag {
+        padding: 0 6px;
+        font-family: $font-tag;
+        font-weight: $font-tag-weight;
+        font-size: $font-tag-size;
+        letter-spacing: 0.6px;
+        justify-content: flex-start;
+        @include text-ellipsis;
+    }
+
+    .col-bonus {
+        justify-content: center;
+    }
+
+    .col-points {
+        padding: 0 6px;
+        justify-content: flex-end;
+        font-family: $font-points;
+        font-weight: $font-points-weight;
+        font-size: $font-points-size;
+        letter-spacing: 0.4px;
+        @include text-ellipsis;
+    }
+
+    &.is-empty {
+        .col-tag,
+        .col-points,
+        .col-bonus {
+            opacity: 0.35;
+        }
+
+        .col-team .team-logo {
+            opacity: 0.3;
+            filter: grayscale(100%);
+        }
+    }
+}

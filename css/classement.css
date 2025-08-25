@@ -1,0 +1,161 @@
+/* sass/_fonts.scss */
+@font-face {
+  font-family: "MarioKartF2";
+  src: url("../assets/fonts/mario_kart_f2.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1 Wide";
+  src: url("../assets/fonts/Formula1-Wide.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+.classement-widget {
+  box-sizing: border-box;
+  width: 250px;
+  height: 800px;
+  background: transparent;
+  color: #fff;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+  gap: 0;
+  border: none;
+  box-shadow: none;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  margin-left: 100px;
+}
+
+.cw-header {
+  box-sizing: border-box;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0c0616;
+}
+.cw-header img {
+  display: block;
+  max-height: 100%;
+  max-width: 100%;
+  height: auto;
+}
+
+.race-state {
+  box-sizing: border-box;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(51, 51, 51, 0.9);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  padding-top: 4px;
+  padding-bottom: 4px;
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+}
+
+.cw-list {
+  box-sizing: border-box;
+  height: calc(800px - 60px - 26px);
+  display: grid;
+  grid-template-rows: repeat(24, 1fr);
+  background: rgba(34, 34, 34, 0.85);
+}
+
+.cw-row {
+  display: grid;
+  grid-template-columns: 28px 34px 1fr 34px 60px;
+  align-items: stretch;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.cw-row .col-rank {
+  background: rgba(12, 6, 22, 0.95);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0.2px;
+  padding: 0;
+}
+.cw-row .col-team,
+.cw-row .col-tag,
+.cw-row .col-bonus,
+.cw-row .col-points {
+  background: transparent;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+.cw-row .col-team {
+  justify-content: center;
+}
+.cw-row .col-team .team-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  display: block;
+}
+.cw-row .col-tag {
+  padding: 0 6px;
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.6px;
+  justify-content: flex-start;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cw-row .col-bonus {
+  justify-content: center;
+}
+.cw-row .col-points {
+  padding: 0 6px;
+  justify-content: flex-end;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.cw-row.is-empty .col-tag,
+.cw-row.is-empty .col-points,
+.cw-row.is-empty .col-bonus {
+  opacity: 0.35;
+}
+.cw-row.is-empty .col-team .team-logo {
+  opacity: 0.3;
+  filter: grayscale(100%);
+}/*# sourceMappingURL=classement.css.map */

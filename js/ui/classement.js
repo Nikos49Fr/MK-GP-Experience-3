@@ -135,9 +135,15 @@ function setRaceStateTextWithMarquee($state, text) {
         // Décalage initial : décale toute la piste de +GUTTER
         track.style.transform = `translateX(${GUTTER}px)`;
 
+        // SI PAS DE DÉBORDEMENT → CENTRER + MARGES
         if (overflow <= 0) {
-            // Rien à défiler → on reste centré avec gouttières
-            track.style.transform = `translateX(${GUTTER}px)`;
+            // Centre le contenu
+            $state.style.justifyContent = 'center';
+            // remets une petite marge visuelle sur le conteneur
+            $state.style.padding = `0 ${GUTTER}px`;
+            // neutralise toute transition/translation du track
+            track.style.transition = 'none';
+            track.style.transform = 'translateX(0)';
             return;
         }
 

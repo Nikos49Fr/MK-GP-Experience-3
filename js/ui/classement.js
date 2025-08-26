@@ -22,20 +22,20 @@ import {
 // ----------------------
 const CFG = {
     // swap TAG ↔ FICHE
-    tagStandbyMs: 15000,
-    pilotScrollMs: 8000,
-    pilotPauseEndMs: 5000,
-    pilotBackPauseMs: 5000,
-    pilotStartDelayMs: 5000,
+    tagStandbyMs: 15000,        // 15000
+    pilotScrollMs: 8000,        // 8000
+    pilotPauseEndMs: 3000,      // 5000
+    pilotBackPauseMs: 3000,     // 5000
+    pilotStartDelayMs: 3000,    // 5000
 
     // marges visuelles du swap
     gutterPx: 6,
     edgePadPx: 2,
 
     // STATE (texte défilant)
-    stateStartDelayMs: 2000,
+    stateStartDelayMs: 3000,
     stateEndDelayMs: 2000,
-    stateDurationMs: 2000,
+    stateDurationMs: 5000,
     stateGutterPx: 8,
     stateEdgePadPx: 3
 };
@@ -95,18 +95,6 @@ function totalsAllZeroOrEmpty(map) {
     return true;
 }
 
-// Affiche "logo équipe + TAG" dans la colonne combinée
-function renderTagSideInto($container, { tag, urlLogo }) {
-    const logo = urlLogo ? resolveAssetPath(urlLogo) : '';
-    $container.classList.remove('mode-pilot');
-    $container.innerHTML = `
-        <div class="tagcard-tag" style="display:flex;align-items:center;gap:6px;width:100%;overflow:hidden;">
-            <img class="tagcard-teamlogo" alt="" src="${logo}" style="width:24px;height:24px;object-fit:contain;${logo ? '' : 'display:none;'}" />
-            <span class="tagcard-tagtext" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tag || ''}</span>
-        </div>
-    `;
-}
-
 // Phase TAG: texte simple (ellipsis géré par CSS)
 function renderTagTextInto($tagCell, tag) {
     $tagCell.classList.remove('mode-pilot');
@@ -117,17 +105,22 @@ function renderTagTextInto($tagCell, tag) {
 // Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
 function renderPilotNameInto($tagCell, { num, name }) {
     const safeNum = (num || '').toString();
-    const safeName = (name || '').toString().toUpperCase();
+    const safeName = (name || '')
+        .toString()
+        .toUpperCase()
+        .replace(/\s+/g, ''); // <-- tous les espaces supprimés
 
     $tagCell.classList.add('mode-pilot');
+    // Important : le scroller doit être “intrinsèque” et non contraint
     $tagCell.innerHTML = `
         <div class="tagcard-scroller" style="
             display:inline-flex;align-items:center;gap:6px;
             will-change: transform;
             transform: translateX(${CFG.gutterPx}px);
             transition: none;
-            width: max-content;          /* <-- largeur intrinsèque */
-            max-width: none;             /* <-- pas de contrainte */
+            flex: 0 0 auto;          /* NE PAS shrinker */
+            width: max-content;       /* largeur intrinsèque */
+            max-width: none;          /* pas de contrainte */
         ">
             ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
             <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
@@ -147,9 +140,7 @@ function measureIntrinsicWidth(el) {
     clone.style.whiteSpace = 'nowrap';
     clone.style.maxWidth = 'none';
     clone.style.width = 'max-content';
-
     document.body.appendChild(clone);
-    // On mesure le scroller lui-même (pas son parent)
     const w = Math.max(clone.scrollWidth, clone.getBoundingClientRect().width);
     document.body.removeChild(clone);
     return Math.ceil(w);
@@ -826,12 +817,14 @@ function startPilotPhaseAll() {
         }
 
         // --- NEW: bascule logo → photo dans .col-team
-        const $img = $row.querySelector('.col-team .team-logo');   // NEW
-        const photo = $row.dataset.pilotPhoto || '';               // NEW
-        if ($img) {                                                // NEW
+        const $img = $row.querySelector('.col-team .team-logo'); 
+        const $teamCell = $row.querySelector('.col-team');
+        const photo = $row.dataset.pilotPhoto || '';
+        if ($img) {
             if (photo) { $img.src = photo; $img.alt = 'Photo pilote'; $img.style.visibility = 'visible'; }
             else { $img.removeAttribute('src'); $img.alt = ''; $img.style.visibility = 'hidden'; }
-        }                                                          // NEW
+        }
+        if ($teamCell) $teamCell.classList.add('is-pilot');
     });
 
     // mesurer overflow par ligne sur .col-tag
@@ -883,16 +876,11 @@ function getOverflowForCell($tagCell) {
     const scroller = $tagCell.querySelector('.tagcard-scroller');
     if (!scroller) return 0;
 
-    // largeur visible dans la cellule (moins la gouttière visuelle)
+    // Largeur visible (moins la gouttière visuelle)
     const visible = Math.max(0, $tagCell.clientWidth - (CFG.gutterPx * 2));
 
-    // 1) Essai direct
-    let full = scroller.scrollWidth;
-
-    // 2) Si la mesure "collée" au layout semble insuffisante, on force une mesure intrinsèque
-    if (full <= visible) {
-        full = measureIntrinsicWidth(scroller);
-    }
+    // Largeur intrinsèque du scroller (hors contraintes de layout)
+    const full = measureIntrinsicWidth(scroller);
 
     return Math.max(0, full - visible);
 }
@@ -901,7 +889,8 @@ function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurati
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
 
-    // NEW: garantir une largeur intrinsèque non contrainte avant mesure/animation
+    // Garanties contre le shrink/contraintes
+    scroller.style.flex = '0 0 auto';
     scroller.style.width = 'max-content';
     scroller.style.maxWidth = 'none';
 
@@ -915,11 +904,9 @@ function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurati
     const startX = - (overflow - CFG.edgePadPx);
     const targetX = CFG.gutterPx;
 
-    // Place explicitement le point de départ (fin d’aller)
     scroller.style.transition = 'none';
     scroller.style.transform = `translateX(${startX}px)`;
 
-    // ⚠️ Reflow avant de définir la transition retour
     void scroller.getBoundingClientRect();
 
     requestAnimationFrame(() => {
@@ -933,28 +920,34 @@ function backToTagAll() {
 
     const rows = getActiveRows();
     rows.forEach(($row) => {
+        // 1) Revenir au TAG dans .col-tag
         const $tagCell = $row.querySelector('.col-tag');
         if ($tagCell) {
             $tagCell.classList.remove('mode-pilot');
             const p = state.pilotsById.get($row.dataset.pilotId || '');
             renderTagTextInto($tagCell, (p && p.tag) ? p.tag : '');
         }
-    });
 
-    // setRow mettra à jour l'image .col-team au prochain renderList()
-    // (ici, on peut forcer la MAJ immédiate)
-    rows.forEach(($row, idx) => {
+        // 2) Revenir au LOGO dans .col-team
+        const $teamCell = $row.querySelector('.col-team');            // NEW: retirer le flag "is-pilot"
+        if ($teamCell) $teamCell.classList.remove('is-pilot');
+
         const $img = $row.querySelector('.col-team .team-logo');
         if ($img) {
             const logo = $row.dataset.teamLogo || '';
             if (logo) {
-                $img.src = logo; $img.alt = 'Logo équipe'; $img.style.visibility = 'visible';
+                $img.src = logo;
+                $img.alt = 'Logo équipe';
+                $img.style.visibility = 'visible';
             } else {
-                $img.removeAttribute('src'); $img.alt = ''; $img.style.visibility = 'hidden';
+                $img.removeAttribute('src');
+                $img.alt = '';
+                $img.style.visibility = 'hidden';
             }
         }
     });
 
+    // 3) Relancer un cycle
     restartSwapCycle();
 }
 
@@ -966,65 +959,30 @@ function getActiveRows() {
 }
 
 /**
- * Rend la fiche pilote DANS un scroller horizontal (image + numéro + nom)
- * L’ensemble défile comme un bloc.
- */
-function renderPilotCardInto($container, { name, num, urlPhoto }) {
-    $container.classList.add('mode-pilot');
-    const safeName = (name || '').toUpperCase();
-    const safeNum = (num || '').toString();
-    const photo = urlPhoto ? resolveAssetPath(urlPhoto) : '';
-
-    // scroller = élément qui se translate; on lui applique des paddings anti-overhang
-    $container.innerHTML = `
-        <div class="tagcard-scroller" style="
-            display:inline-flex;align-items:center;gap:6px;
-            transform: translateX(0); transition: none;
-            padding: 0 ${CFG.edgePadPx}px;
-        ">
-            <img class="tagcard-photo" alt="" src="${photo}" style="
-                width:24px;height:24px;object-fit:cover;border-radius:3px;${photo ? '' : 'display:none;'}
-            " />
-            <div class="tagcard-line" style="display:inline-flex;align-items:center;gap:4px;">
-                ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
-                <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
-            </div>
-        </div>
-    `;
-    // Position de départ sûre (gouttière)
-    const scroller = $container.querySelector('.tagcard-scroller');
-    if (scroller) {
-        scroller.style.transition = 'none';
-        scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
-    }
-}
-
-/**
  * Fait défiler le scroller à gauche (aller) en durée fixe; s’il n’y a pas d’overflow
  * on ne bouge pas mais on attend la même durée (synchro globale).
  */
 function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
-    
+
+    // Garanties contre le shrink/contraintes
+    scroller.style.flex = '0 0 auto';
     scroller.style.width = 'max-content';
     scroller.style.maxWidth = 'none';
 
-    // Position de départ (gouttière gauche) — déjà posée par renderPilotCardInto,
-    // mais on s’assure de l’état:
+    // Position de départ (gouttière gauche)
     scroller.style.transition = 'none';
     scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
 
     if (overflow <= 0 || maxOverflow <= 0) {
-        return; // rien à défiler pour cette ligne, elle attendra les autres
+        return;
     }
 
     const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
-    const targetX = - (overflow - CFG.edgePadPx);
+    const targetX = - (overflow + CFG.edgePadPx);
 
-    // ⚠️ Force un reflow pour garantir l’application du transform de départ
-    // avant de poser la transition, sinon certains navigateurs sautent directement à la fin
-    // (ce qui donnait l’effet “instantané”).
+    // Reflow pour fiabiliser l'animation
     void scroller.getBoundingClientRect();
 
     requestAnimationFrame(() => {

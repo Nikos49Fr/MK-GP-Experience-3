@@ -206,7 +206,7 @@ $classement-presets: (
     border-top-left-radius: 16px;
     border-top-right-radius: 16px;
 
-    margin-left: 100px; // pour test
+    margin-left: 120px; // pour test
 }
 
 // ----------------------
@@ -269,7 +269,7 @@ $classement-presets: (
 .cw-row {
     display: grid;
     // rank | team | tag | bonus | points
-    grid-template-columns: 28px 34px 1fr 34px 60px;
+    grid-template-columns: 28px 30px 1fr 30px 60px;
     align-items: stretch; // étire toutes les colonnes sur la hauteur
     height: 100%;
     min-height: 0;
@@ -293,17 +293,24 @@ $classement-presets: (
 
     // --- Colonne TEAM (logo équipe OU photo pilote selon phase) ---
     .col-team {
-        background: transparent; // l’opacité vient de .cw-list
+        background: transparent;
         height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
 
         .team-logo {
-            width: 24px;
+            width: 24px;   // logo équipe
             height: 24px;
-            object-fit: contain; // logo (ou cover si tu préfères pour la photo)
+            object-fit: contain;
             display: block;
+        }
+
+        &.is-pilot .team-logo {
+            width: 28px;   // photo pilote
+            height: 28px;
+            object-fit: cover;
+            border-radius: 3px; // optionnel
         }
     }
 
@@ -313,7 +320,7 @@ $classement-presets: (
         height: 100%;
         display: flex;
         align-items: center;
-        padding: 0 6px;
+        padding: 0 2px;
         min-width: 0;      // indispensable pour ne pas pousser .col-points
         overflow: hidden;  // jamais de scrollbar ni débordement
 
@@ -323,6 +330,11 @@ $classement-presets: (
         font-size: $font-tag-size;
         letter-spacing: 0.6px;
         @include text-ellipsis;
+        
+        // Vue TAG uniquement (quand pas en mode pilot)
+        &:not(.mode-pilot) {
+            padding-left: 8px; // ← ajuste la valeur comme tu veux
+        }
 
         // Vue PILOT (activée par JS via .mode-pilot)
         &.mode-pilot {

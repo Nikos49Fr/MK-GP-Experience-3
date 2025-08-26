@@ -357,16 +357,11 @@
   letter-spacing: 0.2px;
   padding: 0;
 }
-.cw-row .col-team,
-.cw-row .col-tag,
-.cw-row .col-bonus,
-.cw-row .col-points {
+.cw-row .col-team {
   background: transparent;
   height: 100%;
   display: flex;
   align-items: center;
-}
-.cw-row .col-team {
   justify-content: center;
 }
 .cw-row .col-team .team-logo {
@@ -376,15 +371,48 @@
   display: block;
 }
 .cw-row .col-tag {
+  background: transparent;
+  height: 100%;
+  display: flex;
+  align-items: center;
   padding: 0 6px;
+  min-width: 0;
+  overflow: hidden;
   font-family: "Formula1", "Orbitron", sans-serif;
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.6px;
-  justify-content: flex-start;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.cw-row .col-tag.mode-pilot .tagcard-scroller {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  will-change: transform;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+.cw-row .col-tag.mode-pilot .tagcard-num {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+}
+.cw-row .col-tag.mode-pilot .tagcard-name {
+  font-family: "Formula1", "Orbitron", sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cw-row .col-bonus,
+.cw-row .col-points {
+  background: transparent;
+  height: 100%;
+  display: flex;
+  align-items: center;
 }
 .cw-row .col-bonus {
   justify-content: center;

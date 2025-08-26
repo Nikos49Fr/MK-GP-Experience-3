@@ -21,6 +21,15 @@ $font-points-weight: 400;
 $font-points-size: 12px;
 $font-points-color: #aaa;
 
+// -------- Polices pour la colonne combinée (identité) --------
+$font-ident-tag-family:   $font-f1;
+$font-ident-tag-weight:   700;
+$font-ident-tag-size:     14px;
+
+$font-ident-pilot-family: $font-f1;   // libre à toi de mettre $font-f1
+$font-ident-pilot-weight: 400;
+$font-ident-pilot-size:   13px;
+
 // ----------------------
 // Variables globales
 // ----------------------
@@ -259,8 +268,9 @@ $classement-presets: (
 // ----------------------
 .cw-row {
     display: grid;
-    grid-template-columns: 28px 34px 1fr 34px 60px; // rank | logo | tag | bonus | points
-    align-items: stretch; // <-- étire TOUTES les colonnes à la hauteur complète du track
+    // rank | team | tag | bonus | points
+    grid-template-columns: 28px 34px 1fr 34px 60px;
+    align-items: stretch; // étire toutes les colonnes sur la hauteur
     height: 100%;
     min-height: 0;
     overflow: hidden;
@@ -268,7 +278,7 @@ $classement-presets: (
     // Colonne Rank (fond propre)
     .col-rank {
         background: rgba($bg-rank, $opacity-rank);
-        height: 100%;                 // <-- s'assure de prendre toute la hauteur
+        height: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -281,36 +291,75 @@ $classement-presets: (
         padding: 0;
     }
 
-    // Autres colonnes (fond = hérité du bloc .cw-list)
-    .col-team,
-    .col-tag,
-    .col-bonus,
-    .col-points {
-        background: transparent;
-        height: 100%;                 // <-- prend toute la hauteur pour aligner visuellement
+    // --- Colonne TEAM (logo équipe OU photo pilote selon phase) ---
+    .col-team {
+        background: transparent; // l’opacité vient de .cw-list
+        height: 100%;
         display: flex;
         align-items: center;
-    }
-
-    .col-team {
         justify-content: center;
 
         .team-logo {
             width: 24px;
             height: 24px;
-            object-fit: contain;
+            object-fit: contain; // logo (ou cover si tu préfères pour la photo)
             display: block;
         }
     }
 
+    // --- Colonne TAG (TAG fixe ↔ num + nom défilant) ---
     .col-tag {
+        background: transparent; // l’opacité vient de .cw-list
+        height: 100%;
+        display: flex;
+        align-items: center;
         padding: 0 6px;
+        min-width: 0;      // indispensable pour ne pas pousser .col-points
+        overflow: hidden;  // jamais de scrollbar ni débordement
+
+        // Vue TAG (texte simple, ellipsis CSS)
         font-family: $font-tag;
         font-weight: $font-tag-weight;
         font-size: $font-tag-size;
         letter-spacing: 0.6px;
-        justify-content: flex-start;
         @include text-ellipsis;
+
+        // Vue PILOT (activée par JS via .mode-pilot)
+        &.mode-pilot {
+            // scroller horizontal injecté par le JS
+            .tagcard-scroller {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                will-change: transform;
+                min-width: 0;
+                max-width: 100%;
+                overflow: hidden;
+                background: transparent;
+            }
+
+            .tagcard-num {
+                font-family: $font-ident-pilot-family;
+                font-weight: max(600, $font-ident-pilot-weight);
+                font-size: $font-ident-pilot-size;
+            }
+
+            .tagcard-name {
+                font-family: $font-ident-pilot-family;
+                font-weight: $font-ident-pilot-weight;
+                font-size: $font-ident-pilot-size;
+                white-space: nowrap; // le défilement est géré en JS
+            }
+        }
+    }
+
+    // --- Colonnes BONUS + POINTS (inchangées) ---
+    .col-bonus,
+    .col-points {
+        background: transparent; // l’opacité vient de .cw-list
+        height: 100%;
+        display: flex;
+        align-items: center;
     }
 
     .col-bonus {
@@ -328,6 +377,7 @@ $classement-presets: (
         @include text-ellipsis;
     }
 
+    // --- Lignes vides ---
     &.is-empty {
         .col-tag,
         .col-points,

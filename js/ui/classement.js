@@ -95,6 +95,66 @@ function totalsAllZeroOrEmpty(map) {
     return true;
 }
 
+// Affiche "logo équipe + TAG" dans la colonne combinée
+function renderTagSideInto($container, { tag, urlLogo }) {
+    const logo = urlLogo ? resolveAssetPath(urlLogo) : '';
+    $container.classList.remove('mode-pilot');
+    $container.innerHTML = `
+        <div class="tagcard-tag" style="display:flex;align-items:center;gap:6px;width:100%;overflow:hidden;">
+            <img class="tagcard-teamlogo" alt="" src="${logo}" style="width:24px;height:24px;object-fit:contain;${logo ? '' : 'display:none;'}" />
+            <span class="tagcard-tagtext" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${tag || ''}</span>
+        </div>
+    `;
+}
+
+// Phase TAG: texte simple (ellipsis géré par CSS)
+function renderTagTextInto($tagCell, tag) {
+    $tagCell.classList.remove('mode-pilot');
+    $tagCell.innerHTML = '';
+    $tagCell.textContent = tag || '';
+}
+
+// Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
+function renderPilotNameInto($tagCell, { num, name }) {
+    const safeNum = (num || '').toString();
+    const safeName = (name || '').toString().toUpperCase();
+
+    $tagCell.classList.add('mode-pilot');
+    $tagCell.innerHTML = `
+        <div class="tagcard-scroller" style="
+            display:inline-flex;align-items:center;gap:6px;
+            will-change: transform;
+            transform: translateX(${CFG.gutterPx}px);
+            transition: none;
+            width: max-content;          /* <-- largeur intrinsèque */
+            max-width: none;             /* <-- pas de contrainte */
+        ">
+            ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
+            <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+        </div>
+    `;
+}
+
+function measureIntrinsicWidth(el) {
+    if (!el) return 0;
+    const clone = el.cloneNode(true);
+    clone.style.position = 'absolute';
+    clone.style.visibility = 'hidden';
+    clone.style.left = '-99999px';
+    clone.style.top = '0';
+    clone.style.transform = 'none';
+    clone.style.transition = 'none';
+    clone.style.whiteSpace = 'nowrap';
+    clone.style.maxWidth = 'none';
+    clone.style.width = 'max-content';
+
+    document.body.appendChild(clone);
+    // On mesure le scroller lui-même (pas son parent)
+    const w = Math.max(clone.scrollWidth, clone.getBoundingClientRect().width);
+    document.body.removeChild(clone);
+    return Math.ceil(w);
+}
+
 // ----------------------
 // Marquee (texte défilant pour le state)
 // ----------------------
@@ -602,9 +662,8 @@ function renderList() {
             pilotId,
             tag: p.tag || '',
             teamName: p.teamName || '',
-            logo,
+            logo, // logo équipe
             points: Number(points) || 0,
-            // extra pour swap fiche
             name: p.name || '',
             num: p.num || '',
             urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : ''
@@ -613,9 +672,7 @@ function renderList() {
 
     items.sort((a, b) => {
         if (b.points !== a.points) return b.points - a.points;
-        const ta = a.tag || '';
-        const tb = b.tag || '';
-        return ta.localeCompare(tb);
+        return (a.tag || '').localeCompare(b.tag || '');
     });
 
     const rows = $list.children;
@@ -628,6 +685,12 @@ function renderList() {
         const entry = items[i];
         if (!entry) {
             $row.classList.add('is-empty');
+            // reset affichage
+            const $tagEl = $row.querySelector('.col-tag');
+            if ($tagEl) {
+                $tagEl.classList.remove('mode-pilot');
+                renderTagTextInto($tagEl, '');
+            }
             setRow($row, {
                 position: i + 1,
                 logo: '',
@@ -635,12 +698,31 @@ function renderList() {
                 bonusContent: '',
                 pointsText: ''
             });
-            // aussi nettoyer dataset
-            $row.dataset.pilotId = '';
+            // datasets reset
+            $row.dataset.pilotId   = '';
+            $row.dataset.pilotName = '';
+            $row.dataset.pilotNum  = '';
+            $row.dataset.pilotPhoto= '';
+            $row.dataset.teamLogo  = '';
             continue;
         }
 
         $row.classList.remove('is-empty');
+
+        // datasets pour swap
+        $row.dataset.pilotId    = entry.pilotId;
+        $row.dataset.pilotName  = entry.name;
+        $row.dataset.pilotNum   = entry.num;
+        $row.dataset.pilotPhoto = entry.urlPhoto || '';
+        $row.dataset.teamLogo   = entry.logo || '';
+
+        // phase TAG initiale
+        const $tagEl = $row.querySelector('.col-tag');
+        if ($tagEl) {
+            $tagEl.classList.remove('mode-pilot');
+            renderTagTextInto($tagEl, entry.tag || '');
+        }
+
         setRow($row, {
             position: i + 1,
             logo: entry.logo,
@@ -648,31 +730,28 @@ function renderList() {
             bonusContent: '',
             pointsText: formatPoints(entry.points)
         });
-
-        // stocke les infos utiles pour le swap
-        $row.dataset.pilotId = entry.pilotId;
-        $row.dataset.pilotName = entry.name;
-        $row.dataset.pilotNum = entry.num;
-        $row.dataset.pilotPhoto = entry.urlPhoto || '';
     }
 
-    // (Ré)lance le cycle synchronisé après le rendu
+    // cycle synchronisé
     restartSwapCycle();
 }
 
 function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
-    const $rank = $row.querySelector('.col-rank');
-    const $team = $row.querySelector('.col-team .team-logo');
-    const $tag = $row.querySelector('.col-tag');
+    const $rank  = $row.querySelector('.col-rank');
+    const $team  = $row.querySelector('.col-team .team-logo');
+    const $tagEl = $row.querySelector('.col-tag');
     const $bonus = $row.querySelector('.col-bonus');
-    const $pts = $row.querySelector('.col-points');
+    const $pts   = $row.querySelector('.col-points');
 
     if ($rank) $rank.textContent = String(position);
 
+    // Mise à jour image de .col-team selon phase courante (classe 'mode-pilot' sur .col-tag)
     if ($team) {
-        if (logo) {
-            $team.src = logo;
-            $team.alt = 'Logo équipe';
+        const usePhoto = $tagEl && $tagEl.classList.contains('mode-pilot');
+        const src = usePhoto ? ($row.dataset.pilotPhoto || '') : ($row.dataset.teamLogo || logo || '');
+        if (src) {
+            $team.src = src;
+            $team.alt = usePhoto ? 'Photo pilote' : 'Logo équipe';
             $team.style.visibility = 'visible';
         } else {
             $team.removeAttribute('src');
@@ -681,24 +760,20 @@ function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
         }
     }
 
-    // Mise à jour de la colonne tag :
-    // - si on est actuellement en mode "fiche", on MAJ la fiche
-    // - sinon, on affiche le tag simple
-    if ($tag) {
-        if ($tag.classList.contains('mode-pilot')) {
-            // on reconstruit la fiche avec les datasets courants
-            renderPilotCardInto($tag, {
-                name: $row.dataset.pilotName || '',
-                num: $row.dataset.pilotNum || '',
-                urlPhoto: $row.dataset.pilotPhoto || ''
+    // Mise à jour .col-tag : pilote (scroller) ou tag simple
+    if ($tagEl) {
+        if ($tagEl.classList.contains('mode-pilot')) {
+            renderPilotNameInto($tagEl, {
+                num:  $row.dataset.pilotNum  || '',
+                name: $row.dataset.pilotName || ''
             });
         } else {
-            $tag.textContent = tag || '';
+            renderTagTextInto($tagEl, tag || '');
         }
     }
 
     if ($bonus) $bonus.innerHTML = bonusContent || '';
-    if ($pts) $pts.textContent = pointsText || '';
+    if ($pts)   $pts.textContent = pointsText || '';
 }
 
 // ----------------------
@@ -740,25 +815,33 @@ function startPilotPhaseAll() {
         return;
     }
 
-    // Rendu des fiches pour toutes les lignes (position de départ = gouttière)
+    // Phase PILOT: col-tag → scroller ; col-team → photo pilote
     rows.forEach(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
-        if (!$tagCell) return;
-        renderPilotCardInto($tagCell, {
-            name: ($row.dataset.pilotName || '').toString(),
-            num: ($row.dataset.pilotNum || '').toString(),
-            urlPhoto: ($row.dataset.pilotPhoto || '').toString()
-        });
+        if ($tagCell) {
+            renderPilotNameInto($tagCell, {
+                num:  ($row.dataset.pilotNum  || '').toString(),
+                name: ($row.dataset.pilotName || '').toString()
+            });
+        }
+
+        // --- NEW: bascule logo → photo dans .col-team
+        const $img = $row.querySelector('.col-team .team-logo');   // NEW
+        const photo = $row.dataset.pilotPhoto || '';               // NEW
+        if ($img) {                                                // NEW
+            if (photo) { $img.src = photo; $img.alt = 'Photo pilote'; $img.style.visibility = 'visible'; }
+            else { $img.removeAttribute('src'); $img.alt = ''; $img.style.visibility = 'hidden'; }
+        }                                                          // NEW
     });
 
-    // Mesures d’overflow
+    // mesurer overflow par ligne sur .col-tag
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
         return getOverflowForCell($tagCell);
     });
     const maxOverflow = Math.max(...overflows, 0);
 
-    // Démarre l’aller pour toutes les lignes APRÈS un délai commun
+    // lancer l'aller après délai global
     setTimeout(() => {
         rows.forEach(($row, idx) => {
             const $tagCell = $row.querySelector('.col-tag');
@@ -766,13 +849,11 @@ function startPilotPhaseAll() {
         });
     }, CFG.pilotStartDelayMs);
 
-    // Planifie la PHASE RETOUR synchronisée (aller + pause fin)
+    // planifier retour + back to tag
     swapCtrl.tStartBackPhase = setTimeout(
         startPilotBackPhaseAll,
         CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
     );
-
-    // Planifie le retour au TAG (aller + pause fin + retour + pause avant TAG)
     swapCtrl.tBackToTag = setTimeout(
         backToTagAll,
         CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs + CFG.pilotScrollMs + CFG.pilotBackPauseMs
@@ -785,14 +866,12 @@ function startPilotBackPhaseAll() {
     const rows = getActiveRows();
     if (rows.length === 0) return;
 
-    // Mesure overflows de nouveau (au cas où la largeur a changé)
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
         return getOverflowForCell($tagCell);
     });
     const maxOverflow = Math.max(...overflows, 0);
 
-    // Lancer le scroll "retour" pour chaque ligne (durée proportionnelle, même vitesse commune)
     rows.forEach(($row, idx) => {
         const $tagCell = $row.querySelector('.col-tag');
         runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
@@ -804,18 +883,27 @@ function getOverflowForCell($tagCell) {
     const scroller = $tagCell.querySelector('.tagcard-scroller');
     if (!scroller) return 0;
 
-    // largeur visible dispo dans la cellule (moins gouttières visuelles)
+    // largeur visible dans la cellule (moins la gouttière visuelle)
     const visible = Math.max(0, $tagCell.clientWidth - (CFG.gutterPx * 2));
-    // largeur totale du bloc défilant (image+num+nom)
-    const full = scroller.scrollWidth;
 
-    // NE PAS toucher à transform/transition ici (sinon on casse l'état courant)
+    // 1) Essai direct
+    let full = scroller.scrollWidth;
+
+    // 2) Si la mesure "collée" au layout semble insuffisante, on force une mesure intrinsèque
+    if (full <= visible) {
+        full = measureIntrinsicWidth(scroller);
+    }
+
     return Math.max(0, full - visible);
 }
 
 function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
+
+    // NEW: garantir une largeur intrinsèque non contrainte avant mesure/animation
+    scroller.style.width = 'max-content';
+    scroller.style.maxWidth = 'none';
 
     if (overflow <= 0 || maxOverflow <= 0) {
         scroller.style.transition = 'none';
@@ -846,14 +934,27 @@ function backToTagAll() {
     const rows = getActiveRows();
     rows.forEach(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
-        if (!$tagCell) return;
-        $tagCell.classList.remove('mode-pilot');
-        // remet le tag textuel
-        const p = state.pilotsById.get($row.dataset.pilotId || '');
-        $tagCell.textContent = (p && p.tag) ? p.tag : '';
+        if ($tagCell) {
+            $tagCell.classList.remove('mode-pilot');
+            const p = state.pilotsById.get($row.dataset.pilotId || '');
+            renderTagTextInto($tagCell, (p && p.tag) ? p.tag : '');
+        }
     });
 
-    // Puis on relance un cycle complet
+    // setRow mettra à jour l'image .col-team au prochain renderList()
+    // (ici, on peut forcer la MAJ immédiate)
+    rows.forEach(($row, idx) => {
+        const $img = $row.querySelector('.col-team .team-logo');
+        if ($img) {
+            const logo = $row.dataset.teamLogo || '';
+            if (logo) {
+                $img.src = logo; $img.alt = 'Logo équipe'; $img.style.visibility = 'visible';
+            } else {
+                $img.removeAttribute('src'); $img.alt = ''; $img.style.visibility = 'hidden';
+            }
+        }
+    });
+
     restartSwapCycle();
 }
 
@@ -905,6 +1006,9 @@ function renderPilotCardInto($container, { name, num, urlPhoto }) {
 function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
+    
+    scroller.style.width = 'max-content';
+    scroller.style.maxWidth = 'none';
 
     // Position de départ (gouttière gauche) — déjà posée par renderPilotCardInto,
     // mais on s’assure de l’état:

@@ -68,13 +68,34 @@ const MODES = {
 // ----------------------
 // Helpers
 // ----------------------
+// ----------------------
+// Helpers
+// ----------------------
 function resolveAssetPath(storedPath) {
     if (!storedPath) return '';
-    const stripped = storedPath.replace(/^\.\//, '');
-    const segments = window.location.pathname.replace(/\/+$/, '').split('/');
-    const depth = Math.max(0, segments.length - 2);
-    const prefix = depth > 0 ? '../'.repeat(depth) : './';
-    return prefix + stripped;
+
+    // URL absolues (http/https/data/blob) → laisser tel quel
+    if (/^(https?:|data:|blob:)/i.test(storedPath)) {
+        return storedPath;
+    }
+
+    // 1) Définir la racine du projet depuis ce fichier JS:
+    //    /js/ui/classement.js  →  ../../  = racine du repo (où se trouve /assets)
+    const projectRoot = new URL('../../', import.meta.url); // ex: https://.../MK-GP-Experience-3/
+
+    // 2) Gérer les différentes formes de chemins stockés:
+    //    - "/assets/..." (racine projet voulue)    → new URL('assets/...', projectRoot)
+    //    - "./assets/..." (racine projet)          → new URL('assets/...', projectRoot)
+    //    - "assets/..." (racine projet)            → new URL('assets/...', projectRoot)
+    //    - "../..." (rare)                         → new URL(storedPath, projectRoot)
+
+    if (storedPath.startsWith('/')) {
+        return new URL(storedPath.slice(1), projectRoot).href;
+    }
+    if (storedPath.startsWith('./')) {
+        return new URL(storedPath.slice(2), projectRoot).href;
+    }
+    return new URL(storedPath, projectRoot).href;
 }
 
 function formatPoints(n) {

@@ -338,7 +338,7 @@
 
 .cw-row {
   display: grid;
-  grid-template-columns: 28px 30px 1fr 30px 60px;
+  grid-template-columns: 36px 30px 1fr 30px 60px;
   align-items: stretch;
   height: 100%;
   min-height: 0;
@@ -356,6 +356,26 @@
   line-height: 1;
   letter-spacing: 0.2px;
   padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.cw-row .col-rank .rank-delta {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+.cw-row .col-rank .rank-delta.up {
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #2ecc71;
+  transform: translateY(-1px);
+}
+.cw-row .col-rank .rank-delta.down {
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #e74c3c;
+  transform: translateY(1px);
 }
 .cw-row .col-team {
   background: transparent;

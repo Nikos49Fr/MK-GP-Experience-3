@@ -37,7 +37,17 @@ const CFG = {
     stateEndDelayMs: 2000,
     stateDurationMs: 5000,
     stateGutterPx: 8,
-    stateEdgePadPx: 3
+    stateEdgePadPx: 3,
+
+    // Indicateur de changement de rang (triangle ↑/↓)
+    // Spécification: 6000ms pour la phase de dev (1 min en prod)
+    changeIndicatorMs: 6000,
+
+    // NEW: debounce pour lisser les mises à jour partielles de totals
+    totalsDebounceMs: 200,
+
+    // NEW: mode strict — n'activer les triangles que lorsqu'une course passe finalized=true
+    indicatorsOnFinalizeOnly: false
 };
 
 // ----------------------
@@ -199,6 +209,8 @@ function setRaceStateTextWithMarquee($state, text) {
 
         // Pas de débordement → pas de scroll, mais garde la gouttière à gauche
         if (overflow <= 0) {
+            // Alignement centré sous le logo
+            $state.style.justifyContent = 'center';            
             track.style.transition = 'none';
             track.style.transform = `translateX(${CFG.stateGutterPx}px)`; // <- IMPORTANT
             return;
@@ -356,12 +368,34 @@ const state = {
     mk8LastFinalized: false,
     mkwFinalFinalized: false,
 
+    // sets d'ids de courses finalisées par phase
+    mk8FinalizedRaceIds: new Set(),
+    mkwFinalizedRaceIds: new Set(),
+
     // mode courant calculé ou forcé
     modeKey: 'mkw-24',
 
     // overrides (Direction de course)
     viewModeOverride: null,   // 'auto' | explicit
-    viewScope: 'pilot'        // 'pilot' | 'team'
+    viewScope: 'pilot',       // 'pilot' | 'team'
+
+    // suivi des ordres/rangs pour afficher les triangles
+    lastOrderKey: null,               // string | null (ex: "p1,p7,p4,...")
+    lastRanksSnapshot: new Map(),     // Map<pilotId, rankNumber)
+
+    // TTL par pilote (pilotId → timestamp ms jusqu'à quand afficher l’icône)
+    indicatorUntil: new Map(),
+
+    // mémorise la direction du dernier delta pendant le TTL (pilotId → -1 | +1)
+    lastDeltaDir: new Map(),
+
+    // --- snapshots tie-breaks
+    byRaceSnapshot: {},
+    posCounts: new Map(),       // Map<pilotId, Map<rank, count>>
+    bonusDoubles: new Map(),    // Map<pilotId, number>
+
+    // --- NEW: timer pour balayer les TTL et forcer un re-render à expiration
+    indicatorSweepTimer: null
 };
 
 // ----------------------
@@ -405,17 +439,31 @@ function subscribeContext() {
         updateRaceStateDisplay();
         chooseAndApplyMode();
 
-        if (phaseChanged) resubscribeTotals();
+        if (phaseChanged) {
+            // reset snapshot pour éviter triangles à la 1ʳᵉ course
+            state.lastOrderKey = null;
+            state.lastRanksSnapshot.clear();
+            state.indicatorUntil.clear();
+            state.lastDeltaDir.clear();
+
+            // NEW: annuler sweep TTL en cours
+            if (state.indicatorSweepTimer) {
+                clearTimeout(state.indicatorSweepTimer);
+                state.indicatorSweepTimer = null;
+            }
+
+            resubscribeTotals();
+        }
     });
 
-    const viewModeRef = ref(dbRealtime, 'context/viewMode'); // 'auto' | explicit
+    const viewModeRef = ref(dbRealtime, 'context/viewMode');
     onValue(viewModeRef, (snap) => {
         const val = snap.val();
         state.viewModeOverride = val || null;
         chooseAndApplyMode();
     });
 
-    const viewScopeRef = ref(dbRealtime, 'context/viewScope'); // 'pilot' | 'team'
+    const viewScopeRef = ref(dbRealtime, 'context/viewScope');
     onValue(viewScopeRef, (snap) => {
         const val = snap.val();
         state.viewScope = (val === 'team') ? 'team' : 'pilot';
@@ -424,16 +472,28 @@ function subscribeContext() {
 }
 
 function subscribeFinals() {
-    const mk8ref = ref(dbRealtime, 'live/races/mk8/8/finalized');
+    const mk8ref = ref(dbRealtime, 'live/races/mk8');
     onValue(mk8ref, (snap) => {
-        state.mk8LastFinalized = Boolean(snap.val());
+        const data = snap.val() || {};
+        const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
+        state.mk8LastFinalized = Boolean(data['8'] && data['8'].finalized);
+
+        // NEW: stocker ids de courses mk8 finalisées
+        state.mk8FinalizedRaceIds = new Set(finals.map(([rid]) => rid));
+
         updateRaceStateDisplay();
         chooseAndApplyMode();
     });
 
-    const mkwref = ref(dbRealtime, 'live/races/mkw/SF/finalized');
+    const mkwref = ref(dbRealtime, 'live/races/mkw');
     onValue(mkwref, (snap) => {
-        state.mkwFinalFinalized = Boolean(snap.val());
+        const data = snap.val() || {};
+        const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
+        state.mkwFinalFinalized = Boolean(data['SF'] && data['SF'].finalized);
+
+        // NEW: stocker ids de courses mkw finalisées
+        state.mkwFinalizedRaceIds = new Set(finals.map(([rid]) => rid));
+
         updateRaceStateDisplay();
         chooseAndApplyMode();
     });
@@ -446,16 +506,60 @@ function resubscribeTotals() {
     }
 
     const totalsRef = ref(dbRealtime, `live/points/${state.phase}/totals`);
+
+    let debounceTimer = null;
     const unsubscribe = onValue(totalsRef, (snap) => {
-        const obj = snap.val() || {};
-        state.totals.clear();
-        Object.entries(obj).forEach(([pilotId, pts]) => {
-            state.totals.set(pilotId, Number(pts) || 0);
-        });
-        chooseAndApplyMode();
-        renderList(); // si mode lignes
+        if (debounceTimer) clearTimeout(debounceTimer);
+
+        debounceTimer = setTimeout(() => {
+            const obj = snap.val() || {};
+            state.totals.clear();
+            Object.entries(obj).forEach(([pilotId, pts]) => {
+                state.totals.set(pilotId, Number(pts) || 0);
+            });
+
+            // NEW: relancer aussi l'abonnement byRace
+            subscribeByRace();
+
+            chooseAndApplyMode();
+            renderList(); // si mode lignes
+        }, CFG.totalsDebounceMs);
     });
+
     state.unsubTotals = unsubscribe;
+}
+
+function subscribeByRace() {
+    const byRaceRef = ref(dbRealtime, `live/points/${state.phase}/byRace`);
+    onValue(byRaceRef, (snap) => {
+        state.byRaceSnapshot = snap.val() || {};
+        recomputeTieBreaks();
+        renderList(); // relancer le rendu avec nouveaux tie-breaks
+    });
+}
+
+function recomputeTieBreaks() {
+    state.posCounts.clear();
+    state.bonusDoubles.clear();
+
+    const races = state.byRaceSnapshot || {};
+    for (const [raceId, data] of Object.entries(races)) {
+        const ranks = data || {};
+        for (const [pilotId, res] of Object.entries(ranks)) {
+            if (!res || typeof res.rank !== 'number') continue;
+
+            const r = res.rank;
+            if (!state.posCounts.has(pilotId)) {
+                state.posCounts.set(pilotId, new Map());
+            }
+            const m = state.posCounts.get(pilotId);
+            m.set(r, (m.get(r) || 0) + 1);
+
+            if (res.doubled) {
+                state.bonusDoubles.set(pilotId, (state.bonusDoubles.get(pilotId) || 0) + 1);
+            }
+        }
+    }
 }
 
 // ----------------------
@@ -630,6 +734,29 @@ window.CLASSEMENT_clearForce = function () {
 // ----------------------
 // Rendering liste (modes pilotes actuels)
 // ----------------------
+function sortPilotsAdvanced(a, b) {
+    // 1. Points totaux
+    if (b.points !== a.points) return b.points - a.points;
+
+    // 2+. Comptage des positions (1er, 2e, 3e, …)
+    const maxPos = 24; // couvre MKW
+    const ma = state.posCounts.get(a.pilotId) || new Map();
+    const mb = state.posCounts.get(b.pilotId) || new Map();
+    for (let pos = 1; pos <= maxPos; pos++) {
+        const ca = ma.get(pos) || 0;
+        const cb = mb.get(pos) || 0;
+        if (cb !== ca) return cb - ca; // plus de top-pos = mieux classé
+    }
+
+    // 5. Bonus (ex: doubles, cosplay, défis …)
+    const ba = state.bonusDoubles.get(a.pilotId) || 0;
+    const bb = state.bonusDoubles.get(b.pilotId) || 0;
+    if (bb !== ba) return bb - ba;
+
+    // Fallback déterministe : tag
+    return (a.tag || '').localeCompare(b.tag || '');
+}
+
 function renderList() {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
@@ -637,12 +764,13 @@ function renderList() {
     const m = MODES[state.modeKey] || MODES['mkw-24'];
     if (m.type === 'message') return;
 
+    // Construire la liste des items
     const items = [];
     state.totals.forEach((points, pilotId) => {
         const p = state.pilotsById.get(pilotId);
         if (!p) return;
 
-        const gameNorm = (p.game || '').toString().toLowerCase(); // "mk8" | "mkw"
+        const gameNorm = (p.game || '').toString().toLowerCase();
         if (state.modeKey === 'mk8-12' && gameNorm !== 'mk8') return;
         if (state.modeKey === 'mkw-24' && gameNorm !== 'mkw') return;
 
@@ -653,21 +781,23 @@ function renderList() {
             pilotId,
             tag: p.tag || '',
             teamName: p.teamName || '',
-            logo, // logo équipe
+            logo,
             points: Number(points) || 0,
             name: p.name || '',
             num: p.num || '',
-            urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : ''
+            urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : '',
+            bonuses: 0 // (autres bonus à venir)
         });
     });
 
-    items.sort((a, b) => {
-        if (b.points !== a.points) return b.points - a.points;
-        return (a.tag || '').localeCompare(b.tag || '');
-    });
+    // --- Tri avancé
+    items.sort(sortPilotsAdvanced);
 
     const rows = $list.children;
     const rowCount = rows.length;
+
+    const currentRanks = new Map();
+    const currentOrderKey = items.map(i => i.pilotId).join(',');
 
     for (let i = 0; i < rowCount; i++) {
         const $row = rows[i];
@@ -676,7 +806,6 @@ function renderList() {
         const entry = items[i];
         if (!entry) {
             $row.classList.add('is-empty');
-            // reset affichage
             const $tagEl = $row.querySelector('.col-tag');
             if ($tagEl) {
                 $tagEl.classList.remove('mode-pilot');
@@ -687,31 +816,57 @@ function renderList() {
                 logo: '',
                 tag: '',
                 bonusContent: '',
-                pointsText: ''
+                pointsText: '',
+                variation: 0
             });
-            // datasets reset
-            $row.dataset.pilotId   = '';
-            $row.dataset.pilotName = '';
-            $row.dataset.pilotNum  = '';
-            $row.dataset.pilotPhoto= '';
-            $row.dataset.teamLogo  = '';
             continue;
         }
 
         $row.classList.remove('is-empty');
 
-        // datasets pour swap
         $row.dataset.pilotId    = entry.pilotId;
         $row.dataset.pilotName  = entry.name;
         $row.dataset.pilotNum   = entry.num;
         $row.dataset.pilotPhoto = entry.urlPhoto || '';
         $row.dataset.teamLogo   = entry.logo || '';
 
-        // phase TAG initiale
         const $tagEl = $row.querySelector('.col-tag');
         if ($tagEl) {
             $tagEl.classList.remove('mode-pilot');
             renderTagTextInto($tagEl, entry.tag || '');
+        }
+
+        currentRanks.set(entry.pilotId, i + 1);
+
+        let variation = 0;
+        const now = Date.now();
+
+        const prevRank = state.lastRanksSnapshot.get(entry.pilotId) ?? null;
+
+        const strictOk = !CFG.indicatorsOnFinalizeOnly ||
+            (state.phase === 'mk8' && state.mk8FinalizedRaceIds?.has(state.raceId)) ||
+            (state.phase === 'mkw' && state.mkwFinalizedRaceIds?.has(state.raceId));
+
+        // Nouveau changement d'ordre ?
+        if (strictOk && state.lastOrderKey && state.lastOrderKey !== currentOrderKey) {
+            if (prevRank != null) {
+                const delta = prevRank - (i + 1);
+                if (delta !== 0) {
+                    state.indicatorUntil.set(entry.pilotId, now + CFG.changeIndicatorMs);
+                    state.lastDeltaDir.set(entry.pilotId, Math.sign(delta)); // -1 ou +1
+                }
+            }
+        }
+
+        // Vérifier TTL en cours
+        const ttl = state.indicatorUntil.get(entry.pilotId) || 0;
+        if (ttl > now) {
+            const dir = state.lastDeltaDir.get(entry.pilotId) || 0;
+            variation = dir;
+        } else {
+            state.indicatorUntil.delete(entry.pilotId);
+            state.lastDeltaDir.delete(entry.pilotId);
+            variation = 0;
         }
 
         setRow($row, {
@@ -719,24 +874,70 @@ function renderList() {
             logo: entry.logo,
             tag: entry.tag,
             bonusContent: '',
-            pointsText: formatPoints(entry.points)
+            pointsText: formatPoints(entry.points),
+            variation
         });
     }
 
-    // cycle synchronisé
+    // snapshot
+    state.lastOrderKey = currentOrderKey;
+    state.lastRanksSnapshot = currentRanks;
+    
+    // planifier un sweep pour la fin du TTL la plus proche
+    scheduleIndicatorSweep();
+    
     restartSwapCycle();
 }
 
-function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
+function scheduleIndicatorSweep() {
+    if (state.indicatorSweepTimer) {
+        clearTimeout(state.indicatorSweepTimer);
+        state.indicatorSweepTimer = null;
+    }
+
+    const now = Date.now();
+    let nextExpiry = Infinity;
+
+    state.indicatorUntil.forEach((ts) => {
+        if (ts > now && ts < nextExpiry) {
+            nextExpiry = ts;
+        }
+    });
+
+    if (nextExpiry !== Infinity) {
+        const delay = Math.max(50, nextExpiry - now);
+        state.indicatorSweepTimer = setTimeout(() => {
+            state.indicatorSweepTimer = null;
+            renderList();
+        }, delay);
+    }
+}
+
+function setRow($row, { position, logo, tag, bonusContent, pointsText, variation = 0 }) {
     const $rank  = $row.querySelector('.col-rank');
     const $team  = $row.querySelector('.col-team .team-logo');
     const $tagEl = $row.querySelector('.col-tag');
     const $bonus = $row.querySelector('.col-bonus');
     const $pts   = $row.querySelector('.col-points');
 
-    if ($rank) $rank.textContent = String(position);
+    if ($rank) {
+        // Réinitialiser le contenu du rank (icône + numéro)
+        $rank.innerHTML = '';
 
-    // Mise à jour image de .col-team selon phase courante (classe 'mode-pilot' sur .col-tag)
+        // Icône de variation (pilotée par renderList via indicatorUntil)
+        if (variation !== 0) {
+            const $icon = document.createElement('span');
+            $icon.className = 'rank-delta ' + (variation > 0 ? 'up' : 'down');
+            $rank.appendChild($icon);
+        }
+
+        // Numéro de rang
+        const $num = document.createElement('span');
+        $num.textContent = String(position);
+        $rank.appendChild($num);
+    }
+
+    // Image .col-team — logo ou photo selon phase courante (mode-pilot sur .col-tag)
     if ($team) {
         const usePhoto = $tagEl && $tagEl.classList.contains('mode-pilot');
         const src = usePhoto ? ($row.dataset.pilotPhoto || '') : ($row.dataset.teamLogo || logo || '');
@@ -751,7 +952,7 @@ function setRow($row, { position, logo, tag, bonusContent, pointsText }) {
         }
     }
 
-    // Mise à jour .col-tag : pilote (scroller) ou tag simple
+    // Colonne tag — scroller pilote ou tag simple
     if ($tagEl) {
         if ($tagEl.classList.contains('mode-pilot')) {
             renderPilotNameInto($tagEl, {

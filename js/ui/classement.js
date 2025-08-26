@@ -21,11 +21,11 @@ import {
 // Config timings (ajustables)
 // ----------------------
 const CFG = {
-    tagStandbyMs: 5000,     // temps d’attente en affichage TAG avant bascule sur fiche
-    pilotScrollMs: 5000,     // durée du défilement (aller) de la fiche
-    pilotPauseEndMs: 2000,   // pause en fin de défilement (avant retour au TAG)
-    pilotBackPauseMs: 2000,   // pause après le défilement retour, avant de réafficher le TAG
-    pilotStartDelayMs: 2000,   // délai avant de lancer le défilement aller
+    tagStandbyMs: 15000,     // temps d’attente en affichage TAG avant bascule sur fiche
+    pilotScrollMs: 8000,     // durée du défilement (aller) de la fiche
+    pilotPauseEndMs: 5000,   // pause en fin de défilement (avant retour au TAG)
+    pilotBackPauseMs: 5000,   // pause après le défilement retour, avant de réafficher le TAG
+    pilotStartDelayMs: 5000,   // délai avant de lancer le défilement aller
     gutterPx: 6,             // marge visuelle à gauche/droite dans la cellule tag
     edgePadPx: 2             // micro pad anti-overhang sur le scroller
 };

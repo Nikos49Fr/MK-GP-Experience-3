@@ -21,13 +21,23 @@ import {
 // Config timings (ajustables)
 // ----------------------
 const CFG = {
-    tagStandbyMs: 15000,     // temps d’attente en affichage TAG avant bascule sur fiche
-    pilotScrollMs: 8000,     // durée du défilement (aller) de la fiche
-    pilotPauseEndMs: 5000,   // pause en fin de défilement (avant retour au TAG)
-    pilotBackPauseMs: 5000,   // pause après le défilement retour, avant de réafficher le TAG
-    pilotStartDelayMs: 5000,   // délai avant de lancer le défilement aller
-    gutterPx: 6,             // marge visuelle à gauche/droite dans la cellule tag
-    edgePadPx: 2             // micro pad anti-overhang sur le scroller
+    // swap TAG ↔ FICHE
+    tagStandbyMs: 15000,
+    pilotScrollMs: 8000,
+    pilotPauseEndMs: 5000,
+    pilotBackPauseMs: 5000,
+    pilotStartDelayMs: 5000,
+
+    // marges visuelles du swap
+    gutterPx: 6,
+    edgePadPx: 2,
+
+    // STATE (texte défilant)
+    stateStartDelayMs: 2000,
+    stateEndDelayMs: 2000,
+    stateDurationMs: 2000,
+    stateGutterPx: 8,
+    stateEdgePadPx: 3
 };
 
 // ----------------------
@@ -103,59 +113,62 @@ function _clearMarqueeRuntime() {
 function setRaceStateTextWithMarquee($state, text) {
     _clearMarqueeRuntime();
 
-    const GUTTER = 8;     // marge visible à gauche et à droite
-    const EDGE_PAD = 3;   // anti-rognage des glyphes
-
-    // Reset visuel
-    $state.classList.remove('marquee');
+    // Hard reset (éviter tout style résiduel : padding/gap/justify)
     $state.innerHTML = '';
-    $state.style.whiteSpace = 'nowrap';
-    $state.style.overflow = 'hidden';
+    $state.style.display = 'flex';
     $state.style.alignItems = 'center';
     $state.style.justifyContent = 'flex-start';
-    $state.style.padding = '0'; // on ne s’appuie plus sur padding ici
+    $state.style.whiteSpace = 'nowrap';
+    $state.style.overflow = 'hidden';
+    $state.style.padding = '0';
+    $state.style.margin = '0';
+    $state.style.gap = '0';
+    $state.style.minWidth = '0';
 
     // Piste
     const track = document.createElement('div');
     track.className = 'marquee-track';
-    track.style.display = 'inline-block';
-    track.style.willChange = 'transform';
+    track.style.display = 'inline-flex';
+    track.style.alignItems = 'center';
     track.style.transition = 'none';
+    track.style.willChange = 'transform';
 
-    // Texte
     const span = document.createElement('span');
     span.textContent = text;
-    span.style.padding = `0 ${EDGE_PAD}px`;
-
+    span.style.padding = `0 ${CFG.stateEdgePadPx}px`;
     track.appendChild(span);
     $state.appendChild(track);
 
+    // Mesures & animation
     requestAnimationFrame(() => {
-        const visible = $state.clientWidth - (GUTTER * 2);
+        const gutter = CFG.stateGutterPx;
+        const visible = $state.clientWidth - (gutter * 2);
         const full = track.scrollWidth;
         const overflow = Math.max(0, full - visible);
 
-        // Décalage initial : gouttière gauche
-        track.style.transform = `translateX(${GUTTER}px)`;
-
-        // Si pas de débordement → centrer + petite marge
+        // Pas de débordement → pas de scroll, mais garde la gouttière à gauche
         if (overflow <= 0) {
-            $state.style.justifyContent = 'center';
-            $state.style.padding = `0 ${GUTTER}px`;
             track.style.transition = 'none';
-            track.style.transform = 'translateX(0)';
+            track.style.transform = `translateX(${CFG.stateGutterPx}px)`; // <- IMPORTANT
             return;
         }
 
-        // Timings (tu peux ajuster)
-        const START_DELAY = 4000;
-        const END_DELAY = 2000;
-        const DURATION = 3000;
-        let directionLeft = true;
+        // Position de départ : +gutter (montre bien le début sans être mangé)
+        track.style.transition = 'none';
+        track.style.transform = `translateX(${gutter}px)`;
+        void track.getBoundingClientRect(); // reflow
 
-        function goOnce() {
-            track.style.transition = `transform ${DURATION}ms linear`;
-            const targetX = directionLeft ? -(overflow - EDGE_PAD) : GUTTER;
+        // Cible de fin CORRIGÉE : -overflow + gutter
+        const leftTarget = -overflow + gutter;
+
+        let toLeft = true;
+
+        function animateOnce() {
+            track.style.transition = `transform ${CFG.stateDurationMs}ms linear`;
+            const targetX = toLeft ? leftTarget : gutter;
+
+            // reflow pour fiabiliser la transition
+            void track.getBoundingClientRect();
             requestAnimationFrame(() => {
                 track.style.transform = `translateX(${targetX}px)`;
             });
@@ -163,22 +176,24 @@ function setRaceStateTextWithMarquee($state, text) {
             const onEnd = () => {
                 track.removeEventListener('transitionend', onEnd);
                 _marqueeOnEnd = null;
-                const t2 = setTimeout(() => {
-                    directionLeft = !directionLeft;
+
+                const t = setTimeout(() => {
+                    toLeft = !toLeft;
+                    // Fixer le point de départ exact de la phase suivante
                     track.style.transition = 'none';
-                    track.style.transform = directionLeft
-                        ? `translateX(${GUTTER}px)`
-                        : `translateX(${-(overflow - EDGE_PAD)}px)`;
-                    requestAnimationFrame(goOnce);
-                }, END_DELAY);
-                _marqueeTimers.push(t2);
+                    track.style.transform = toLeft ? `translateX(${gutter}px)` : `translateX(${leftTarget}px)`;
+                    void track.getBoundingClientRect();
+                    requestAnimationFrame(animateOnce);
+                }, CFG.stateEndDelayMs);
+                _marqueeTimers.push(t);
             };
+
             _marqueeOnEnd = { el: track, fn: onEnd };
             track.addEventListener('transitionend', onEnd);
         }
 
-        const t1 = setTimeout(goOnce, START_DELAY);
-        _marqueeTimers.push(t1);
+        const t0 = setTimeout(animateOnce, CFG.stateStartDelayMs);
+        _marqueeTimers.push(t0);
     });
 }
 

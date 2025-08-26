@@ -41,7 +41,7 @@ const CFG = {
 
     // Indicateur de changement de rang (triangle ↑/↓)
     // Spécification: 6000ms pour la phase de dev (1 min en prod)
-    changeIndicatorMs: 6000,
+    changeIndicatorMs: 30000,
 
     // NEW: debounce pour lisser les mises à jour partielles de totals
     totalsDebounceMs: 200,

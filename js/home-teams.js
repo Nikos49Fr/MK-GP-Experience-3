@@ -31,14 +31,29 @@ function resolveAssetPath(storedPath) {
     // Ce fichier est /js/home-teams.js → racine projet = ../
     const projectRoot = new URL("../", import.meta.url);
 
-    // Normalisation des chemins usuels ("./assets", "/assets", "assets")
-    if (storedPath.startsWith("/")) {
-        return new URL(storedPath.slice(1), projectRoot).href;
+    // Normalisation
+    let p = String(storedPath).trim();
+
+    // 1) enlever les "./" ou "/" en tête
+    if (p.startsWith("./")) p = p.slice(2);
+    if (p.startsWith("/")) p = p.slice(1);
+
+    // 2) supprimer tous les "../" initiaux pour éviter de sortir du repo sur GH Pages
+    p = p.replace(/^(\.\.\/)+/g, "");
+
+    // 3) compléter les formes courantes
+    //    - "assets/..." → OK
+    //    - "images/..." → préfixer "assets/"
+    //    - "team-2/hanamarou.png" → préfixer "assets/images/"
+    if (p.startsWith("assets/")) {
+        // rien
+    } else if (p.startsWith("images/")) {
+        p = "assets/" + p;
+    } else if (!p.startsWith("assets/images/")) {
+        p = "assets/images/" + p;
     }
-    if (storedPath.startsWith("./")) {
-        return new URL(storedPath.slice(2), projectRoot).href;
-    }
-    return new URL(storedPath, projectRoot).href;
+
+    return new URL(p, projectRoot).href;
 }
 
 function safeIdFromTag(tag) {

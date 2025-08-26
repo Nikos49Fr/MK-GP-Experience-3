@@ -1,30 +1,48 @@
 // js/home-teams.js
 import { dbFirestore } from "./firebase-config.js";
 import {
-  collection, getDocs, query, orderBy
+    collection, getDocs, query, orderBy
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
 /* --------- helpers --------- */
 const grid = document.getElementById("teams-grid");
 
 function h(tag, attrs = {}, ...children) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (k === "class") el.className = v;
-    else if (k === "dataset" && v && typeof v === "object") {
-      Object.entries(v).forEach(([dk, dv]) => el.dataset[dk] = dv);
-    } else el.setAttribute(k, v);
-  }
-  children.flat().forEach(c => {
-    if (c == null) return;
-    if (typeof c === "string") el.appendChild(document.createTextNode(c));
-    else el.appendChild(c);
-  });
-  return el;
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+        if (k === "class") el.className = v;
+        else if (k === "dataset" && v && typeof v === "object") {
+            Object.entries(v).forEach(([dk, dv]) => el.dataset[dk] = dv);
+        } else el.setAttribute(k, v);
+    }
+    children.flat().forEach(c => {
+        if (c == null) return;
+        if (typeof c === "string") el.appendChild(document.createTextNode(c));
+        else el.appendChild(c);
+    });
+    return el;
+}
+
+function resolveAssetPath(storedPath) {
+    if (!storedPath) return "";
+    // Laisser passer les URLs absolues
+    if (/^(https?:|data:|blob:)/i.test(storedPath)) return storedPath;
+
+    // Ce fichier est /js/home-teams.js → racine projet = ../
+    const projectRoot = new URL("../", import.meta.url);
+
+    // Normalisation des chemins usuels ("./assets", "/assets", "assets")
+    if (storedPath.startsWith("/")) {
+        return new URL(storedPath.slice(1), projectRoot).href;
+    }
+    if (storedPath.startsWith("./")) {
+        return new URL(storedPath.slice(2), projectRoot).href;
+    }
+    return new URL(storedPath, projectRoot).href;
 }
 
 function safeIdFromTag(tag) {
-  return `team-${String(tag || "").toLowerCase()}`;
+    return `team-${String(tag || "").toLowerCase()}`;
 }
 function ensureAnchor(id) {
     if (!document.getElementById(id)) {
@@ -62,7 +80,7 @@ function buildTeamNav(teams) {
         a.href = `#${safeIdFromTag(t.tag)}`;
 
         const img = document.createElement("img");
-        img.src = (t.urlLogo || "").replace(/^\.\//, "");
+        img.src = resolveAssetPath(t.urlLogo || "");
         img.alt = t.tag || t.name || "TEAM";
 
         a.appendChild(img);
@@ -98,7 +116,7 @@ function renderTeamCard(team, pilots) {
     const header = h("header", { class: "team-header" },
         h("img", {
             class: "team-logo",
-            src: (team.urlLogo || "").replace(/^\.\//, ""),
+            src: resolveAssetPath(team.urlLogo || ""),
             alt: team.name || ""
         }),
         h("h2", { class: "team-name" }, team.name || ""),
@@ -107,7 +125,7 @@ function renderTeamCard(team, pilots) {
 
     const pilotsGrid = h("div", { class: "team-pilots" },
         teamPilots.map(p =>
-            h("div", {                         // ← plus de lien ici
+            h("div", {
                 class: "pilot-card",
                 "data-pilot": p.tag || ""
             },
@@ -117,7 +135,7 @@ function renderTeamCard(team, pilots) {
                             (p.num ?? "").toString().padStart(2, "0")
                         ),
                         h("img", {
-                            src: (p.urlPhoto || "").replace(/^\.\//, ""),
+                            src: resolveAssetPath(p.urlPhoto || ""),
                             alt: p.name || p.tag || "Nom Pilote"
                         })
                     ),
@@ -163,22 +181,22 @@ async function loadData() {
 
 /* --------- init --------- */
 (async function init() {
-  if (!grid) {
-    console.warn('[home] Conteneur "#teams-grid" introuvable.');
-    return;
-  }
+    if (!grid) {
+        console.warn('[home] Conteneur "#teams-grid" introuvable.');
+        return;
+    }
 
-  try {
-    const { teams, pilots } = await loadData();
+    try {
+        const { teams, pilots } = await loadData();
 
-    // Nettoyage et injection
-    grid.innerHTML = "";
-    teams.forEach(team => {
-      grid.appendChild(renderTeamCard(team, pilots));
-    });
-    buildTeamNav(teams);
-  } catch (err) {
-    console.error("[home] Erreur chargement équipes/pilotes:", err);
-    grid.innerHTML = `<p style="opacity:.7">Impossible de charger les équipes pour le moment.</p>`;
-  }
+        // Nettoyage et injection
+        grid.innerHTML = "";
+        teams.forEach(team => {
+            grid.appendChild(renderTeamCard(team, pilots));
+        });
+        buildTeamNav(teams);
+    } catch (err) {
+        console.error("[home] Erreur chargement équipes/pilotes:", err);
+        grid.innerHTML = `<p style="opacity:.7">Impossible de charger les équipes pour le moment.</p>`;
+    }
 })();

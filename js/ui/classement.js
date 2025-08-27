@@ -1217,6 +1217,11 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
 // Boot
 // ----------------------
 (async function init() {
+    // Désactive l’autoboot quand on utilise la factory
+    if (typeof window !== 'undefined' && window.__CL_FACTORY_MODE) {
+        return; // le montage se fera via initClassement()
+    }
+
     const $host = document.querySelector('.classement-widget');
     if (!$host) {
         console.warn('[classement] Élément .classement-widget introuvable.');

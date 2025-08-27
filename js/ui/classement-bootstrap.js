@@ -1,35 +1,28 @@
 // /js/ui/classement-bootstrap.js
 // Bootstrap "factory" pour le widget classement en mode standalone (overlay)
-// - n'altère pas le fonctionnement auto existant de classement.js
-// - si l'IIFE de classement.js a déjà rendu, on ne fait rien
-// - sinon, on appelle initClassement() proprement.
-
-import { initClassement } from './classement.js';
+// - désactive l’autoboot du module avant chargement
+// - monte le widget via initClassement() dans <main>
 
 (function () {
-    // On attend que le DOM soit là
+    // On attend que le DOM soit prêt
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', mount, { once: true });
     } else {
         mount();
     }
 
-    function mount() {
-        // Si l'IIFE a déjà construit l'arbre (présence d'éléments internes), on ne double pas
-        const hasAutoBoot =
-            !!document.querySelector('.classement-widget .cw-header') ||
-            !!document.querySelector('.classement-widget .cw-list');
+    async function mount() {
+        // Désactiver l’autoboot AVANT de charger le module
+        window.__CL_FACTORY_MODE = true;
+        const { initClassement } = await import('./classement.js');
 
-        if (hasAutoBoot) {
-            // mode "legacy overlay" : on laisse l’IIFE de classement.js faire le job
-            return;
-        }
-
-        // Sinon, on démarre via la factory sur le conteneur existant (ou on le crée si absent)
+        // Conteneur : <main> si présent, sinon body
         const main = document.querySelector('main') || document.body;
+
+        // Monter via la factory
         const api = initClassement(main, { forceMode: 'auto' });
 
         // (optionnel) attendre le 1er rendu si besoin
-        // api.ready.then(() => console.log('[classement] prêt'));
+        // if (api?.ready) { try { await api.ready; } catch {} }
     }
 })();

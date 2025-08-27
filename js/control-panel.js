@@ -1163,7 +1163,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ====================================================================
 // Intégration "classement" — version simplifiée (leaderboard CP supprimé)
 // ====================================================================
-import { initClassement } from './ui/classement.js';
 
 (function integrateClassementIntoControlPanel() {
     const HOST_ID = 'cp-classement-host';
@@ -1185,6 +1184,11 @@ import { initClassement } from './ui/classement.js';
     async function mountClassementOnce() {
         const host = ensureHostInAside();
         if (!host || host.__classementMounted) return;
+
+        // Désactiver l’autoboot AVANT de charger le module
+        window.__CL_FACTORY_MODE = true;
+        const { initClassement } = await import('./ui/classement.js');
+
         api = initClassement(host, { forceMode: 'auto' });
         if (api?.ready) { try { await api.ready; } catch {} }
         host.__classementMounted = true;

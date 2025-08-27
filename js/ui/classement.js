@@ -29,7 +29,9 @@ const CFG = {
     pilotStartDelayMs: 3000,    // 5000
 
     // marges visuelles du swap
-    stateGutterPx: 26,   // au lieu de gutterPx
+    stateGutterLeftPx: 20,   // départ plus à droite
+    stateGutterRightPx: 20,   // arrêt à droite plus tôt
+    stateGutterPx: 0,   // si les deux clés ci-dessus sont absentes
     stateEdgePadPx: 12,  // au lieu de edgePadPx
 
     // STATE (texte défilant)
@@ -63,9 +65,6 @@ const MODES = {
     'msg-mkw-noscores':  { rows: 0, className: 'classement-widget--msg-mkw-noscores', type: 'message' }
 };
 
-// ----------------------
-// Helpers
-// ----------------------
 // ----------------------
 // Helpers
 // ----------------------
@@ -214,8 +213,12 @@ function _afterFontsAndLayout(cb, el) {
     }
 }
 
+let _marqueeRunSeq = 0; // identifiant d'exécution pour annuler les callbacks obsolètes
 function setRaceStateTextWithMarquee($state, text) {
     _clearMarqueeRuntime();
+
+    // Chaque init prend un nouvel id et invalide les anciens callbacks
+    const runId = ++_marqueeRunSeq;
 
     // Hard reset
     $state.innerHTML = '';
@@ -236,39 +239,69 @@ function setRaceStateTextWithMarquee($state, text) {
     track.style.alignItems = 'center';
     track.style.transition = 'none';
     track.style.willChange = 'transform';
+    track.style.position = 'relative'; // sécurise le positionnement local
+    track.style.marginLeft = '0';
+    track.style.left = '0';
+    track.style.translate = '0';
 
     const span = document.createElement('span');
     span.textContent = text;
-    span.style.padding = `0 ${CFG.stateEdgePadPx}px`;
+    const edgePad = (typeof CFG.stateEdgePadPx === 'number') ? CFG.stateEdgePadPx : 0;
+    span.style.padding = `0 ${edgePad}px`;
     track.appendChild(span);
     $state.appendChild(track);
 
     // Mesures & animation — ATTENDRE polices + layout stables
     _afterFontsAndLayout(() => {
-        const gutter = CFG.stateGutterPx;
-        const visible = $state.clientWidth - (gutter * 2);
+        // 👉 IGNORER si un nouvel init a eu lieu entre temps
+        if (runId !== _marqueeRunSeq || !track.isConnected) return;
+
+        // Gutters asymétriques avec fallback
+        const baseGutter = (typeof CFG.stateGutterPx === 'number') ? CFG.stateGutterPx : 0;
+        const gutterL = (typeof CFG.stateGutterLeftPx === 'number') ? CFG.stateGutterLeftPx : baseGutter;
+        const gutterR = (typeof CFG.stateGutterRightPx === 'number') ? CFG.stateGutterRightPx : baseGutter;
+
+        // Baseline : neutraliser tout transform avant mesure
+        track.style.transition = 'none';
+        track.style.transform = 'none';
+        void track.getBoundingClientRect();
+
+        // Mesure de l’écart structurel (ex: -69 ou -1206)
+        const rs = $state.getBoundingClientRect();
+        const rt = track.getBoundingClientRect();
+        const baseGap = Math.round(rt.left - rs.left);
+
+        // Point de départ effectif = CFG (gauche) corrigé
+        const startX = gutterL - baseGap;
+
+        // Appliquer le départ corrigé
+        track.style.transform = `translateX(${startX}px)`;
+        void track.getBoundingClientRect();
+
+        // Mesures pour le défilement
+        const visible = $state.clientWidth - (gutterL + gutterR);
         const full = track.scrollWidth;
         const overflow = Math.max(0, full - visible);
 
         if (overflow <= 0) {
+            if (runId !== _marqueeRunSeq || !track.isConnected) return;
             $state.style.justifyContent = 'center';
             track.style.transition = 'none';
-            track.style.transform = `translateX(${CFG.stateGutterPx}px)`;
+            track.style.transform = 'none'; // (au lieu de translateX(startX))
             return;
         }
 
-        track.style.transition = 'none';
-        track.style.transform = `translateX(${gutter}px)`;
-        void track.getBoundingClientRect();
-
-        const leftTarget = -overflow + gutter;
+        // Cible gauche (on respecte startX pour conserver la marge gauche voulue)
+        const leftTarget = -overflow + startX;
         let toLeft = true;
 
         function animateOnce() {
+            if (runId !== _marqueeRunSeq || !track.isConnected) return;
             track.style.transition = `transform ${CFG.stateDurationMs}ms linear`;
-            const targetX = toLeft ? leftTarget : gutter;
+            const targetX = toLeft ? leftTarget : startX;
             void track.getBoundingClientRect();
             requestAnimationFrame(() => {
+                if (runId !== _marqueeRunSeq || !track.isConnected) return;
                 track.style.transform = `translateX(${targetX}px)`;
             });
 
@@ -276,9 +309,10 @@ function setRaceStateTextWithMarquee($state, text) {
                 track.removeEventListener('transitionend', onEnd);
                 _marqueeOnEnd = null;
                 const t = setTimeout(() => {
+                    if (runId !== _marqueeRunSeq || !track.isConnected) return;
                     toLeft = !toLeft;
                     track.style.transition = 'none';
-                    track.style.transform = toLeft ? `translateX(${gutter}px)` : `translateX(${leftTarget}px)`;
+                    track.style.transform = toLeft ? `translateX(${startX}px)` : `translateX(${leftTarget}px)`;
                     void track.getBoundingClientRect();
                     requestAnimationFrame(animateOnce);
                 }, CFG.stateEndDelayMs);
@@ -429,7 +463,11 @@ const state = {
     bonusDoubles: new Map(),    // Map<pilotId, number>
 
     // --- NEW: timer pour balayer les TTL et forcer un re-render à expiration
-    indicatorSweepTimer: null
+    indicatorSweepTimer: null,
+
+    // --- race-state render guard (dédup + coalescing)
+    raceStateLastText: null,
+    raceStateRaf: null
 };
 
 // ----------------------
@@ -644,7 +682,17 @@ function updateRaceStateDisplay() {
     if (!$state) return;
 
     const text = computeRaceStateText();
-    setRaceStateTextWithMarquee($state, text);
+
+    // Dédup strict : si le texte n'a pas changé, on évite tout rerender
+    if (text === state.raceStateLastText) return;
+    state.raceStateLastText = text;
+
+    // Coalescing : si plusieurs calls arrivent dans la même frame, on ne rend qu'une fois
+    if (state.raceStateRaf) cancelAnimationFrame(state.raceStateRaf);
+    state.raceStateRaf = requestAnimationFrame(() => {
+        state.raceStateRaf = null;
+        setRaceStateTextWithMarquee($state, text);
+    });
 }
 
 // ----------------------
@@ -731,6 +779,8 @@ function applyMode(modeKey) {
                 <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
                 <h3>Tournoi Mario Kart 8</h3>
                 <span>🔴 8 courses</span>
+                <p>🏁 Course 1 en cours 🏁</p>
+                <span>⚡ En attente des résultats...⚡</span>
               `
             : `
                 <h2>Mario Kart Grand Prix Expérience</h2>
@@ -741,6 +791,8 @@ function applyMode(modeKey) {
                 <span>🔴 1 survie</span>
                 <span>🔴 6 courses</span>
                 <span>🔴 1 survie finale</span>
+                <p>🏁 Course 1 en cours 🏁</p>
+                <span>⚡ En attente des résultats...⚡</span>
               `
         );
         return;

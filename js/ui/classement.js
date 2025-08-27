@@ -29,16 +29,14 @@ const CFG = {
     pilotStartDelayMs: 3000,    // 5000
 
     // marges visuelles du swap
-    gutterPx: 6,
-    edgePadPx: 2,
+    stateGutterPx: 26,   // au lieu de gutterPx
+    stateEdgePadPx: 12,  // au lieu de edgePadPx
 
     // STATE (texte défilant)
     stateStartDelayMs: 3000,
     stateEndDelayMs: 2000,
     stateDurationMs: 5000,
-    stateGutterPx: 8,
-    stateEdgePadPx: 3,
-
+    
     // Indicateur de changement de rang (triangle ↑/↓)
     // Spécification: 6000ms pour la phase de dev (1 min en prod)
     changeIndicatorMs: 30000,
@@ -192,10 +190,34 @@ function _clearMarqueeRuntime() {
     _marqueeOnEnd = null;
 }
 
+function _afterFontsAndLayout(cb, el) {
+    // Attendre que les polices soient prêtes (si supporté) + 2 frames pour stabiliser la largeur
+    const doMeasure = () => {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => cb());
+        });
+    };
+    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+        document.fonts.ready.then(doMeasure).catch(doMeasure);
+    } else {
+        doMeasure();
+    }
+
+    // BONUS: si la largeur du conteneur change après coup (ex: CSS async),
+    // on relance une passe de calcul une seule fois.
+    if (el && 'ResizeObserver' in window) {
+        const ro = new ResizeObserver(() => {
+            ro.disconnect();
+            _afterFontsAndLayout(cb, null);
+        });
+        ro.observe(el);
+    }
+}
+
 function setRaceStateTextWithMarquee($state, text) {
     _clearMarqueeRuntime();
 
-    // Hard reset (éviter tout style résiduel : padding/gap/justify)
+    // Hard reset
     $state.innerHTML = '';
     $state.style.display = 'flex';
     $state.style.alignItems = 'center';
@@ -221,37 +243,30 @@ function setRaceStateTextWithMarquee($state, text) {
     track.appendChild(span);
     $state.appendChild(track);
 
-    // Mesures & animation
-    requestAnimationFrame(() => {
+    // Mesures & animation — ATTENDRE polices + layout stables
+    _afterFontsAndLayout(() => {
         const gutter = CFG.stateGutterPx;
         const visible = $state.clientWidth - (gutter * 2);
         const full = track.scrollWidth;
         const overflow = Math.max(0, full - visible);
 
-        // Pas de débordement → pas de scroll, mais garde la gouttière à gauche
         if (overflow <= 0) {
-            // Alignement centré sous le logo
-            $state.style.justifyContent = 'center';            
+            $state.style.justifyContent = 'center';
             track.style.transition = 'none';
-            track.style.transform = `translateX(${CFG.stateGutterPx}px)`; // <- IMPORTANT
+            track.style.transform = `translateX(${CFG.stateGutterPx}px)`;
             return;
         }
 
-        // Position de départ : +gutter (montre bien le début sans être mangé)
         track.style.transition = 'none';
         track.style.transform = `translateX(${gutter}px)`;
-        void track.getBoundingClientRect(); // reflow
+        void track.getBoundingClientRect();
 
-        // Cible de fin CORRIGÉE : -overflow + gutter
         const leftTarget = -overflow + gutter;
-
         let toLeft = true;
 
         function animateOnce() {
             track.style.transition = `transform ${CFG.stateDurationMs}ms linear`;
             const targetX = toLeft ? leftTarget : gutter;
-
-            // reflow pour fiabiliser la transition
             void track.getBoundingClientRect();
             requestAnimationFrame(() => {
                 track.style.transform = `translateX(${targetX}px)`;
@@ -260,10 +275,8 @@ function setRaceStateTextWithMarquee($state, text) {
             const onEnd = () => {
                 track.removeEventListener('transitionend', onEnd);
                 _marqueeOnEnd = null;
-
                 const t = setTimeout(() => {
                     toLeft = !toLeft;
-                    // Fixer le point de départ exact de la phase suivante
                     track.style.transition = 'none';
                     track.style.transform = toLeft ? `translateX(${gutter}px)` : `translateX(${leftTarget}px)`;
                     void track.getBoundingClientRect();
@@ -278,7 +291,7 @@ function setRaceStateTextWithMarquee($state, text) {
 
         const t0 = setTimeout(animateOnce, CFG.stateStartDelayMs);
         _marqueeTimers.push(t0);
-    });
+    }, $state);
 }
 
 // ----------------------

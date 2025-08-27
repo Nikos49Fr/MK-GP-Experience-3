@@ -1238,3 +1238,87 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     // Premier choix
     chooseAndApplyMode();
 })();
+
+// ----------------------------------------------------
+// Factory API (append-only) — initClassement(container, options)
+// - n'altère pas l'IIFE existante
+// - réutilise les fonctions internes (ensureScaffold, subscribe*, renderList, ...)
+// - options.forceMode: 'mk8-12' | 'mkw-24' | 'teams-6' | 'teams-8' | 'msg-prestart' | 'msg-mk8-noscores' | 'msg-mkw-noscores'
+// ----------------------------------------------------
+export function initClassement(container, options = {}) {
+    const host = _resolveClassementHost(container);
+    if (!host) {
+        console.warn('[classement] initClassement: conteneur introuvable', container);
+        return {
+            host: null,
+            ready: Promise.resolve(false),
+            destroy() {},
+            setForcedMode() {}
+        };
+    }
+
+    // Scaffolding DOM local au host
+    try { ensureScaffold(host); } catch (err) {
+        console.error('[classement] ensureScaffold:', err);
+    }
+
+    // Option: forcer un mode d'affichage
+    if (options.forceMode && typeof options.forceMode === 'string') {
+        window.__CL_FORCE_MODE = options.forceMode;
+    }
+
+    // Si l'IIFE n'a pas booté (ex: pas de .classement-widget au chargement),
+    // on lance le boot minimal ici (préload + subscriptions).
+    const needBoot = !state.unsubTotals; // heuristique suffisante pour éviter les doubles abonnements
+    const ready = (async () => {
+        if (needBoot) {
+            try { await preloadFirestore(); } catch (err) { console.error('[classement] Erreur Firestore:', err); }
+            try { subscribeContext(); } catch (err) { console.error('[classement] subscribeContext:', err); }
+            try { subscribeFinals(); } catch (err) { console.error('[classement] subscribeFinals:', err); }
+            try { resubscribeTotals(); } catch (err) { console.error('[classement] resubscribeTotals:', err); }
+        }
+
+        // 1er rendu
+        try { chooseAndApplyMode(); } catch (_) {}
+        try { renderList(); } catch (_) {}
+
+        return true;
+    })();
+
+    return {
+        host,
+        ready, // Promise<boolean>
+        destroy() {
+            try { stopSwapCycle(); } catch (_) {}
+            try { host.innerHTML = ''; } catch (_) {}
+            // Note: on ne coupe pas ici les abonnements globaux (context/finals/totals)
+            // pour ne pas impacter d'autres vues éventuelles.
+        },
+        setForcedMode(modeKey) {
+            window.__CL_FORCE_MODE = modeKey;
+            try { chooseAndApplyMode(); } catch (_) {}
+        }
+    };
+}
+
+// Résout/crée le host local (.classement-widget) dans le container donné
+function _resolveClassementHost(container) {
+    let el = null;
+    if (!container) return null;
+
+    if (typeof container === 'string') {
+        el = document.querySelector(container);
+    } else if (container instanceof Element) {
+        el = container;
+    }
+
+    if (!el) return null;
+
+    let host = el.querySelector('.classement-widget');
+    if (!host) {
+        host = document.createElement('div');
+        host.className = 'classement-widget';
+        el.appendChild(host);
+    }
+    return host;
+}

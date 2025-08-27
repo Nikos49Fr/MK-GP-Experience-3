@@ -70,29 +70,35 @@ const MODES = {
 // ----------------------
 function resolveAssetPath(storedPath) {
     if (!storedPath) return '';
+    // Laisser passer les URLs absolues
+    if (/^(https?:|data:|blob:)/i.test(storedPath)) return storedPath;
 
-    // URL absolues (http/https/data/blob) → laisser tel quel
-    if (/^(https?:|data:|blob:)/i.test(storedPath)) {
-        return storedPath;
+    // Ce fichier est /js/ui/classement.js → racine projet = ../../
+    const projectRoot = new URL('../../', import.meta.url);
+
+    // Normalisation forte
+    let p = String(storedPath).trim();
+
+    // Enlever ./ et / en tête
+    if (p.startsWith('./')) p = p.slice(2);
+    if (p.startsWith('/'))  p = p.slice(1);
+
+    // ⚠️ Neutraliser tous les ../ initiaux pour ne pas sortir du repo sur GH Pages
+    p = p.replace(/^(\.\.\/)+/g, '');
+
+    // Compléter les formes courantes :
+    // - "assets/..." → OK
+    // - "images/..." → préfixer "assets/"
+    // - "team-1/ensuri.png" → préfixer "assets/images/"
+    if (p.startsWith('assets/')) {
+        // ok tel quel
+    } else if (p.startsWith('images/')) {
+        p = 'assets/' + p;
+    } else if (!p.startsWith('assets/images/')) {
+        p = 'assets/images/' + p;
     }
 
-    // 1) Définir la racine du projet depuis ce fichier JS:
-    //    /js/ui/classement.js  →  ../../  = racine du repo (où se trouve /assets)
-    const projectRoot = new URL('../../', import.meta.url); // ex: https://.../MK-GP-Experience-3/
-
-    // 2) Gérer les différentes formes de chemins stockés:
-    //    - "/assets/..." (racine projet voulue)    → new URL('assets/...', projectRoot)
-    //    - "./assets/..." (racine projet)          → new URL('assets/...', projectRoot)
-    //    - "assets/..." (racine projet)            → new URL('assets/...', projectRoot)
-    //    - "../..." (rare)                         → new URL(storedPath, projectRoot)
-
-    if (storedPath.startsWith('/')) {
-        return new URL(storedPath.slice(1), projectRoot).href;
-    }
-    if (storedPath.startsWith('./')) {
-        return new URL(storedPath.slice(2), projectRoot).href;
-    }
-    return new URL(storedPath, projectRoot).href;
+    return new URL(p, projectRoot).href;
 }
 
 function formatPoints(n) {

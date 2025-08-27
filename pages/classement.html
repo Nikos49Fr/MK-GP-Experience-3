@@ -1,20 +1,40 @@
-<!-- /pages/classement.html -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Classement — MK GP Experience 3</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Classement — Overlay</title>
 
-    <!-- CSS compilé depuis /sass/classement.scss -->
-    <link rel="stylesheet" href="../css/classement.css" />
+    <!-- Styles du widget -->
+    <link rel="stylesheet" href="../css/classement.css">
+
+    <!-- Page overlay : fond transparent + conteneur fixe 250x800 (sans scroll) -->
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            overflow: hidden;
+        }
+        /* conteneur fixe de l’overlay */
+        #classement-root {
+            width: 250px;
+            height: 800px;
+            overflow: hidden;
+        }
+    </style>
 </head>
-<body style="background: url('../assets/images/test2_temporaire.png') center center no-repeat; background-size: cover;">
-    <main>
-        <section class="classement-widget" aria-label="Classement en direct"></section>
-    </main>
+<body>
+    <!-- Conteneur cible : le widget construit son DOM à l’intérieur -->
+    <div id="classement-root"></div>
 
-    <!-- JS du widget -->
-    <script type="module" src="../js/ui/classement.js"></script>
+    <!-- Bootstrap du module factory -->
+    <script type="module">
+        import { initClassement } from '../js/ui/classement.js';
+
+        const root = document.getElementById('classement-root');
+        // Aucune option requise : le module reconstruit le markup et applique le SCSS existant
+        initClassement(root);
+    </script>
 </body>
 </html>

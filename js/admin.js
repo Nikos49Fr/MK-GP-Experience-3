@@ -104,15 +104,54 @@ import { ref, get, set, remove, update } from "https://www.gstatic.com/firebasej
 const IMG_PREFIX = "./../assets/images/";
 const TWITCH_PREFIX = "https://twitch.tv/";
 
+function resolveAssetPath(storedPath) {
+    if (!storedPath) return "";
+    if (/^(https?:|data:|blob:)/i.test(storedPath)) return storedPath;
+
+    // Ce fichier est chargé depuis /pages/admin.html → admin.js est résolu depuis /js/
+    // Donc racine projet = ../
+    const projectRoot = new URL("../", import.meta.url);
+
+    let p = String(storedPath).trim();
+
+    // Enlever préfixes ambigus
+    if (p.startsWith("./")) p = p.slice(2);
+    if (p.startsWith("/"))  p = p.slice(1);
+    p = p.replace(/^(\.\.\/)+/g, "");
+
+    // Compléter selon les formes fréquentes
+    if (p.startsWith("assets/")) {
+        // OK
+    } else if (p.startsWith("images/")) {
+        p = "assets/" + p;
+    } else if (!p.startsWith("assets/images/")) {
+        p = "assets/images/" + p;
+    }
+    return new URL(p, projectRoot).href;
+}
+
 function ensureImagePath(path) {
     if (!path) return "";
-    const trimmed = path.trim();
-    if (trimmed.startsWith(IMG_PREFIX)) return trimmed;
-    return IMG_PREFIX + trimmed.replace(/^\.?\/?assets\/images\/?/i, "");
+    let p = String(path).trim();
+
+    // Si on a donné une URL absolue, on laisse pour stockage (rare mais ok)
+    if (/^(https?:|data:|blob:)/i.test(p)) return p;
+
+    // Enlever ./, / et ../ en tête
+    if (p.startsWith("./")) p = p.slice(2);
+    if (p.startsWith("/"))  p = p.slice(1);
+    p = p.replace(/^(\.\.\/)+/g, "");
+
+    // Uniformiser vers "assets/images/…"
+    if (p.startsWith("assets/images/")) return p;
+    if (p.startsWith("assets/")) return p;            // ex: assets/icons/…
+    if (p.startsWith("images/")) return "assets/" + p;
+    return "assets/images/" + p;
 }
 function stripImagePrefix(path) {
     if (!path) return "";
-    return path.replace(/^\.?\/?assets\/images\/?/i, "");
+    // Retire "assets/images/" pour l’édition en champ (ex: on ne montre que "team-2/xxx.png")
+    return String(path).replace(/^\.?\/?assets\/images\/?/i, "");
 }
 
 function ensureTwitchUrl(nameOrUrl) {
@@ -211,7 +250,7 @@ function imageCell(url, alt, cls = "logo-thumb") {
     const td = document.createElement("td");
     if (url) {
         const img = document.createElement("img");
-        img.src = url;
+        img.src = resolveAssetPath(url);
         img.alt = alt || "image";
         img.className = cls; // pour pilotes tu peux garder .logo-thumb ou créer .pilot-thumb côté CSS
         td.appendChild(img);
@@ -263,7 +302,7 @@ function teamChipCell(teamName) {
 
     if (t.urlLogo) {
         const img = document.createElement("img");
-        img.src = t.urlLogo;
+        img.src = resolveAssetPath(t.urlLogo || "");
         img.alt = `${t.tag || t.name || "team"} logo`;
         wrap.appendChild(img);
     }

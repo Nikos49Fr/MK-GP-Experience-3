@@ -1,15 +1,16 @@
 // /js/ui/classement.js
 // ----------------------------------------------------
-// Classement Widget — MK GP Experience 3 (Factory version)
-// - Réutilisable : initClassement(container, options) → { destroy, refresh, setMode, setScope }
-// - Aucune dépendance au document global pour le rendu (scope DOM limité au container)
-// - SCSS conservé tel quel (classes .classement-widget, .cw-list, .cw-row, etc.)
+// Classement Widget — MK GP Experience 3
+// - Modes d’affichage (pilotes 12/24, équipes 6/8, messages)
+// - Texte d’état + défilement (marquee)
+// - Données: Firestore (teams/pilots), RTDB (context, totals, finals, overrides)
+// - Swap périodique TAG ↔ FICHE PILOTE (photo + numéro + nom défilant)
 // ----------------------------------------------------
 
 import { dbFirestore, dbRealtime } from '../firebase-config.js';
 import {
     collection,
-    getDocs,
+    getDocs
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js';
 import {
     ref,
@@ -17,33 +18,36 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
 // ----------------------
-// Factory root scoping (injection par conteneur)
-// ----------------------
-let __CL_ROOT__ = null; // Conteneur racine de l'instance du widget
-
-function __setRoot(el) {
-    __CL_ROOT__ = el || null;
-}
-
-function __qs(sel) {
-    return __CL_ROOT__ ? __CL_ROOT__.querySelector(sel) : document.querySelector(sel);
-}
-
-// ----------------------
-// Config (modifiable via options)
+// Config timings (ajustables)
 // ----------------------
 const CFG = {
-    // comportement texte d’état
+    // swap TAG ↔ FICHE
+    tagStandbyMs: 15000,        // 15000
+    pilotScrollMs: 8000,        // 8000
+    pilotPauseEndMs: 3000,      // 5000
+    pilotBackPauseMs: 3000,     // 5000
+    pilotStartDelayMs: 3000,    // 5000
+
+    // marges visuelles du swap
+    gutterPx: 6,
+    edgePadPx: 2,
+
+    // STATE (texte défilant)
+    stateStartDelayMs: 3000,
+    stateEndDelayMs: 2000,
+    stateDurationMs: 5000,
     stateGutterPx: 8,
+    stateEdgePadPx: 3,
 
-    // affichage
-    rowHeightPx: 64,
+    // Indicateur de changement de rang (triangle ↑/↓)
+    // Spécification: 6000ms pour la phase de dev (1 min en prod)
+    changeIndicatorMs: 30000,
 
-    // debounce totals
-    totalsDebounceMs: 150,
+    // NEW: debounce pour lisser les mises à jour partielles de totals
+    totalsDebounceMs: 200,
 
-    // header
-    headerLogo: './assets/images/MK_Grand_Prix-Experience_redim.png'
+    // NEW: mode strict — n'activer les triangles que lorsqu'une course passe finalized=true
+    indicatorsOnFinalizeOnly: false
 };
 
 // ----------------------
@@ -64,28 +68,34 @@ const MODES = {
 // ----------------------
 // Helpers
 // ----------------------
+// ----------------------
+// Helpers
+// ----------------------
 function resolveAssetPath(storedPath) {
     if (!storedPath) return '';
-    // Si l'URL est absolue, on ne touche pas
-    if (/^https?:\/\//i.test(storedPath)) return storedPath;
 
-    // Cas le plus fréquent : Firestore stocke "./assets/images/..."
-    // Sur /pages/* on doit remonter d'un cran → "../assets/..."
-    if (storedPath.startsWith('./assets/')) {
-        const onPages = location.pathname.includes('/pages/');
-        return onPages ? ('../' + storedPath.slice(2)) : storedPath;
-    }
-
-    // Si on nous donne déjà "../assets/...", on garde
-    if (storedPath.startsWith('../assets/')) return storedPath;
-
-    // Fallback : construire une URL relative au dossier courant
-    try {
-        const base = new URL('.', location.href);
-        return new URL(storedPath, base).href;
-    } catch {
+    // URL absolues (http/https/data/blob) → laisser tel quel
+    if (/^(https?:|data:|blob:)/i.test(storedPath)) {
         return storedPath;
     }
+
+    // 1) Définir la racine du projet depuis ce fichier JS:
+    //    /js/ui/classement.js  →  ../../  = racine du repo (où se trouve /assets)
+    const projectRoot = new URL('../../', import.meta.url); // ex: https://.../MK-GP-Experience-3/
+
+    // 2) Gérer les différentes formes de chemins stockés:
+    //    - "/assets/..." (racine projet voulue)    → new URL('assets/...', projectRoot)
+    //    - "./assets/..." (racine projet)          → new URL('assets/...', projectRoot)
+    //    - "assets/..." (racine projet)            → new URL('assets/...', projectRoot)
+    //    - "../..." (rare)                         → new URL(storedPath, projectRoot)
+
+    if (storedPath.startsWith('/')) {
+        return new URL(storedPath.slice(1), projectRoot).href;
+    }
+    if (storedPath.startsWith('./')) {
+        return new URL(storedPath.slice(2), projectRoot).href;
+    }
+    return new URL(storedPath, projectRoot).href;
 }
 
 function formatPoints(n) {
@@ -95,13 +105,17 @@ function formatPoints(n) {
     return `${v} pts`;
 }
 
-function simpleRaceLabel(phase, raceId) {
+function simpleRaceLabel({ phase, raceId }) {
     if (!phase) return '—';
     const up = String(phase).toUpperCase();
     if (!raceId) return `${up}`;
     if (raceId === 'S') return `${up} — Survie`;
     if (raceId === 'SF') return `${up} — Survie Finale`;
     return `${up} — Course ${raceId}`;
+}
+
+function isNumericRaceId(rid) {
+    return typeof rid === 'string' && /^[0-9]+$/.test(rid);
 }
 
 function totalsAllZeroOrEmpty(map) {
@@ -112,19 +126,174 @@ function totalsAllZeroOrEmpty(map) {
     return true;
 }
 
+// Phase TAG: texte simple (ellipsis géré par CSS)
+function renderTagTextInto($tagCell, tag) {
+    $tagCell.classList.remove('mode-pilot');
+    $tagCell.innerHTML = '';
+    $tagCell.textContent = tag || '';
+}
+
+// Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
+function renderPilotNameInto($tagCell, { num, name }) {
+    const safeNum = (num || '').toString();
+    const safeName = (name || '')
+        .toString()
+        .toUpperCase()
+        .replace(/\s+/g, ''); // <-- tous les espaces supprimés
+
+    $tagCell.classList.add('mode-pilot');
+    // Important : le scroller doit être “intrinsèque” et non contraint
+    $tagCell.innerHTML = `
+        <div class="tagcard-scroller" style="
+            display:inline-flex;align-items:center;gap:6px;
+            will-change: transform;
+            transform: translateX(${CFG.gutterPx}px);
+            transition: none;
+            flex: 0 0 auto;          /* NE PAS shrinker */
+            width: max-content;       /* largeur intrinsèque */
+            max-width: none;          /* pas de contrainte */
+        ">
+            ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
+            <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+        </div>
+    `;
+}
+
+function measureIntrinsicWidth(el) {
+    if (!el) return 0;
+    const clone = el.cloneNode(true);
+    clone.style.position = 'absolute';
+    clone.style.visibility = 'hidden';
+    clone.style.left = '-99999px';
+    clone.style.top = '0';
+    clone.style.transform = 'none';
+    clone.style.transition = 'none';
+    clone.style.whiteSpace = 'nowrap';
+    clone.style.maxWidth = 'none';
+    clone.style.width = 'max-content';
+    document.body.appendChild(clone);
+    const w = Math.max(clone.scrollWidth, clone.getBoundingClientRect().width);
+    document.body.removeChild(clone);
+    return Math.ceil(w);
+}
+
+// ----------------------
+// Marquee (texte défilant pour le state)
+// ----------------------
+let _marqueeTimers = [];
+let _marqueeOnEnd = null;
+
+function _clearMarqueeRuntime() {
+    _marqueeTimers.forEach(t => clearTimeout(t));
+    _marqueeTimers = [];
+    if (_marqueeOnEnd && _marqueeOnEnd.el) {
+        _marqueeOnEnd.el.removeEventListener('transitionend', _marqueeOnEnd.fn);
+    }
+    _marqueeOnEnd = null;
+}
+
+function setRaceStateTextWithMarquee($state, text) {
+    _clearMarqueeRuntime();
+
+    // Hard reset (éviter tout style résiduel : padding/gap/justify)
+    $state.innerHTML = '';
+    $state.style.display = 'flex';
+    $state.style.alignItems = 'center';
+    $state.style.justifyContent = 'flex-start';
+    $state.style.whiteSpace = 'nowrap';
+    $state.style.overflow = 'hidden';
+    $state.style.padding = '0';
+    $state.style.margin = '0';
+    $state.style.gap = '0';
+    $state.style.minWidth = '0';
+
+    // Piste
+    const track = document.createElement('div');
+    track.className = 'marquee-track';
+    track.style.display = 'inline-flex';
+    track.style.alignItems = 'center';
+    track.style.transition = 'none';
+    track.style.willChange = 'transform';
+
+    const span = document.createElement('span');
+    span.textContent = text;
+    span.style.padding = `0 ${CFG.stateEdgePadPx}px`;
+    track.appendChild(span);
+    $state.appendChild(track);
+
+    // Mesures & animation
+    requestAnimationFrame(() => {
+        const gutter = CFG.stateGutterPx;
+        const visible = $state.clientWidth - (gutter * 2);
+        const full = track.scrollWidth;
+        const overflow = Math.max(0, full - visible);
+
+        // Pas de débordement → pas de scroll, mais garde la gouttière à gauche
+        if (overflow <= 0) {
+            // Alignement centré sous le logo
+            $state.style.justifyContent = 'center';            
+            track.style.transition = 'none';
+            track.style.transform = `translateX(${CFG.stateGutterPx}px)`; // <- IMPORTANT
+            return;
+        }
+
+        // Position de départ : +gutter (montre bien le début sans être mangé)
+        track.style.transition = 'none';
+        track.style.transform = `translateX(${gutter}px)`;
+        void track.getBoundingClientRect(); // reflow
+
+        // Cible de fin CORRIGÉE : -overflow + gutter
+        const leftTarget = -overflow + gutter;
+
+        let toLeft = true;
+
+        function animateOnce() {
+            track.style.transition = `transform ${CFG.stateDurationMs}ms linear`;
+            const targetX = toLeft ? leftTarget : gutter;
+
+            // reflow pour fiabiliser la transition
+            void track.getBoundingClientRect();
+            requestAnimationFrame(() => {
+                track.style.transform = `translateX(${targetX}px)`;
+            });
+
+            const onEnd = () => {
+                track.removeEventListener('transitionend', onEnd);
+                _marqueeOnEnd = null;
+
+                const t = setTimeout(() => {
+                    toLeft = !toLeft;
+                    // Fixer le point de départ exact de la phase suivante
+                    track.style.transition = 'none';
+                    track.style.transform = toLeft ? `translateX(${gutter}px)` : `translateX(${leftTarget}px)`;
+                    void track.getBoundingClientRect();
+                    requestAnimationFrame(animateOnce);
+                }, CFG.stateEndDelayMs);
+                _marqueeTimers.push(t);
+            };
+
+            _marqueeOnEnd = { el: track, fn: onEnd };
+            track.addEventListener('transitionend', onEnd);
+        }
+
+        const t0 = setTimeout(animateOnce, CFG.stateStartDelayMs);
+        _marqueeTimers.push(t0);
+    });
+}
+
 // ----------------------
 // DOM scaffold
 // ----------------------
 function ensureScaffold($root) {
     $root.innerHTML = '';
-    $root.classList.add('classement-widget');
 
     const $header = document.createElement('div');
     $header.className = 'cw-header';
 
     const $logo = document.createElement('img');
     $logo.alt = 'MK Grand Prix Experience';
-    $logo.src = resolveAssetPath(CFG.headerLogo);
+    const HEADER_LOGO = './assets/images/MK_Grand_Prix-Experience_redim.png';
+    $logo.src = resolveAssetPath(HEADER_LOGO);
     $header.appendChild($logo);
 
     const $state = document.createElement('div');
@@ -177,83 +346,109 @@ function buildRowSkeleton(position) {
     return $row;
 }
 
+function renderRowsSkeleton(rowCount) {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return;
+
+    stopSwapCycle(); // <-- stoppe le cycle sync avant de reconstruire
+
+    $list.innerHTML = '';
+    for (let i = 0; i < rowCount; i++) {
+        $list.appendChild(buildRowSkeleton(i + 1));
+    }
+}
+
+function renderMessageBlock(htmlString) {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return;
+
+    stopSwapCycle(); // <-- stoppe le cycle sync si on passe en mode message
+
+    $list.innerHTML = '';
+    const wrap = document.createElement('div');
+    wrap.className = 'cw-message';
+    wrap.innerHTML = htmlString;
+    $list.appendChild(wrap);
+}
+
 // ----------------------
-// State
+// State global
 // ----------------------
 const state = {
     // contexte course
-    phase: 'mk8',      // 'mk8' | 'mkw'
-    raceId: null,      // '1'..'12' | 'S' | 'SF' | null
+    phase: 'mk8',
+    raceId: null,
 
     // données
     pilotsById: new Map(), // { id -> { tag, teamName, game, name, num, urlPhoto } }
-    teamsByName: new Map(), // { teamName -> { urlLogo, color1, color2 } }
-    totals: new Map(), // { pilotId -> points }
+    teamsByName: new Map(),
+    totals: new Map(),
     unsubTotals: null,
 
     // finals
     mk8LastFinalized: false,
     mkwFinalFinalized: false,
+
+    // sets d'ids de courses finalisées par phase
     mk8FinalizedRaceIds: new Set(),
     mkwFinalizedRaceIds: new Set(),
 
     // mode courant calculé ou forcé
-    modeKey: 'mk8-12',
+    modeKey: 'mkw-24',
+
+    // overrides (Direction de course)
     viewModeOverride: null,   // 'auto' | explicit
     viewScope: 'pilot',       // 'pilot' | 'team'
 
-    // listeners RTDB
-    unsubs: []
+    // suivi des ordres/rangs pour afficher les triangles
+    lastOrderKey: null,               // string | null (ex: "p1,p7,p4,...")
+    lastRanksSnapshot: new Map(),     // Map<pilotId, rankNumber)
+
+    // TTL par pilote (pilotId → timestamp ms jusqu'à quand afficher l’icône)
+    indicatorUntil: new Map(),
+
+    // mémorise la direction du dernier delta pendant le TTL (pilotId → -1 | +1)
+    lastDeltaDir: new Map(),
+
+    // --- snapshots tie-breaks
+    byRaceSnapshot: {},
+    posCounts: new Map(),       // Map<pilotId, Map<rank, count>>
+    bonusDoubles: new Map(),    // Map<pilotId, number>
+
+    // --- NEW: timer pour balayer les TTL et forcer un re-render à expiration
+    indicatorSweepTimer: null
 };
 
 // ----------------------
 // Firestore preload
 // ----------------------
 async function preloadFirestore() {
-    // Teams
-    try {
-        const teamsSnap = await getDocs(collection(dbFirestore, 'teams'));
-        teamsSnap.forEach(doc => {
-            const d = doc.data() || {};
-            const name = d.name || '';
-            state.teamsByName.set(name, {
-                name,
-                tag: d.tag || '',
-                urlLogo: d.urlLogo || '',
-                color1: d.color1 || '#000',
-                color2: d.color2 || '#000'
-            });
-        });
-    } catch (e) {
-        console.warn('[classement] Firestore teams inaccessibles:', e);
-    }
+    const teamsSnap = await getDocs(collection(dbFirestore, 'teams'));
+    teamsSnap.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        state.teamsByName.set(data.name, { urlLogo: data.urlLogo || '' });
+    });
 
-    // Pilots
-    try {
-        const pilotsSnap = await getDocs(collection(dbFirestore, 'pilots'));
-        pilotsSnap.forEach(doc => {
-            const d = doc.data() || {};
-            state.pilotsById.set(doc.id, {
-                id: doc.id,
-                tag: d.tag || '',
-                teamName: d.teamName || '',
-                game: (d.game || '').toString().toUpperCase(), // MK8 | MKW
-                name: d.name || '',
-                num: d.num || '',
-                urlPhoto: d.urlPhoto || ''
-            });
+    const pilotsSnap = await getDocs(collection(dbFirestore, 'pilots'));
+    pilotsSnap.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        state.pilotsById.set(docSnap.id, {
+            tag: data.tag || '',
+            teamName: data.teamName || '',
+            game: (data.game || '').toString(), // "MK8" | "MKW"
+            name: data.name || '',
+            num: data.num || '',
+            urlPhoto: data.urlPhoto || ''
         });
-    } catch (e) {
-        console.warn('[classement] Firestore pilots inaccessibles:', e);
-    }
+    });
 }
 
 // ----------------------
-// RTDB subscriptions
+// Subscriptions RTDB
 // ----------------------
 function subscribeContext() {
     const ctxRef = ref(dbRealtime, 'context/current');
-    const u1 = onValue(ctxRef, (snap) => {
+    onValue(ctxRef, (snap) => {
         const v = snap.val() || {};
         const phase = (v.phase || 'mk8').toString().toLowerCase();
         const raceId = v.raceId || null;
@@ -266,35 +461,63 @@ function subscribeContext() {
         chooseAndApplyMode();
 
         if (phaseChanged) {
-            // re-souscrire aux totals sur la phase
+            // reset snapshot pour éviter triangles à la 1ʳᵉ course
+            state.lastOrderKey = null;
+            state.lastRanksSnapshot.clear();
+            state.indicatorUntil.clear();
+            state.lastDeltaDir.clear();
+
+            // NEW: annuler sweep TTL en cours
+            if (state.indicatorSweepTimer) {
+                clearTimeout(state.indicatorSweepTimer);
+                state.indicatorSweepTimer = null;
+            }
+
             resubscribeTotals();
         }
     });
-    state.unsubs.push(u1);
+
+    const viewModeRef = ref(dbRealtime, 'context/viewMode');
+    onValue(viewModeRef, (snap) => {
+        const val = snap.val();
+        state.viewModeOverride = val || null;
+        chooseAndApplyMode();
+    });
+
+    const viewScopeRef = ref(dbRealtime, 'context/viewScope');
+    onValue(viewScopeRef, (snap) => {
+        const val = snap.val();
+        state.viewScope = (val === 'team') ? 'team' : 'pilot';
+        chooseAndApplyMode();
+    });
 }
 
 function subscribeFinals() {
     const mk8ref = ref(dbRealtime, 'live/races/mk8');
-    const u2 = onValue(mk8ref, (snap) => {
+    onValue(mk8ref, (snap) => {
         const data = snap.val() || {};
         const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
         state.mk8LastFinalized = Boolean(data['8'] && data['8'].finalized);
+
+        // NEW: stocker ids de courses mk8 finalisées
         state.mk8FinalizedRaceIds = new Set(finals.map(([rid]) => rid));
+
         updateRaceStateDisplay();
         chooseAndApplyMode();
     });
-    state.unsubs.push(u2);
 
     const mkwref = ref(dbRealtime, 'live/races/mkw');
-    const u3 = onValue(mkwref, (snap) => {
+    onValue(mkwref, (snap) => {
         const data = snap.val() || {};
         const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
         state.mkwFinalFinalized = Boolean(data['SF'] && data['SF'].finalized);
+
+        // NEW: stocker ids de courses mkw finalisées
         state.mkwFinalizedRaceIds = new Set(finals.map(([rid]) => rid));
+
         updateRaceStateDisplay();
         chooseAndApplyMode();
     });
-    state.unsubs.push(u3);
 }
 
 function resubscribeTotals() {
@@ -308,17 +531,56 @@ function resubscribeTotals() {
     let debounceTimer = null;
     const unsubscribe = onValue(totalsRef, (snap) => {
         if (debounceTimer) clearTimeout(debounceTimer);
+
         debounceTimer = setTimeout(() => {
             const obj = snap.val() || {};
             state.totals.clear();
             Object.entries(obj).forEach(([pilotId, pts]) => {
                 state.totals.set(pilotId, Number(pts) || 0);
             });
-            chooseAndApplyMode(); // déclenche (re)rendu
+
+            // NEW: relancer aussi l'abonnement byRace
+            subscribeByRace();
+
+            chooseAndApplyMode();
+            renderList(); // si mode lignes
         }, CFG.totalsDebounceMs);
     });
 
     state.unsubTotals = unsubscribe;
+}
+
+function subscribeByRace() {
+    const byRaceRef = ref(dbRealtime, `live/points/${state.phase}/byRace`);
+    onValue(byRaceRef, (snap) => {
+        state.byRaceSnapshot = snap.val() || {};
+        recomputeTieBreaks();
+        renderList(); // relancer le rendu avec nouveaux tie-breaks
+    });
+}
+
+function recomputeTieBreaks() {
+    state.posCounts.clear();
+    state.bonusDoubles.clear();
+
+    const races = state.byRaceSnapshot || {};
+    for (const [raceId, data] of Object.entries(races)) {
+        const ranks = data || {};
+        for (const [pilotId, res] of Object.entries(ranks)) {
+            if (!res || typeof res.rank !== 'number') continue;
+
+            const r = res.rank;
+            if (!state.posCounts.has(pilotId)) {
+                state.posCounts.set(pilotId, new Map());
+            }
+            const m = state.posCounts.get(pilotId);
+            m.set(r, (m.get(r) || 0) + 1);
+
+            if (res.doubled) {
+                state.bonusDoubles.set(pilotId, (state.bonusDoubles.get(pilotId) || 0) + 1);
+            }
+        }
+    }
 }
 
 // ----------------------
@@ -336,24 +598,40 @@ function computeRaceStateText() {
                 ? 'MK World - Tournoi terminé - Scores finaux'
                 : 'MK World - En attente de départ';
         }
-        return simpleRaceLabel('MKW', rid);
+        if (rid === 'S') return 'MK World - Survie 1';
+        if (rid === 'SF') return 'MK World - Survie Finale';
+
+        if (isNumericRaceId(rid)) {
+            const n = parseInt(rid, 10);
+            if (n >= 1 && n <= 6) return `MK World - Course ${n} / 14`;
+            if (n >= 7 && n <= 12) return `MK World - Course ${n + 1} / 14`;
+        }
+        return simpleRaceLabel({ phase: 'mkw', raceId: rid });
     }
 
-    // MK8
-    const rid = state.raceId;
-    if (!rid) {
-        return state.mk8LastFinalized
-            ? 'MK8 - Session précédente terminée'
-            : 'MK8 - En attente de départ';
+    if (state.phase === 'mk8') {
+        const rid = state.raceId;
+        if (!rid) {
+            return state.mk8LastFinalized
+                ? 'MK 8 - Phase 1 terminée - Scores finaux'
+                : 'MK 8 - Le tournoi va commencer';
+        }
+        if (isNumericRaceId(rid)) {
+            const n = parseInt(rid, 10);
+            if (n >= 1 && n <= 8) return `MK 8 - Course ${n} / 8`;
+        }
+        return simpleRaceLabel({ phase: 'mk8', raceId: rid });
     }
-    return simpleRaceLabel('MK8', rid);
+
+    return simpleRaceLabel({ phase: state.phase, raceId: state.raceId });
 }
 
 function updateRaceStateDisplay() {
-    const $state = __qs('#race-state');
+    const $state = document.getElementById('race-state');
     if (!$state) return;
+
     const text = computeRaceStateText();
-    $state.textContent = text;
+    setRaceStateTextWithMarquee($state, text);
 }
 
 // ----------------------
@@ -375,87 +653,147 @@ function computeModeKeyAuto() {
         return 'mk8-12';
     }
 
-    // MKW
-    const rid = state.raceId;
-    if (!rid) {
-        return state.mkwFinalFinalized ? 'mkw-24' : 'msg-prestart';
+    if (state.phase === 'mkw') {
+        const rid = state.raceId;
+        if (!rid) {
+            return state.mkwFinalFinalized ? 'mkw-24' : 'msg-mkw-noscores';
+        }
+        if (totalsAllZeroOrEmpty(state.totals)) {
+            return 'msg-mkw-noscores';
+        }
+        return 'mkw-24';
     }
-    if (totalsAllZeroOrEmpty(state.totals)) {
-        return 'msg-mkw-noscores';
-    }
+
     return 'mkw-24';
 }
 
+function computeModeKey() {
+    if (window.__CL_FORCE_MODE && MODES[window.__CL_FORCE_MODE]) {
+        return window.__CL_FORCE_MODE;
+    }
+    const ov = state.viewModeOverride;
+    if (ov && ov !== 'auto' && MODES[ov]) {
+        return ov;
+    }
+    return computeModeKeyAuto();
+}
+
 function chooseAndApplyMode() {
-    const modeKey = state.viewModeOverride || computeModeKeyAuto();
-    state.modeKey = modeKey;
-    applyMode(modeKey);
+    const key = computeModeKey();
+    applyMode(key);
 }
 
 function applyMode(modeKey) {
-    const $root = __CL_ROOT__;
-    if (!$root) return;
+    const $host = document.querySelector('.classement-widget');
+    const $list = document.getElementById('cw-list');
+    if (!$host || !$list) return;
 
-    // classes modifieurs
-    Object.values(MODES).forEach(m => $root.classList.remove(m.className));
-    const mode = MODES[modeKey] || MODES['mk8-12'];
-    $root.classList.add(mode.className);
+    // Nettoie anciennes classes
+    Object.values(MODES).forEach(m => $host.classList.remove(m.className));
 
-    // Construire squelette si nécessaire
-    const $list = __qs('#cw-list');
-    if ($list) {
-        $list.innerHTML = '';
-        for (let i = 1; i <= mode.rows; i++) {
-            $list.appendChild(buildRowSkeleton(i));
-        }
+    const m = MODES[modeKey] || MODES['mkw-24'];
+    $host.classList.add(m.className);
+    state.modeKey = modeKey;
+
+    if (m.type === 'message') {
+        renderMessageBlock(
+            modeKey === 'msg-prestart'
+            ? `
+                <h2>Mario Kart Grand Prix Expérience</h2>
+                <span>3</span>
+                <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart 8</h3>
+                <span>🔴 8 courses</span>
+                <p>🏁🏁🏁 Phase 2 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart World</h3>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie</span>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie finale</span>
+              `
+            : modeKey === 'msg-mk8-noscores'
+            ? `
+                <h2>Mario Kart Grand Prix Expérience</h2>
+                <span>3</span>
+                <p>🏁🏁🏁 Phase 1 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart 8</h3>
+                <span>🔴 8 courses</span>
+              `
+            : `
+                <h2>Mario Kart Grand Prix Expérience</h2>
+                <span>3</span>
+                <p>🏁🏁🏁 Phase 2 🏁🏁🏁</p>
+                <h3>Tournoi Mario Kart World</h3>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie</span>
+                <span>🔴 6 courses</span>
+                <span>🔴 1 survie finale</span>
+              `
+        );
+        return;
     }
 
-    // Rendu selon type
-    if (mode.type === 'message') {
-        renderMessage(modeKey);
-    } else if (mode.type === 'team') {
-        renderTeams(mode.rows);
-    } else {
-        renderPilots(mode.rows);
+    // Sinon: lignes
+    renderRowsSkeleton(m.rows);
+    renderList();
+}
+
+// Debug helpers
+window.CLASSEMENT_forceMode = function (key) {
+    if (!MODES[key]) {
+        console.warn('[classement] Mode inconnu:', key);
+        return;
     }
-}
+    window.__CL_FORCE_MODE = key;
+    applyMode(key);
+};
+window.CLASSEMENT_clearForce = function () {
+    delete window.__CL_FORCE_MODE;
+    chooseAndApplyMode();
+};
 
 // ----------------------
-// Rendu
+// Rendering liste (modes pilotes actuels)
 // ----------------------
-function renderMessage(modeKey) {
-    const $list = __qs('#cw-list');
-    if (!$list) return;
-    $list.innerHTML = '';
+function sortPilotsAdvanced(a, b) {
+    // 1. Points totaux
+    if (b.points !== a.points) return b.points - a.points;
 
-    const $msg = document.createElement('div');
-    $msg.className = 'cw-row cw-message';
-    const $tag = document.createElement('div');
-    $tag.className = 'col-tag';
-    $tag.textContent = (modeKey.includes('mk8')) ? 'MK8 — En attente de scores' :
-                       (modeKey.includes('mkw')) ? 'MK World — En attente de scores' :
-                       'En attente de départ';
-    $msg.appendChild(document.createElement('div')).className = 'col-rank';
-    $msg.appendChild(document.createElement('div')).className = 'col-team';
-    $msg.appendChild($tag);
-    $msg.appendChild(document.createElement('div')).className = 'col-bonus';
-    $msg.appendChild(document.createElement('div')).className = 'col-points';
-    $list.appendChild($msg);
+    // 2+. Comptage des positions (1er, 2e, 3e, …)
+    const maxPos = 24; // couvre MKW
+    const ma = state.posCounts.get(a.pilotId) || new Map();
+    const mb = state.posCounts.get(b.pilotId) || new Map();
+    for (let pos = 1; pos <= maxPos; pos++) {
+        const ca = ma.get(pos) || 0;
+        const cb = mb.get(pos) || 0;
+        if (cb !== ca) return cb - ca; // plus de top-pos = mieux classé
+    }
+
+    // 5. Bonus (ex: doubles, cosplay, défis …)
+    const ba = state.bonusDoubles.get(a.pilotId) || 0;
+    const bb = state.bonusDoubles.get(b.pilotId) || 0;
+    if (bb !== ba) return bb - ba;
+
+    // Fallback déterministe : tag
+    return (a.tag || '').localeCompare(b.tag || '');
 }
 
-function renderPilots(rowCount) {
-    const $list = __qs('#cw-list');
+function renderList() {
+    const $list = document.getElementById('cw-list');
     if (!$list) return;
 
-    // Construire la liste des pilotes de la phase
+    const m = MODES[state.modeKey] || MODES['mkw-24'];
+    if (m.type === 'message') return;
+
+    // Construire la liste des items
     const items = [];
     state.totals.forEach((points, pilotId) => {
         const p = state.pilotsById.get(pilotId);
         if (!p) return;
 
-        const gameNorm = (p.game || '').toString().toUpperCase();
-        if (state.phase === 'mk8' && gameNorm !== 'MK8') return;
-        if (state.phase === 'mkw' && gameNorm !== 'MKW') return;
+        const gameNorm = (p.game || '').toString().toLowerCase();
+        if (state.modeKey === 'mk8-12' && gameNorm !== 'mk8') return;
+        if (state.modeKey === 'mkw-24' && gameNorm !== 'mkw') return;
 
         const team = state.teamsByName.get(p.teamName) || {};
         const logo = team.urlLogo ? resolveAssetPath(team.urlLogo) : '';
@@ -468,175 +806,424 @@ function renderPilots(rowCount) {
             points: Number(points) || 0,
             name: p.name || '',
             num: p.num || '',
-            urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : ''
+            urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : '',
+            bonuses: 0 // (autres bonus à venir)
         });
     });
 
-    // Tri : points desc, puis tag
-    items.sort((a, b) => {
-        if (b.points !== a.points) return b.points - a.points;
-        return a.tag.localeCompare(b.tag);
-    });
+    // --- Tri avancé
+    items.sort(sortPilotsAdvanced);
 
-    const rows = Array.from($list.children);
-    const n = Math.min(rowCount, rows.length);
+    const rows = $list.children;
+    const rowCount = rows.length;
 
-    for (let i = 0; i < n; i++) {
-        const item = items[i] || null;
+    const currentRanks = new Map();
+    const currentOrderKey = items.map(i => i.pilotId).join(',');
+
+    for (let i = 0; i < rowCount; i++) {
         const $row = rows[i];
         if (!$row) continue;
 
-        if (!item) {
+        const entry = items[i];
+        if (!entry) {
             $row.classList.add('is-empty');
-            $row.querySelector('.col-team .team-logo').style.visibility = 'hidden';
-            $row.querySelector('.col-tag').textContent = '';
-            $row.querySelector('.col-points').textContent = '';
-            continue;
-        }
-
-        $row.classList.remove('is-empty');
-
-        // Rang
-        const $rank = $row.querySelector('.col-rank');
-        $rank.textContent = String(i + 1);
-
-        // Logo équipe
-        const $img = $row.querySelector('.col-team .team-logo');
-        if (item.logo) {
-            $img.src = item.logo;
-            $img.alt = 'Logo équipe';
-            $img.style.visibility = 'visible';
-        } else {
-            $img.removeAttribute('src');
-            $img.alt = '';
-            $img.style.visibility = 'hidden';
-        }
-
-        // Tag (pas d’animation ici — version factory simple)
-        const $tag = $row.querySelector('.col-tag');
-        $tag.textContent = item.tag;
-
-        // Points
-        const $pts = $row.querySelector('.col-points');
-        $pts.textContent = formatPoints(item.points);
-    }
-}
-
-function renderTeams(rowCount) {
-    const $list = __qs('#cw-list');
-    if (!$list) return;
-
-    // Agrégation par équipe
-    const teamMap = new Map(); // name -> { name, tag, logo, points }
-    state.totals.forEach((pts, pilotId) => {
-        const p = state.pilotsById.get(pilotId);
-        if (!p) return;
-
-        const gameNorm = (p.game || '').toString().toUpperCase();
-        if (state.phase === 'mk8' && gameNorm !== 'MK8') return;
-        if (state.phase === 'mkw' && gameNorm !== 'MKW') return;
-
-        const t = state.teamsByName.get(p.teamName) || {};
-        const key = p.teamName || t.name || '???';
-        const prev = teamMap.get(key) || {
-            name: key,
-            tag: t.tag || key,
-            logo: t.urlLogo ? resolveAssetPath(t.urlLogo) : '',
-            points: 0
-        };
-        prev.points += Number(pts) || 0;
-        teamMap.set(key, prev);
-    });
-
-    const items = Array.from(teamMap.values());
-    items.sort((a, b) => {
-        if (b.points !== a.points) return b.points - a.points;
-        return a.tag.localeCompare(b.tag);
-    });
-
-    const rows = Array.from($list.children);
-    const n = Math.min(rowCount, rows.length);
-
-    for (let i = 0; i < n; i++) {
-        const item = items[i] || null;
-        const $row = rows[i];
-        if (!$row) continue;
-
-        if (!item) {
-            $row.classList.add('is-empty');
-            $row.querySelector('.col-team .team-logo').style.visibility = 'hidden';
-            $row.querySelector('.col-tag').textContent = '';
-            $row.querySelector('.col-points').textContent = '';
-            continue;
-        }
-
-        $row.classList.remove('is-empty');
-
-        // Rang
-        const $rank = $row.querySelector('.col-rank');
-        $rank.textContent = String(i + 1);
-
-        // Logo équipe
-        const $img = $row.querySelector('.col-team .team-logo');
-        if (item.logo) {
-            $img.src = item.logo;
-            $img.alt = 'Logo équipe';
-            $img.style.visibility = 'visible';
-        } else {
-            $img.removeAttribute('src');
-            $img.alt = '';
-            $img.style.visibility = 'hidden';
-        }
-
-        // Tag (nom d’équipe)
-        const $tag = $row.querySelector('.col-tag');
-        $tag.textContent = item.tag || item.name;
-
-        // Points
-        const $pts = $row.querySelector('.col-points');
-        $pts.textContent = formatPoints(item.points);
-    }
-}
-
-// ----------------------
-// Destroy (désabonnements et nettoyage DOM)
-// ----------------------
-function destroy() {
-    try {
-        if (state.unsubTotals) {
-            try { state.unsubTotals(); } catch (_) {}
-            state.unsubTotals = null;
-        }
-        if (Array.isArray(state.unsubs)) {
-            for (const u of state.unsubs) {
-                try { if (typeof u === 'function') u(); } catch (_) {}
+            const $tagEl = $row.querySelector('.col-tag');
+            if ($tagEl) {
+                $tagEl.classList.remove('mode-pilot');
+                renderTagTextInto($tagEl, '');
             }
-            state.unsubs = [];
+            setRow($row, {
+                position: i + 1,
+                logo: '',
+                tag: '',
+                bonusContent: '',
+                pointsText: '',
+                variation: 0
+            });
+            continue;
         }
-    } finally {
-        if (__CL_ROOT__) {
-            __CL_ROOT__.innerHTML = '';
+
+        $row.classList.remove('is-empty');
+
+        $row.dataset.pilotId    = entry.pilotId;
+        $row.dataset.pilotName  = entry.name;
+        $row.dataset.pilotNum   = entry.num;
+        $row.dataset.pilotPhoto = entry.urlPhoto || '';
+        $row.dataset.teamLogo   = entry.logo || '';
+
+        const $tagEl = $row.querySelector('.col-tag');
+        if ($tagEl) {
+            $tagEl.classList.remove('mode-pilot');
+            renderTagTextInto($tagEl, entry.tag || '');
         }
-        __setRoot(null);
+
+        currentRanks.set(entry.pilotId, i + 1);
+
+        let variation = 0;
+        const now = Date.now();
+
+        const prevRank = state.lastRanksSnapshot.get(entry.pilotId) ?? null;
+
+        const strictOk = !CFG.indicatorsOnFinalizeOnly ||
+            (state.phase === 'mk8' && state.mk8FinalizedRaceIds?.has(state.raceId)) ||
+            (state.phase === 'mkw' && state.mkwFinalizedRaceIds?.has(state.raceId));
+
+        // Nouveau changement d'ordre ?
+        if (strictOk && state.lastOrderKey && state.lastOrderKey !== currentOrderKey) {
+            if (prevRank != null) {
+                const delta = prevRank - (i + 1);
+                if (delta !== 0) {
+                    state.indicatorUntil.set(entry.pilotId, now + CFG.changeIndicatorMs);
+                    state.lastDeltaDir.set(entry.pilotId, Math.sign(delta)); // -1 ou +1
+                }
+            }
+        }
+
+        // Vérifier TTL en cours
+        const ttl = state.indicatorUntil.get(entry.pilotId) || 0;
+        if (ttl > now) {
+            const dir = state.lastDeltaDir.get(entry.pilotId) || 0;
+            variation = dir;
+        } else {
+            state.indicatorUntil.delete(entry.pilotId);
+            state.lastDeltaDir.delete(entry.pilotId);
+            variation = 0;
+        }
+
+        setRow($row, {
+            position: i + 1,
+            logo: entry.logo,
+            tag: entry.tag,
+            bonusContent: '',
+            pointsText: formatPoints(entry.points),
+            variation
+        });
+    }
+
+    // snapshot
+    state.lastOrderKey = currentOrderKey;
+    state.lastRanksSnapshot = currentRanks;
+    
+    // planifier un sweep pour la fin du TTL la plus proche
+    scheduleIndicatorSweep();
+    
+    restartSwapCycle();
+}
+
+function scheduleIndicatorSweep() {
+    if (state.indicatorSweepTimer) {
+        clearTimeout(state.indicatorSweepTimer);
+        state.indicatorSweepTimer = null;
+    }
+
+    const now = Date.now();
+    let nextExpiry = Infinity;
+
+    state.indicatorUntil.forEach((ts) => {
+        if (ts > now && ts < nextExpiry) {
+            nextExpiry = ts;
+        }
+    });
+
+    if (nextExpiry !== Infinity) {
+        const delay = Math.max(50, nextExpiry - now);
+        state.indicatorSweepTimer = setTimeout(() => {
+            state.indicatorSweepTimer = null;
+            renderList();
+        }, delay);
     }
 }
 
-// ----------------------
-// Factory API
-// ----------------------
-export async function initClassement(container, options = {}) {
-    const el = (typeof container === 'string') ? document.querySelector(container) : container;
-    if (!el) {
-        console.warn('[classement] Conteneur introuvable pour initClassement().');
-        return { destroy(){} };
-    }
-    __setRoot(el);
-    ensureScaffold(el);
+function setRow($row, { position, logo, tag, bonusContent, pointsText, variation = 0 }) {
+    const $rank  = $row.querySelector('.col-rank');
+    const $team  = $row.querySelector('.col-team .team-logo');
+    const $tagEl = $row.querySelector('.col-tag');
+    const $bonus = $row.querySelector('.col-bonus');
+    const $pts   = $row.querySelector('.col-points');
 
-    // Options utilisateur (override non destructif)
-    try {
-        Object.assign(CFG, options || {});
-    } catch (_) {}
+    if ($rank) {
+        // Réinitialiser le contenu du rank (icône + numéro)
+        $rank.innerHTML = '';
+
+        // Icône de variation (pilotée par renderList via indicatorUntil)
+        if (variation !== 0) {
+            const $icon = document.createElement('span');
+            $icon.className = 'rank-delta ' + (variation > 0 ? 'up' : 'down');
+            $rank.appendChild($icon);
+        }
+
+        // Numéro de rang
+        const $num = document.createElement('span');
+        $num.textContent = String(position);
+        $rank.appendChild($num);
+    }
+
+    // Image .col-team — logo ou photo selon phase courante (mode-pilot sur .col-tag)
+    if ($team) {
+        const usePhoto = $tagEl && $tagEl.classList.contains('mode-pilot');
+        const src = usePhoto ? ($row.dataset.pilotPhoto || '') : ($row.dataset.teamLogo || logo || '');
+        if (src) {
+            $team.src = src;
+            $team.alt = usePhoto ? 'Photo pilote' : 'Logo équipe';
+            $team.style.visibility = 'visible';
+        } else {
+            $team.removeAttribute('src');
+            $team.alt = '';
+            $team.style.visibility = 'hidden';
+        }
+    }
+
+    // Colonne tag — scroller pilote ou tag simple
+    if ($tagEl) {
+        if ($tagEl.classList.contains('mode-pilot')) {
+            renderPilotNameInto($tagEl, {
+                num:  $row.dataset.pilotNum  || '',
+                name: $row.dataset.pilotName || ''
+            });
+        } else {
+            renderTagTextInto($tagEl, tag || '');
+        }
+    }
+
+    if ($bonus) $bonus.innerHTML = bonusContent || '';
+    if ($pts)   $pts.textContent = pointsText || '';
+}
+
+// ----------------------
+// Tag swapper (synchronisé pour toutes les lignes)
+// ----------------------
+
+// Contrôleur global — un seul cycle pour toutes les lignes visibles
+const swapCtrl = {
+    tNextPilotStart: null,
+    tStartBackPhase: null,
+    tBackToTag: null
+};
+
+function stopSwapCycle() {
+    if (swapCtrl.tNextPilotStart) { clearTimeout(swapCtrl.tNextPilotStart); swapCtrl.tNextPilotStart = null; }
+    if (swapCtrl.tStartBackPhase) { clearTimeout(swapCtrl.tStartBackPhase); swapCtrl.tStartBackPhase = null; }
+    if (swapCtrl.tBackToTag) { clearTimeout(swapCtrl.tBackToTag); swapCtrl.tBackToTag = null; }
+}
+
+function restartSwapCycle() {
+    stopSwapCycle();
+    // Si mode "message", on ne schedule rien
+    const m = MODES[state.modeKey] || MODES['mkw-24'];
+    if (m.type === 'message') return;
+    // Si aucune ligne, on ne schedule pas
+    const $list = document.getElementById('cw-list');
+    if (!$list || !$list.querySelector('.cw-row')) return;
+
+    // Démarre un cycle : attendre TAG puis passer à la fiche pour tout le monde
+    swapCtrl.tNextPilotStart = setTimeout(startPilotPhaseAll, CFG.tagStandbyMs);
+}
+
+function startPilotPhaseAll() {
+    swapCtrl.tNextPilotStart = null;
+
+    const rows = getActiveRows();
+    if (rows.length === 0) {
+        restartSwapCycle();
+        return;
+    }
+
+    // Phase PILOT: col-tag → scroller ; col-team → photo pilote
+    rows.forEach(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        if ($tagCell) {
+            renderPilotNameInto($tagCell, {
+                num:  ($row.dataset.pilotNum  || '').toString(),
+                name: ($row.dataset.pilotName || '').toString()
+            });
+        }
+
+        // --- NEW: bascule logo → photo dans .col-team
+        const $img = $row.querySelector('.col-team .team-logo'); 
+        const $teamCell = $row.querySelector('.col-team');
+        const photo = $row.dataset.pilotPhoto || '';
+        if ($img) {
+            if (photo) { $img.src = photo; $img.alt = 'Photo pilote'; $img.style.visibility = 'visible'; }
+            else { $img.removeAttribute('src'); $img.alt = ''; $img.style.visibility = 'hidden'; }
+        }
+        if ($teamCell) $teamCell.classList.add('is-pilot');
+    });
+
+    // mesurer overflow par ligne sur .col-tag
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell);
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    // lancer l'aller après délai global
+    setTimeout(() => {
+        rows.forEach(($row, idx) => {
+            const $tagCell = $row.querySelector('.col-tag');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+        });
+    }, CFG.pilotStartDelayMs);
+
+    // planifier retour + back to tag
+    swapCtrl.tStartBackPhase = setTimeout(
+        startPilotBackPhaseAll,
+        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
+    );
+    swapCtrl.tBackToTag = setTimeout(
+        backToTagAll,
+        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs + CFG.pilotScrollMs + CFG.pilotBackPauseMs
+    );
+}
+
+function startPilotBackPhaseAll() {
+    swapCtrl.tStartBackPhase = null;
+
+    const rows = getActiveRows();
+    if (rows.length === 0) return;
+
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell);
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    rows.forEach(($row, idx) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+    });
+}
+
+function getOverflowForCell($tagCell) {
+    if (!$tagCell) return 0;
+    const scroller = $tagCell.querySelector('.tagcard-scroller');
+    if (!scroller) return 0;
+
+    // Largeur visible (moins la gouttière visuelle)
+    const visible = Math.max(0, $tagCell.clientWidth - (CFG.gutterPx * 2));
+
+    // Largeur intrinsèque du scroller (hors contraintes de layout)
+    const full = measureIntrinsicWidth(scroller);
+
+    return Math.max(0, full - visible);
+}
+
+function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
+    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
+    if (!scroller) return;
+
+    // Garanties contre le shrink/contraintes
+    scroller.style.flex = '0 0 auto';
+    scroller.style.width = 'max-content';
+    scroller.style.maxWidth = 'none';
+
+    if (overflow <= 0 || maxOverflow <= 0) {
+        scroller.style.transition = 'none';
+        scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+        return;
+    }
+
+    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
+    const startX = - (overflow - CFG.edgePadPx);
+    const targetX = CFG.gutterPx;
+
+    scroller.style.transition = 'none';
+    scroller.style.transform = `translateX(${startX}px)`;
+
+    void scroller.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+        scroller.style.transition = `transform ${durationMs}ms linear`;
+        scroller.style.transform = `translateX(${targetX}px)`;
+    });
+}
+
+function backToTagAll() {
+    swapCtrl.tBackToTag = null;
+
+    const rows = getActiveRows();
+    rows.forEach(($row) => {
+        // 1) Revenir au TAG dans .col-tag
+        const $tagCell = $row.querySelector('.col-tag');
+        if ($tagCell) {
+            $tagCell.classList.remove('mode-pilot');
+            const p = state.pilotsById.get($row.dataset.pilotId || '');
+            renderTagTextInto($tagCell, (p && p.tag) ? p.tag : '');
+        }
+
+        // 2) Revenir au LOGO dans .col-team
+        const $teamCell = $row.querySelector('.col-team');            // NEW: retirer le flag "is-pilot"
+        if ($teamCell) $teamCell.classList.remove('is-pilot');
+
+        const $img = $row.querySelector('.col-team .team-logo');
+        if ($img) {
+            const logo = $row.dataset.teamLogo || '';
+            if (logo) {
+                $img.src = logo;
+                $img.alt = 'Logo équipe';
+                $img.style.visibility = 'visible';
+            } else {
+                $img.removeAttribute('src');
+                $img.alt = '';
+                $img.style.visibility = 'hidden';
+            }
+        }
+    });
+
+    // 3) Relancer un cycle
+    restartSwapCycle();
+}
+
+function getActiveRows() {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return [];
+    const rows = Array.from($list.querySelectorAll('.cw-row')).filter(el => !el.classList.contains('is-empty'));
+    return rows;
+}
+
+/**
+ * Fait défiler le scroller à gauche (aller) en durée fixe; s’il n’y a pas d’overflow
+ * on ne bouge pas mais on attend la même durée (synchro globale).
+ */
+function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
+    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
+    if (!scroller) return;
+
+    // Garanties contre le shrink/contraintes
+    scroller.style.flex = '0 0 auto';
+    scroller.style.width = 'max-content';
+    scroller.style.maxWidth = 'none';
+
+    // Position de départ (gouttière gauche)
+    scroller.style.transition = 'none';
+    scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+
+    if (overflow <= 0 || maxOverflow <= 0) {
+        return;
+    }
+
+    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
+    const targetX = - (overflow + CFG.edgePadPx);
+
+    // Reflow pour fiabiliser l'animation
+    void scroller.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+        scroller.style.transition = `transform ${durationMs}ms linear`;
+        scroller.style.transform = `translateX(${targetX}px)`;
+    });
+}
+
+// ----------------------
+// Boot
+// ----------------------
+(async function init() {
+    const $host = document.querySelector('.classement-widget');
+    if (!$host) {
+        console.warn('[classement] Élément .classement-widget introuvable.');
+        return;
+    }
+
+    ensureScaffold($host);
 
     try {
         await preloadFirestore();
@@ -648,18 +1235,6 @@ export async function initClassement(container, options = {}) {
     subscribeFinals();
     resubscribeTotals();
 
+    // Premier choix
     chooseAndApplyMode();
-
-    return {
-        destroy,
-        refresh() { chooseAndApplyMode(); },
-        setMode(key) {
-            state.viewModeOverride = key || null;
-            chooseAndApplyMode();
-        },
-        setScope(scope) {
-            state.viewScope = (scope === 'team') ? 'team' : 'pilot';
-            chooseAndApplyMode();
-        }
-    };
-}
+})();

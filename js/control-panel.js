@@ -78,6 +78,8 @@ import {
 import {
     collection, getDocs, doc, getDoc
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js';
+// importer la factory du composant autonome race-strip
+import { initRaceStrip } from './ui/race-strip.js';
 
 /* ============================================================
    Helpers DOM
@@ -120,6 +122,8 @@ const listeners = {
     races: { ref: null, cb: null },        // live/races/{viewPhase}
     byRace: { ref: null, cb: null }        // live/results/{viewPhase}/byRace
 };
+// API du composant race-strip (monté une seule fois)
+let raceStripApi = null;
 
 /* ============================================================
    Constantes utilitaires
@@ -196,6 +200,29 @@ function isPhaseStarted(phase) {
     // Une phase est "start" seulement si context/current pointe vers cette phase
     // ET qu'une course courante (raceId) est définie.
     return !!(lastContext && lastContext.phase === phase && lastContext.raceId);
+}
+
+// [AJOUTER] — calcule les maps attendues par le composant autonome
+function computeRaceMaps(phase) {
+    const order = buildRaceList(phase);
+    const activeId = getActiveRaceIdForPhase(phase);
+    const inspectedId = (lastSelectedByPhase[phase] && order.includes(lastSelectedByPhase[phase]))
+        ? lastSelectedByPhase[phase]
+        : activeId;
+
+    const statusByRace = {};
+    const finalizedByRace = {};
+    order.forEach((raceId) => {
+        const status = getRaceStatusDeterministic(phase, raceId);
+        // Remontée “active, mais vide” (couleur #00b4d8) -> is-active-empty
+        const isActiveAndEmpty = (phase === activeTournamentPhase && raceId === activeId && (status == null));
+        statusByRace[raceId] = isActiveAndEmpty ? 'activeEmpty' : (status || null);
+
+        const finals = lastFinalizedByPhase[phase] || {};
+        finalizedByRace[raceId] = !!(finals?.[raceId]?.finalized);
+    });
+
+    return { order, activeId, inspectedId, statusByRace, finalizedByRace };
 }
 
 /* ============================================================
@@ -1148,10 +1175,6 @@ async function recomputeTotalsForPhase(phase) {
 /* ============================================================
    Montage global
    ============================================================ */
-
-function mountRaceSection() {
-    attachContextListener();
-}
 
 document.addEventListener('DOMContentLoaded', async () => {
     mountPhaseSwitch();

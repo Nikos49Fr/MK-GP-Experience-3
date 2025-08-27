@@ -1,0 +1,242 @@
+// ============================================================
+// Race Strip — Styles de base (scopés)
+// ============================================================
+
+// ---- Variables (ajustables) ----
+$race-strip-gap: 0.5rem;
+$race-strip-radius: 0.5rem;
+$race-strip-border: 2px solid #000;
+$race-strip-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
+
+$race-tile-size-min: 2.5rem;         // carré mini (mobile)
+$race-tile-size-std: 3rem;           // carré standard
+$race-tile-font: clamp(0.95rem, 2.2vw, 1.1rem);
+$race-tile-scale-inspected: 1.08;
+
+// Couleurs d’état (selon spécifications)
+$race-tile-bg-default:        #ffffff;
+$race-tile-bg-active-empty:   #00b4d8;
+$race-tile-bg-filled:         #f5c542;
+$race-tile-bg-conflict:       #e74c3c;
+$race-tile-bg-complete-pend:  #4fd65acc; // provisoire (semi-transparent)
+$race-tile-bg-complete-final: #2ecc71;
+
+// Couleurs texte par état (lisibilité)
+$race-tile-fg-default:        #000000;
+$race-tile-fg-active-empty:   #ffffff;
+$race-tile-fg-filled:         #000000;
+$race-tile-fg-conflict:       #ffffff;
+$race-tile-fg-complete-pend:  #073b10;   // vert très sombre (lisible sur pend)
+$race-tile-fg-complete-final: #ffffff;
+
+// ============================================================
+
+.race-strip {
+    display: flex;
+    flex-direction: column;
+    gap: $race-strip-gap;
+    width: 100%;
+
+    // -----------------------------
+    // Barre de navigation (consultative)
+    // -----------------------------
+    &__nav {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: $race-strip-gap;
+        margin-bottom: 0.25rem;
+        user-select: none;
+    }
+
+    &__nav-btn {
+        appearance: none;
+        border: $race-strip-border;
+        background: #fff;
+        border-radius: 0.4rem;
+        font-weight: 700;
+        padding: 0.3rem 0.6rem;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: $race-strip-shadow;
+        transition: transform 0.15s ease, background 0.2s ease;
+
+        &:hover {
+            background: #f6f6f6;
+            transform: translateY(-1px);
+        }
+        &:active {
+            transform: translateY(0);
+        }
+        &:focus-visible {
+            outline: 3px solid #000;
+            outline-offset: 2px;
+        }
+    }
+
+    &__nav-label {
+        min-width: 4.5rem;
+        text-align: center;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        border: $race-strip-border;
+        border-radius: 0.4rem;
+        padding: 0.25rem 0.6rem;
+        background: #fff;
+        box-shadow: $race-strip-shadow;
+    }
+
+    // -----------------------------
+    // Grilles
+    // -----------------------------
+    &__inner {
+        display: flex;
+        flex-direction: column;
+        gap: $race-strip-gap;
+        width: 100%;
+    }
+
+    &__row {
+        display: flex;
+        justify-content: center;
+        gap: $race-strip-gap;
+        flex-wrap: nowrap; // 1 ligne = MK8 ; 2 lignes = MKW (deux row)
+    }
+
+    &__cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.3rem;
+    }
+
+    // -----------------------------
+    // Tuile de course
+    // -----------------------------
+    &__tile {
+        min-width: $race-tile-size-min;
+        min-height: $race-tile-size-min;
+        width: $race-tile-size-std;
+        height: $race-tile-size-std;
+        border-radius: $race-strip-radius;
+        border: $race-strip-border;
+        box-shadow: $race-strip-shadow;
+        background: $race-tile-bg-default;
+        color: $race-tile-fg-default;
+        font-weight: 800;
+        font-size: $race-tile-font;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease, color 0.2s ease;
+
+        // États visuels
+        &.is-active-empty {
+            background: $race-tile-bg-active-empty;
+            color: $race-tile-fg-active-empty;
+        }
+        &.is-filled {
+            background: $race-tile-bg-filled;
+            color: $race-tile-fg-filled;
+        }
+        &.is-conflict {
+            background: $race-tile-bg-conflict;
+            color: $race-tile-fg-conflict;
+        }
+        &.is-complete-pending {
+            background: $race-tile-bg-complete-pend;
+            color: $race-tile-fg-complete-pend;
+        }
+        &.is-complete-final {
+            background: $race-tile-bg-complete-final;
+            color: $race-tile-fg-complete-final;
+        }
+
+        // Sélection locale
+        &.is-inspected {
+            transform: scale($race-tile-scale-inspected);
+            box-shadow: 0 4px 0 rgba(0, 0, 0, 0.18);
+            outline: 3px solid #000;
+            outline-offset: 2px;
+        }
+
+        // Tuile de la course active (bord accentué)
+        &.is-active {
+            border-color: #000;
+        }
+
+        &:focus-visible {
+            outline: 3px solid #000;
+            outline-offset: 2px;
+        }
+
+        &:active {
+            transform: scale(0.98);
+        }
+    }
+
+    // -----------------------------
+    // Bouton Finaliser (mode admin)
+    // -----------------------------
+    &__finalize {
+        appearance: none;
+        background: #ffffff;
+        border: 1px solid #333;
+        border-radius: 0.35rem;
+        font-size: 0.8rem;
+        font-weight: 700;
+        padding: 0.2rem 0.55rem;
+        cursor: pointer;
+        line-height: 1;
+        transition: background 0.2s ease, transform 0.12s ease, box-shadow 0.2s ease;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.12);
+
+        &:hover:not(:disabled) {
+            background: #f6f6f6;
+            transform: translateY(-1px);
+        }
+        &:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        &:focus-visible {
+            outline: 3px solid #000;
+            outline-offset: 2px;
+        }
+        &:disabled,
+        &[aria-disabled="true"] {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        &[aria-busy="true"] {
+            opacity: 0.7;
+            cursor: wait;
+        }
+    }
+
+    // -----------------------------
+    // Préférence utilisateur: réduire les animations
+    // -----------------------------
+    @media (prefers-reduced-motion: reduce) {
+        &__tile,
+        &__finalize,
+        &__nav-btn {
+            transition: none !important;
+        }
+    }
+
+    // -----------------------------
+    // Ajustements responsives
+    // -----------------------------
+    @media (max-width: 480px) {
+        &__row {
+            gap: 0.4rem;
+        }
+        &__tile {
+            width: calc(#{$race-tile-size-std} - 0.3rem);
+            height: calc(#{$race-tile-size-std} - 0.3rem);
+        }
+    }
+}

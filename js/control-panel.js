@@ -1329,3 +1329,81 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Le contexte va piloter tout le reste :
     attachContextListener();
 });
+
+// ====================================================================
+// [AJOUT] Intégration du widget "classement" (factory) dans l'aside CP
+// - sans modifier les fonctions existantes
+// - cohabite avec le rendu actuel du leaderboard CP
+// - taille gérée par le CSS déjà inclus (../css/classement.css)
+// ====================================================================
+
+import { initClassement } from './ui/classement.js';
+
+(function integrateClassementIntoControlPanel() {
+    const HOST_ID = 'cp-classement-host';
+    let api = null;
+
+    function ensureHostInAside() {
+        const aside = document.getElementById('cp-leaderboard');
+        if (!aside) return null;
+
+        // Pour éviter que les remplacements de contenu dans renderLeaderboardPanel()
+        // ne suppriment notre conteneur, on réinsère le host après chaque rendu.
+        let host = aside.querySelector('#' + HOST_ID);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = HOST_ID;
+            // Option: une classe si tu veux cibler côté SCSS du CP
+            host.className = 'cp-classement-host';
+            aside.appendChild(host);
+        }
+        return host;
+    }
+
+    async function mountClassementOnce() {
+        const host = ensureHostInAside();
+        if (!host) return;
+
+        // Déjà monté ?
+        if (host.__classementMounted) return;
+
+        // Init factory (ne coupe pas les listeners globaux de classement)
+        api = initClassement(host, { forceMode: 'auto' });
+        if (api && api.ready) {
+            try { await api.ready; } catch (_) {}
+        }
+        host.__classementMounted = true;
+    }
+
+    // 1) Premier montage dès que possible
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', mountClassementOnce, { once: true });
+    } else {
+        mountClassementOnce();
+    }
+
+    // 2) Hook après chaque rendu du leaderboard CP pour réinsérer notre host
+    //    (sans modifier le code de la fonction existante)
+    try {
+        const __origRenderLeaderboardPanel = renderLeaderboardPanel;
+        // Si la fonction existe, on la wrappe ; sinon on ignore (pas d’erreur)
+        if (typeof __origRenderLeaderboardPanel === 'function') {
+            // @ts-ignore - réassignation volontaire
+            renderLeaderboardPanel = async function wrappedRenderLeaderboardPanel() {
+                // Laisser le rendu natif faire son job (il fait .replaceChildren)
+                await __origRenderLeaderboardPanel.apply(this, arguments);
+                // Puis garantir la présence de notre host et (re)monter le classement si besoin
+                await mountClassementOnce();
+            };
+        }
+    } catch (err) {
+        // Pas bloquant : si on ne peut pas wrap, on garde au moins le premier montage
+        console.warn('[CP] Wrap renderLeaderboardPanel impossible (non bloquant):', err);
+    }
+
+    // 3) À la demande, on peut exposer un petit helper global (debug facultatif)
+    window.__cpClassement = {
+        remount: () => { const h = document.getElementById(HOST_ID); if (h) h.__classementMounted = false; return mountClassementOnce(); },
+        destroy: () => { try { api && api.destroy && api.destroy(); } catch (_) {} }
+    };
+})();

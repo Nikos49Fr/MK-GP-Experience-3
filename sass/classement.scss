@@ -4,6 +4,8 @@
 // ----------------------------------------------------
 @use 'variables' as *; // import globales (couleurs, polices, etc.)
 @use 'fonts';          // import des polices locales
+@use 'sass:math';
+@use 'sass:map';
 
 // ----------------------
 // Variables locales polices (famille + poids + taille)
@@ -47,7 +49,7 @@ $pad-state-y: 4px;
 
 $border-state-color: rgba(255, 255, 255, 0.25);
 
-$row-h: ($h-widget - $h-header - $h-state) / 24; // hauteur fixe d’une ligne
+$row-h: math.div(($h-widget - $h-header - $h-state), 24); // hauteur fixe d’une ligne
 
 // ----------------------
 // Variables couleurs de fond (tes valeurs de test)
@@ -81,7 +83,7 @@ $classement-presets: (
 
 @each $key, $conf in $classement-presets {
     .classement-widget--#{$key} {
-        @if map-get($conf, rows) > 0 {
+        @if map.get($conf, rows) > 0 {
             .cw-list {
                 // on N'IMPOSE PAS de template-rows ici
                 // la hauteur vient du nb d’enfants + grid-auto-rows

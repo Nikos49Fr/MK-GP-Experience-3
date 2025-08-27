@@ -121,14 +121,6 @@ const listeners = {
     byRace: { ref: null, cb: null }        // live/results/{viewPhase}/byRace
 };
 
-// --- Leaderboard state (par phase) ---
-let lbTotalsByPhase = {};          // { phase: { pilotId: totalPts } }
-let lbRanksByRaceByPhase = {};     // { phase: { raceId: { pilotId: {rank} } } }
-
-// listeners RTDB (classement)
-let lbTotalsRef = null, lbTotalsCb = null;
-let lbByRaceRef = null, lbByRaceCb = null;
-
 /* ============================================================
    Constantes utilitaires
    ============================================================ */
@@ -374,8 +366,6 @@ function setViewPhase(phase) {
 
     ensurePhaseViewListeners(viewPhase);
     renderRaceStrip(viewPhase);
-    ensureLeaderboardListeners(viewPhase);
-    renderLeaderboardPanel();
     updatePhaseSwitchUI();
     updateRaceTilesStatus();
     refreshPilotListView();
@@ -622,8 +612,6 @@ function mountPilotsPanelSection() {
 
         // La barre des courses et le leaderboard suivent aussi la VUE
         renderRaceStrip(phaseView);
-        ensureLeaderboardListeners(phaseView);
-        renderLeaderboardPanel();
 
         // Rafraîchir les badges (selon course inspectée/active pour la VUE)
         refreshPilotListView();
@@ -1158,167 +1146,9 @@ async function recomputeTotalsForPhase(phase) {
 }
 
 /* ============================================================
-   Panneau des classements
-   ============================================================ */
-function getTeamByNameMap(teams) {
-    const map = new Map();
-    (teams || []).forEach(t => map.set((t.name || '').toLowerCase(), t));
-    return map;
-}
-function teamLogoUrl(team) {
-    if (!team || !team.urlLogo) return '';
-    // BDD stocke "./../assets/images/..." ; depuis /pages/ => "../assets/images/..."
-    return team.urlLogo.replace(/^\.\//, '').replace(/^\.\.\//, '../').replace(/^\.\/\.\.\//, '../');
-}
-
-function computeTieBreakCounters(phase) {
-    const byRace = lbRanksByRaceByPhase?.[phase] || {};
-    const counters = {}; // pilotId -> {1:cnt,2:cnt,...}
-    Object.values(byRace).forEach(ranksObj => {
-        Object.entries(ranksObj || {}).forEach(([pid, v]) => {
-            const r = Number(v?.rank);
-            if (!Number.isInteger(r) || r <= 0) return;
-            if (!counters[pid]) counters[pid] = {};
-            counters[pid][r] = (counters[pid][r] || 0) + 1;
-        });
-    });
-    return counters;
-}
-
-function sortPilotsForLeaderboard(phase, pilots, totals, tieCounters, gridSize, defaultOrderIndex) {
-    const hasAnyPoints = totals && Object.values(totals).some(n => Number(n) > 0);
-    if (!hasAnyPoints) {
-        // aucun point → tri par ordre par défaut (équipes puis pilotes)
-        return [...pilots];
-    }
-    const maxRank = gridSize || 24;
-    return [...pilots].sort((a, b) => {
-        const ta = Number(totals?.[a.id] || 0);
-        const tb = Number(totals?.[b.id] || 0);
-        if (tb !== ta) return tb - ta; // points décroissant
-
-        const ca = tieCounters[a.id] || {};
-        const cb = tieCounters[b.id] || {};
-        for (let r = 1; r <= maxRank; r++) {
-            const cbr = Number(cb[r] || 0);
-            const car = Number(ca[r] || 0);
-            if (cbr !== car) return cbr - car; // plus de 1ères, puis 2èmes, etc.
-        }
-
-        // fallback ordre par défaut
-        const ia = defaultOrderIndex.get(a.id) ?? 99999;
-        const ib = defaultOrderIndex.get(b.id) ?? 99999;
-        return ia - ib;
-    });
-}
-
-function formatPts(n) {
-    const v = Number(n || 0);
-    if (v === 0) return '0 pt';      // affichage homogène si on est dans un contexte "points existants"
-    return v + (v === 1 ? ' pt' : ' pts');
-}
-
-/* ============================================================
-   Rendu DOM (panel)
-   ============================================================ */
-
-async function renderLeaderboardPanel() {
-    // L’aside #cp-leaderboard est désormais créé dans mountPilotsPanelSection()
-    const aside = $('#cp-leaderboard');
-    if (!aside) return;
-
-    const phase = viewPhase || 'mk8';
-    const gridSize = GRID_SIZE(phase);
-    const gameLabel = (phase === 'mkw') ? 'MKW' : 'MK8';
-
-    const [teams, pilots] = await Promise.all([
-        fetchTeamsOrdered(),
-        fetchPilotsByGameOrdered(gameLabel)
-    ]);
-    const defaultIndex = new Map(pilots.map((p, i) => [p.id, i]));
-    const teamMapByName = getTeamByNameMap(teams);
-
-    const totals = lbTotalsByPhase?.[phase] || {};
-    const tieCounters = computeTieBreakCounters(phase);
-    const hasAnyPoints = totals && Object.values(totals).some(n => Number(n) > 0);
-
-    const sortedPilots = sortPilotsForLeaderboard(phase, pilots, totals, tieCounters, gridSize, defaultIndex);
-
-    // Contenu
-    const header = el('div', { class: 'cp-lb-header' },
-        phase === 'mkw' ? 'Classement — Mario Kart Wii' : 'Classement — Mario Kart 8'
-    );
-
-    const list = el('div', { class: 'cp-lb-list' });
-    sortedPilots.forEach((p, idx) => {
-        const row = el('div', { class: 'cp-lb-row' });
-
-        const rankCell = el('div', { class: 'cp-lb-rank' }, hasAnyPoints ? String(idx + 1) : '');
-
-        const teamCell = el('div', { class: 'cp-lb-team' });
-        const t = teamMapByName.get((p.teamName || '').toLowerCase());
-        if (t && t.urlLogo) {
-            const img = el('img', { alt: t.name || 'Team', src: teamLogoUrl(t) });
-            teamCell.appendChild(img);
-        }
-
-        const nameCell = el('div', { class: 'cp-lb-name' }, p.name || '');
-        const ptsCell  = el('div', { class: 'cp-lb-pts'  }, hasAnyPoints ? formatPts(Number(totals?.[p.id] || 0)) : '');
-
-        row.append(rankCell, teamCell, nameCell, ptsCell);
-        list.appendChild(row);
-    });
-
-    aside.replaceChildren(header, list);
-}
-
-/* ============================================================
-   Listeners RTDB (totaux & détails par course) — attach/detach selon la phase vue
-   ============================================================ */
-
-function ensureLeaderboardListeners(phase) {
-    // Detach anciens
-    if (lbTotalsRef && lbTotalsCb) {
-        off(lbTotalsRef, 'value', lbTotalsCb);
-        lbTotalsRef = lbTotalsCb = null;
-    }
-    if (lbByRaceRef && lbByRaceCb) {
-        off(lbByRaceRef, 'value', lbByRaceCb);
-        lbByRaceRef = lbByRaceCb = null;
-    }
-
-    // Totaux
-    lbTotalsRef = ref(dbRealtime, `live/points/${phase}/totals`);
-    lbTotalsCb = (snap) => {
-        lbTotalsByPhase[phase] = snap.exists() ? (snap.val() || {}) : {};
-        renderLeaderboardPanel();
-    };
-    onValue(lbTotalsRef, lbTotalsCb);
-
-    // Points par course (pour tie-break via "rank")
-    lbByRaceRef = ref(dbRealtime, `live/points/${phase}/byRace`);
-    lbByRaceCb = (snap) => {
-        lbRanksByRaceByPhase[phase] = {};
-        if (snap.exists()) {
-            const byRace = snap.val() || {};
-            Object.entries(byRace).forEach(([raceId, perPilot]) => {
-                // on récupère seulement le champ "rank" pour chaque pilote
-                const ranksOnly = {};
-                Object.entries(perPilot || {}).forEach(([pid, obj]) => {
-                    const r = Number(obj?.rank ?? 0);
-                    if (r > 0) ranksOnly[pid] = { rank: r };
-                });
-                lbRanksByRaceByPhase[phase][raceId] = ranksOnly;
-            });
-        }
-        renderLeaderboardPanel();
-    };
-    onValue(lbByRaceRef, lbByRaceCb);
-}
-
-   /* ============================================================
    Montage global
    ============================================================ */
+
 function mountRaceSection() {
     attachContextListener();
 }
@@ -1331,12 +1161,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ====================================================================
-// [AJOUT] Intégration du widget "classement" (factory) dans l'aside CP
-// - sans modifier les fonctions existantes
-// - cohabite avec le rendu actuel du leaderboard CP
-// - taille gérée par le CSS déjà inclus (../css/classement.css)
+// Intégration "classement" — version simplifiée (leaderboard CP supprimé)
 // ====================================================================
-
 import { initClassement } from './ui/classement.js';
 
 (function integrateClassementIntoControlPanel() {
@@ -1346,14 +1172,10 @@ import { initClassement } from './ui/classement.js';
     function ensureHostInAside() {
         const aside = document.getElementById('cp-leaderboard');
         if (!aside) return null;
-
-        // Pour éviter que les remplacements de contenu dans renderLeaderboardPanel()
-        // ne suppriment notre conteneur, on réinsère le host après chaque rendu.
         let host = aside.querySelector('#' + HOST_ID);
         if (!host) {
             host = document.createElement('div');
             host.id = HOST_ID;
-            // Option: une classe si tu veux cibler côté SCSS du CP
             host.className = 'cp-classement-host';
             aside.appendChild(host);
         }
@@ -1362,48 +1184,36 @@ import { initClassement } from './ui/classement.js';
 
     async function mountClassementOnce() {
         const host = ensureHostInAside();
-        if (!host) return;
-
-        // Déjà monté ?
-        if (host.__classementMounted) return;
-
-        // Init factory (ne coupe pas les listeners globaux de classement)
+        if (!host || host.__classementMounted) return;
         api = initClassement(host, { forceMode: 'auto' });
-        if (api && api.ready) {
-            try { await api.ready; } catch (_) {}
-        }
+        if (api?.ready) { try { await api.ready; } catch {} }
         host.__classementMounted = true;
     }
 
-    // 1) Premier montage dès que possible
+    // Attendre que le layout du CP ait créé l’aside (#cp-leaderboard)
+    function whenAsideReady(cb, tries = 20) {
+        const tick = () => {
+            const aside = document.getElementById('cp-leaderboard');
+            if (aside) {
+                cb();
+            } else if (tries > 0) {
+                setTimeout(() => whenAsideReady(cb, tries - 1), 100);
+            } else {
+                console.warn('[CP] Aside #cp-leaderboard introuvable, classement non monté.');
+            }
+        };
+        tick();
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mountClassementOnce, { once: true });
+        document.addEventListener('DOMContentLoaded', () => whenAsideReady(mountClassementOnce), { once: true });
     } else {
-        mountClassementOnce();
+        whenAsideReady(mountClassementOnce);
     }
 
-    // 2) Hook après chaque rendu du leaderboard CP pour réinsérer notre host
-    //    (sans modifier le code de la fonction existante)
-    try {
-        const __origRenderLeaderboardPanel = renderLeaderboardPanel;
-        // Si la fonction existe, on la wrappe ; sinon on ignore (pas d’erreur)
-        if (typeof __origRenderLeaderboardPanel === 'function') {
-            // @ts-ignore - réassignation volontaire
-            renderLeaderboardPanel = async function wrappedRenderLeaderboardPanel() {
-                // Laisser le rendu natif faire son job (il fait .replaceChildren)
-                await __origRenderLeaderboardPanel.apply(this, arguments);
-                // Puis garantir la présence de notre host et (re)monter le classement si besoin
-                await mountClassementOnce();
-            };
-        }
-    } catch (err) {
-        // Pas bloquant : si on ne peut pas wrap, on garde au moins le premier montage
-        console.warn('[CP] Wrap renderLeaderboardPanel impossible (non bloquant):', err);
-    }
-
-    // 3) À la demande, on peut exposer un petit helper global (debug facultatif)
+    // Helpers debug (facultatif)
     window.__cpClassement = {
         remount: () => { const h = document.getElementById(HOST_ID); if (h) h.__classementMounted = false; return mountClassementOnce(); },
-        destroy: () => { try { api && api.destroy && api.destroy(); } catch (_) {} }
+        destroy: () => { try { api?.destroy?.(); } catch {} }
     };
 })();

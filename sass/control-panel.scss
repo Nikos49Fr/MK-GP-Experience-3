@@ -71,7 +71,7 @@ body.cp-body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 0 16px;
+    padding: 0;
 }
 
 /* ==========================================================================
@@ -544,86 +544,37 @@ body.cp-body {
    ========================================================================== */
 
 .cp-leaderboard {
+    // --- AJOUTS / OVERRIDES pour format 250px de large
+    box-sizing: border-box;
+    width: 250px;
+    min-width: 250px;
+    max-width: 250px;
+    overflow: hidden;           // déjà présent, on confirme
+    align-items: center;        // centre horizontalement le host (flex column)
+
     height: 100%;
-    overflow: hidden;
-    padding: 6px 8px;
+    padding: 0;
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 10px;
     background: var(--bg-soft);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    
+    // --- AJOUT : hôte du widget classement
+    .cp-classement-host {
+        width: 250px;
+        height: 800px;
+        overflow: hidden;       // pas de scroll
+        position: relative;
+        flex: 0 0 auto;         // ne pas étirer
+    }
 
-    .cp-lb-header {
-        margin: 0 0 6px 0;
-        font-weight: 800;
-        font-size: 13px;
-        letter-spacing: .3px;
-        color: #fff;
-        opacity: .95;
-        white-space: nowrap;
-        text-overflow: ellipsis;
+    // --- AJOUT : par sécurité, fige aussi la racine du widget
+    .cp-classement-host > .classement-widget {
+        width: 250px !important;
+        height: 800px !important;
         overflow: hidden;
-    }
-
-    .cp-lb-list {
-        flex: 1 1 auto;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        gap: var(--pilot-gap);
-        overflow: hidden;
-    }
-
-    .cp-lb-row {
-        height: var(--pilot-row-h);
-        display: grid;
-        grid-template-columns: 24px 26px 1fr 54px;
-        align-items: center;
-        gap: 8px;
-        padding: 0 4px;
-        border-radius: 8px;
-    }
-
-    .cp-lb-rank {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        background: var(--rank-empty-bg);
-        color: var(--rank-text);
-        font-weight: 800;
-        font-size: 12px;
-        line-height: 22px;
-        text-align: center;
-        box-shadow: 0 1px 0 rgba(0,0,0,0.25);
-        user-select: none;
-    }
-
-    .cp-lb-team {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        img {
-            max-width: 22px;
-            max-height: 22px;
-            object-fit: contain;
-            filter: drop-shadow(0 1px 0 rgba(0,0,0,.25));
-        }
-    }
-
-    .cp-lb-name {
-        font-size: 13px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .cp-lb-pts {
-        font-weight: 800;
-        font-size: 12px;
-        text-align: right;
-        white-space: nowrap;
     }
 }
 

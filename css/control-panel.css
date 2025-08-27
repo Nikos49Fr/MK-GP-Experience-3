@@ -70,7 +70,7 @@ body.cp-body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  padding: 0 16px;
+  padding: 0;
 }
 
 /* ==========================================================================
@@ -573,79 +573,32 @@ body.cp-body {
    6) Colonne droite — Classement (aside)
    ========================================================================== */
 .cp-leaderboard {
-  height: 100%;
+  box-sizing: border-box;
+  width: 250px;
+  min-width: 250px;
+  max-width: 250px;
   overflow: hidden;
-  padding: 6px 8px;
+  align-items: center;
+  height: 100%;
+  padding: 0;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--bg-soft);
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.cp-leaderboard .cp-lb-header {
-  margin: 0 0 6px 0;
-  font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 0.3px;
-  color: #fff;
-  opacity: 0.95;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.cp-leaderboard .cp-classement-host {
+  width: 250px;
+  height: 800px;
   overflow: hidden;
+  position: relative;
+  flex: 0 0 auto;
 }
-.cp-leaderboard .cp-lb-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--pilot-gap);
+.cp-leaderboard .cp-classement-host > .classement-widget {
+  width: 250px !important;
+  height: 800px !important;
   overflow: hidden;
-}
-.cp-leaderboard .cp-lb-row {
-  height: var(--pilot-row-h);
-  display: grid;
-  grid-template-columns: 24px 26px 1fr 54px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 4px;
-  border-radius: 8px;
-}
-.cp-leaderboard .cp-lb-rank {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background: var(--rank-empty-bg);
-  color: var(--rank-text);
-  font-weight: 800;
-  font-size: 12px;
-  line-height: 22px;
-  text-align: center;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
-  user-select: none;
-}
-.cp-leaderboard .cp-lb-team {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cp-leaderboard .cp-lb-team img {
-  max-width: 22px;
-  max-height: 22px;
-  object-fit: contain;
-  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
-}
-.cp-leaderboard .cp-lb-name {
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cp-leaderboard .cp-lb-pts {
-  font-weight: 800;
-  font-size: 12px;
-  text-align: right;
-  white-space: nowrap;
 }
 
 /* Compacter légèrement pour MKW (24 lignes) */

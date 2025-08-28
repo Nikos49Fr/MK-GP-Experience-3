@@ -11,6 +11,9 @@
  *  }
  */
 
+/* DEBUG */
+window.__RS_DEBUG = true;
+
 /* ========================================================================== */
 /* Constantes, classes, options par défaut                                     */
 /* ========================================================================== */
@@ -79,16 +82,15 @@ function GRID_SIZE(phase) {
 }
 
 function buildRaceList(phase) {
-    phase = String(phase).toLowerCase();
-    if (phase === 'mkw') {
-        const list = [];
-        for (let i = 1; i <= 6; i++) list.push(String(i));
-        list.push('S');
-        for (let i = 7; i <= 12; i++) list.push(String(i));
-        list.push('SF');
-        return list;
+    const p = String(phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    if (p === 'mk8') {
+        // 8 courses "classiques"
+        return ['1','2','3','4','5','6','7','8'];
     }
-    return Array.from({ length: 8 }, (_, i) => String(i + 1));
+    // MKW : IDs "réels" (affichage 8..13 géré ailleurs pour 7..12)
+    // Ligne 1 : 1..6 + S
+    // Ligne 2 : 7..12 + SF
+    return ['1','2','3','4','5','6','S','7','8','9','10','11','12','SF'];
 }
 
 function computeRaceStatusFromResults(results, gridSize) {
@@ -120,14 +122,18 @@ function pickDefaultInspected(phase, activeId, finalizedByRace) {
 /* ========================================================================== */
 
 function computeLayout(phaseView) {
-    const p = String(phaseView || '').toLowerCase();
-    if (p === 'mkw') {
-        return [
-            ['1','2','3','4','5','6','S'],
-            ['7','8','9','10','11','12','SF']
-        ];
+    const p = String(phaseView).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    if (p === 'mk8') {
+        // 1 ligne de 8 tuiles
+        return [['1','2','3','4','5','6','7','8']];
     }
-    return [['1','2','3','4','5','6','7','8']];
+    // MKW : 2 lignes
+    // Ligne 1 : 1..6 + S
+    // Ligne 2 : 7..12 + SF
+    return [
+        ['1','2','3','4','5','6','S'],
+        ['7','8','9','10','11','12','SF']
+    ];
 }
 
 function renderHeaderNav(host, state, getPhaseView, setPhaseView) {
@@ -286,10 +292,11 @@ function renderRows(host, state, getPhaseView) {
 /* ========================================================================== */
 
 // Phase démarrée = context/current pointe cette phase ET une raceId est définie
-function isPhaseStarted(state, phase) {
-    const p = String(phase || '').toLowerCase();
-    const activeP = String(state.__activeTournamentPhase || '').toLowerCase();
-    return (p === activeP) && !!state.__activeRaceId; // ne lit plus state.__ctx
+function isPhaseStarted(state, phaseLike) {
+    const p = String(phaseLike).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    const activePhase = String(state.__activeTournamentPhase || 'mk8');
+    const activeRace  = state.__activeRaceId || null;
+    return (activePhase === p) && !!activeRace;
 }
 
 // Détermine la course "active" pour une phase donnée (exact cp)
@@ -311,28 +318,38 @@ function getActiveRaceIdForPhase_cp(state, phase) {
 // Statut déterministe (exact cp)
 function getRaceStatusDeterministic_cp(state, caches, phase, raceId) {
     const grid = GRID_SIZE(phase);
-    const activeId = getActiveRaceIdForPhase_cp(state, phase);
-    const activeTournamentPhase = String(state.__activeTournamentPhase || 'mk8');
+    const activePhase = String(state.__activeTournamentPhase || 'mk8');
+    const activeId = state.__activeRaceId || null;
     const finals = state.finalizedByRace?.[phase] || {};
 
-    // Course ACTIVE de la phase ACTIVE
-    if (phase === activeTournamentPhase && raceId === activeId) {
+    // ✅ Course ACTIVE de la PHASE ACTIVE → on lit "current"
+    if (phase === activePhase && raceId === activeId) {
         const current = caches.currentResultsByPhase?.[phase] || {};
         const hasCurrent = Object.values(current).some(v => v && Number(v.rank) > 0);
-        if (hasCurrent) return computeRaceStatusFromResults(current, grid);
+        if (hasCurrent) {
+            const stCur = computeRaceStatusFromResults(current, grid);
+            if (stCur) return stCur;                // 'conflict' | 'filled' | 'complete'
+        }
 
-        const ranks = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
-        const hasRanks = Object.values(ranks).some(v => v && Number(v.rank) > 0);
-        if (hasRanks) return computeRaceStatusFromResults(ranks, grid) || 'filled';
+        // Fallback: s'il existe déjà des ranks figés (ex: après finalize)
+        const ranksBR = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
+        const hasBR = Object.values(ranksBR).some(v => v && Number(v.rank) > 0);
+        if (hasBR) {
+            const stBR = computeRaceStatusFromResults(ranksBR, grid);
+            return stBR || 'filled';
+        }
 
+        // Course active mais vide
         return finals[raceId]?.finalized ? 'complete' : 'activeEmpty';
     }
 
-    // NON active → byRace/ranks uniquement
+    // ⛳ Course NON active → on lit uniquement "byRace/ranks"
     const ranks = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
     const hasAny = Object.values(ranks).some(v => v && Number(v.rank) > 0);
     if (!hasAny) return finals[raceId]?.finalized ? 'complete' : null;
-    return computeRaceStatusFromResults(ranks, grid) || 'filled';
+
+    const st = computeRaceStatusFromResults(ranks, grid);
+    return st || 'filled';
 }
 
 /* ========================================================================== */
@@ -510,14 +527,31 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
     const applyMaps = (phaseLike) => {
         const phase = (String(phaseLike || state.phase).toLowerCase() === 'mkw') ? 'mkw' : 'mk8';
 
-        // active + inspected
-        const activeId = getActiveRaceIdForPhase_cp(state, phase);
-        const inspected = state._inspectLocked
-            ? state.inspectedRaceId
-            : (state.__lastSelectedByPhase[phase] || activeId || buildRaceList(phase)[0]);
+        // Phase/course actives du tournoi (strictes)
+        const activePhaseStrict = String(state.__activeTournamentPhase || 'mk8');
+        const activeIdStrict    = (phase === activePhaseStrict) ? (state.__activeRaceId || null) : null;
 
-        // Statuts par course (via getRaceStatusDeterministic)
+        // Ordre réel des courses
         const order = buildRaceList(phase);
+
+        // Sélection inspectée (priorités déterministes)
+        let inspected = state._inspectLocked
+            ? state.inspectedRaceId
+            : (
+                (state.inspectedRaceId && order.includes(state.inspectedRaceId))
+                    ? state.inspectedRaceId
+                    : (
+                        (state.__lastSelectedByPhase?.[phase] && order.includes(state.__lastSelectedByPhase[phase]))
+                            ? state.__lastSelectedByPhase[phase]
+                            : (
+                                activeIdStrict                  // si la phase est active, on commence par la course active
+                                    ? activeIdStrict
+                                    : order[0]                 // sinon, première tuile (phase non démarrée)
+                            )
+                    )
+            );
+
+        // Calcul statuts par course
         const statusByRacePhase = {};
         order.forEach((rid) => {
             statusByRacePhase[rid] = getRaceStatusDeterministic_cp(state, caches, phase, rid);
@@ -527,43 +561,53 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
         const mergedStatus = { ...(state.statusByRace || { mk8:{}, mkw:{} }) };
         const mergedFinal  = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }) };
         mergedStatus[phase] = statusByRacePhase;
-        mergedFinal[phase]  = (state.finalizedByRace?.[phase] || {}); // déjà mis à jour via listener .races
+        mergedFinal[phase]  = (state.finalizedByRace?.[phase] || {});
 
-        // Déterminer inspected par défaut si pas de lock
-        let finalInspected = inspected;
+        // Ajustement si pas locké : si inspected invalide, recalcule via heuristique (active si dispo, sinon 1re, sinon dernière si tout finalisé)
         if (!state._inspectLocked) {
             const finals = mergedFinal[phase] || {};
-            finalInspected = pickDefaultInspected(phase, activeId, finals);
-            state.__lastSelectedByPhase[phase] = finalInspected;
+            if (!inspected || !order.includes(inspected)) {
+                inspected = activeIdStrict ? activeIdStrict : pickDefaultInspected(phase, activeIdStrict, finals);
+            }
+            // Mémoriser la sélection courante par phase
+            state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };
+            state.__lastSelectedByPhase[phase] = inspected;
         }
 
-        // Active locale (affichage)
-        state.activeRaceId = activeId;
+        // ⚑ Active locale pour le rendu (uniquement si phase vue === phase active du tournoi)
+        state.activeRaceId = activeIdStrict;
 
         setStateAndRender({
             phase,
-            activeRaceId: activeId,
+            activeRaceId: activeIdStrict,
             statusByRace: mergedStatus,
             finalizedByRace: mergedFinal,
-            inspectedRaceId: finalInspected
+            inspectedRaceId: inspected
         });
     };
 
-    // Intercepte la nav consultative
+    // Intercepte la nav consultative (switch MK8 ⇄ MKW)
     const originalOnPhaseViewChange = state.onPhaseViewChange;
     state.onPhaseViewChange = (phase) => {
-        // En admin on peut “verrouiller” la vue; en viewer on suit toujours le contexte
-        const lockAllowed = (state.mode === 'admin');
-        if (!lockAllowed) state._inspectLocked = false; // viewer: pas de lock
+        // Phase normalisée
+        const p = String(phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
 
-        // Changement de vue → oublier lock d’inspection
+        // En viewer on suit le contexte, mais dans tous les cas on déverrouille
         state._inspectLocked = false;
 
-        ensurePhaseViewListeners(phase);
-        applyMaps(phase);
+        // 🧹 Purge stricte du focus lors d’un changement de phase vue
+        // (évite le "carry-over" vers la tuile 9 en MKW)
+        state.inspectedRaceId = null;
+        state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };
+        state.__lastSelectedByPhase[p] = null;
 
+        // Rebranche les écouteurs sur la phase VUE puis applique les maps
+        ensurePhaseViewListeners(p);
+        applyMaps(p);
+
+        // Callback externe éventuel
         if (typeof originalOnPhaseViewChange === 'function') {
-            try { originalOnPhaseViewChange(phase); } catch {}
+            try { originalOnPhaseViewChange(p); } catch {}
         }
     };
 
@@ -597,29 +641,48 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
                     } catch {}
                 }
             };
-            console.log('[race-strip] firebase controller ready');
 
             // Listener: context/current
             const ctxRef = ref(dbRealtime, 'context/current');
             const ctxCb = (snap) => {
                 const ctx = snap.val() || null;
                 state.__ctx = ctx;
-                state.__activeTournamentPhase = (ctx?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-                state.__activeRaceId = ctx?.raceId || null;
 
-                // Suivre le contexte en viewer (ou si pas de lock admin)
-                if (followContext) {
-                    const nextPhase = state.__activeTournamentPhase;
-                    if (state.phase !== nextPhase) {
-                        setPhaseView(nextPhase);
-                        return; // render via setPhaseView → on ré-attache ensuite ci-dessous
-                    }
+                const nextPhase = (ctx?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+                const nextRace  = ctx?.raceId || null;
+
+                // Poser immédiatement la phase/course actives
+                state.__activeTournamentPhase = nextPhase;
+                state.__activeRaceId = nextRace;
+
+                // 🔎 LOG (diagnostic ordre d'événements)
+                if (window.__RS_DEBUG) {
+                    console.log('[RS ctx]', {
+                        phaseView: state.phase,
+                        nextPhase,
+                        nextRace
+                    });
                 }
 
-                // Phase visible courante
+                // Forcer l’inspection sur la course ACTIVE au moment d’un Start
+                if (nextRace) {
+                    state._inspectLocked = false;
+                    state.inspectedRaceId = nextRace;
+                    state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };
+                    state.__lastSelectedByPhase[nextPhase] = nextRace;
+                }
+
+                // En viewer, si la vue n’est pas la bonne phase, on bascule (render plus loin)
+                if (followContext && state.phase !== nextPhase) {
+                    setPhaseView(nextPhase);
+                    return;
+                }
+
+                // Sinon (ré)attacher phase vue puis calculer
                 ensurePhaseViewListeners(state.phase);
                 applyMaps(state.phase);
             };
+
             onValue(ctxRef, ctxCb);
             unsub.context = { ref: ctxRef, cb: ctxCb };
 
@@ -633,28 +696,58 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
     })();
 
     function ensureCurrentResultsListener(phase) {
-        // current (uniquement sur la phase active)
+        const p = String(phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+
+        // Detach previous
         if (unsub.currentPhase.ref && unsub.currentPhase.cb) {
             fb.off(unsub.currentPhase.ref, 'value', unsub.currentPhase.cb);
             unsub.currentPhase = { ref: null, cb: null };
         }
-        const r = fb.ref(fb.dbRealtime, `live/results/${phase}/current`);
-        const cb = (s) => {
-            caches.currentResultsByPhase[phase] = s.val() || {};
-            if (state.phase === phase) applyMaps(phase);
+
+        const r = fb.ref(fb.dbRealtime, `live/results/${p}/current`);
+        const cb = (snap) => {
+            const val = snap.val() || {};
+            caches.currentResultsByPhase[p] = val;
+
+            // 🔧 Auto-réparation : si on reçoit des données pour la phase "p"
+            // mais que state.phase ≠ p (vue non synchronisée), on corrige immédiatement
+            if (state.phase !== p) {
+                state.phase = p; // simplifie la logique : la vue reflète la phase écoutée
+            }
+
+            // 🔎 LOG (diagnostic réception "current")
+            if (window.__RS_DEBUG) {
+                const keys = Object.keys(val);
+                console.log('[RS cur]', {
+                    phaseView: state.phase,
+                    listenPhase: p,
+                    activePhase: state.__activeTournamentPhase,
+                    activeRace: state.__activeRaceId,
+                    count: keys.length
+                });
+            }
+
+            // ✅ On rend *toujours* sur la phase écoutée (évite les fenêtres où applyMaps ne part pas)
+            applyMaps(p);
         };
+
         fb.onValue(r, cb);
         unsub.currentPhase = { ref: r, cb };
 
-        // init
+        // initial fetch
         fb.get(r).then(s => {
-            caches.currentResultsByPhase[phase] = s.val() || {};
-            if (state.phase === phase) applyMaps(phase);
+            caches.currentResultsByPhase[p] = s.val() || {};
+            if (state.phase !== p) {
+                state.phase = p;
+            }
+            applyMaps(p);
         }).catch(()=>{});
     }
 
     function ensurePhaseViewListeners(phase) {
         const p = String(phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+
+        // Détacher anciens listeners byRace/races
         if (unsub.byRace.ref && unsub.byRace.cb) {
             fb.off(unsub.byRace.ref, 'value', unsub.byRace.cb);
             unsub.byRace = { ref: null, cb: null };
@@ -664,10 +757,10 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
             unsub.races = { ref: null, cb: null };
         }
 
-        // current: suivre la phase active réelle
-        ensureCurrentResultsListener(state.__activeTournamentPhase);
+        // 🔁 IMPORTANT : écouter "current" sur la PHASE VUE (p)
+        ensureCurrentResultsListener(p);
 
-        // races/{phase} — lecture normalisée en OBJET { finalized: boolean }
+        // live/races/{phase} — normalisation stricte en OBJET { finalized:boolean }
         const racesRef = fb.ref(fb.dbRealtime, `live/races/${p}`);
         const racesCb = (snap) => {
             const raw = snap.val() || {};
@@ -687,7 +780,7 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
         fb.onValue(racesRef, racesCb);
         unsub.races = { ref: racesRef, cb: racesCb };
 
-        // results/{phase}/byRace
+        // live/results/{phase}/byRace
         const byRaceRef = fb.ref(fb.dbRealtime, `live/results/${p}/byRace`);
         const byRaceCb = (snap) => {
             caches.byRaceResultsByPhase[p] = snap.val() || {};
@@ -696,25 +789,27 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
         fb.onValue(byRaceRef, byRaceCb);
         unsub.byRace = { ref: byRaceRef, cb: byRaceCb };
 
-        // init (fetch uniques)
-        fb.get(racesRef).then(s => {
-            const raw = s.val() || {};
-            const mapObj = {};
-            for (const [rid, v] of Object.entries(raw)) {
-                if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
-                    mapObj[rid] = { finalized: !!v.finalized };
-                } else {
-                    mapObj[rid] = { finalized: !!v };
+        // Pré-hydratation initiale (fetch uniques) puis apply
+        Promise.all([
+            fb.get(racesRef).then(s => {
+                const raw = s.val() || {};
+                const mapObj = {};
+                for (const [rid, v] of Object.entries(raw)) {
+                    if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
+                        mapObj[rid] = { finalized: !!v.finalized };
+                    } else {
+                        mapObj[rid] = { finalized: !!v };
+                    }
                 }
-            }
-            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapObj };
-            caches.lastFinalizedByPhase[p] = mapObj;
+                state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapObj };
+                caches.lastFinalizedByPhase[p] = mapObj;
+            }).catch(()=>{}),
+            fb.get(byRaceRef).then(s => {
+                caches.byRaceResultsByPhase[p] = s.val() || {};
+            }).catch(()=>{})
+        ]).finally(() => {
             if (state.phase === p) applyMaps(p);
-        }).catch(()=>{});
-        fb.get(byRaceRef).then(s => {
-            caches.byRaceResultsByPhase[p] = s.val() || {};
-            if (state.phase === p) applyMaps(p);
-        }).catch(()=>{});
+        });
     }
 }
 
@@ -796,20 +891,33 @@ export function initRaceStrip(container, options = {}) {
 
     // Vue consultative
     let phaseView = state.phase;
-    function getPhaseView() { return phaseView; }
+    // Source de vérité unique : state.phase
+    function getPhaseView() {
+        const p = (state && typeof state.phase === 'string') ? state.phase.toLowerCase() : 'mk8';
+        return (p === 'mkw') ? 'mkw' : 'mk8';
+    }
     function setPhaseView(p) {
         const next = (String(p).toLowerCase() === 'mkw') ? 'mkw' : 'mk8';
-        if (phaseView === next) return;
-        phaseView = next;
 
-        // reset lock d’inspection à chaque vue
+        // Si déjà sur la bonne vue, on ne fait rien
+        if (state.phase === next) return;
+
+        // Met à jour la phase VUE (unique source de vérité côté composant)
+        state.phase = next;
+
+        // Purge focus / préférences d’inspection pour cette nouvelle vue
         state._inspectLocked = false;
+        state.inspectedRaceId = null;
+        state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };
+        state.__lastSelectedByPhase[next] = null;
 
-        ensureRacesForPhase(state, phaseView);
+        // ✅ DÉLÉGUE au hook du contrôleur (attache les écouteurs + applyMaps)
         if (typeof state.onPhaseViewChange === 'function') {
-            try { state.onPhaseViewChange(phaseView); } catch {}
+            try { state.onPhaseViewChange(next); } catch (e) { console.error(e); }
+        } else {
+            // Fallback ultra-sécuritaire (dev)
+            render();
         }
-        render();
     }
 
     const host = el('div', { class: CLASSNAMES.ROOT, role: 'group', 'aria-label': 'Courses' });
@@ -819,7 +927,12 @@ export function initRaceStrip(container, options = {}) {
 
     function render() {
         if (destroyed) return;
-        ensureRacesForPhase(state, phaseView);
+        const pv = getPhaseView(); // 'mk8' | 'mkw'
+
+        // ⚠️ IMPORTANT : passer l'objet state + la phase vue
+        ensureRacesForPhase(state, pv);
+
+        // En-tête (nav) + grille des tuiles
         renderHeaderNav(host, state, getPhaseView, setPhaseView);
         renderRows(host, state, getPhaseView);
     }

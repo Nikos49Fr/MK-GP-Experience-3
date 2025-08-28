@@ -39,6 +39,89 @@ const el = (tag, attrs = {}, ...children) => {
 };
 
 /* ============================================================
+   HELPER PHASE DEV
+   ============================================================ */
+// === Dev helpers ===
+const DEV_ENABLE_FILL_BUTTON = true; // ← passe à false pour masquer complètement le bouton
+// Bouton "fill" (dev-only) : remplit des rangs aléatoires dans live/results/{phase}/current/*
+// - Visible/actif uniquement si DEV_ENABLE_FILL_BUTTON = true et si context/current a bien { phase, raceId }.
+// - Ecrase les rangs existants sans états d’âme (usage dev/debug).
+function mountDevFillButton() {
+    if (!DEV_ENABLE_FILL_BUTTON) return;
+
+    const headerCenter = document.querySelector('.cp-header-center');
+    if (!headerCenter) return;
+
+    // Eviter doublons si re-mount
+    let btn = document.querySelector('#cp-dev-fill');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'cp-dev-fill';
+        btn.type = 'button';
+        btn.textContent = 'fill';
+        // pas de design volontairement (dev-only)
+        headerCenter.appendChild(btn);
+    }
+
+    // Etat actif/inactif en fonction du contexte
+    const ctxRef = ref(dbRealtime, PATH_CONTEXT);
+    const onCtx = (snap) => {
+        const ctx = snap.val() || {};
+        const hasPhase = !!ctx.phase;
+        const hasRace  = !!ctx.raceId;
+        btn.disabled = !(hasPhase && hasRace);
+    };
+    onValue(ctxRef, onCtx);
+
+    // Click = remplir des rangs aléatoires 1..gridSize sans doublon pour tous les pilotes de la phase
+    btn.addEventListener('click', async () => {
+        try {
+            const ctx = (typeof lastContext === 'object' && lastContext) ? lastContext : {};
+            const phase = (ctx.phase || '').toLowerCase();
+            const raceId = ctx.raceId;
+            const rid = ctx.rid || (phase && raceId ? `${phase}-${raceId}` : '');
+
+            if (!phase || !raceId) {
+                console.warn('[dev fill] Pas de phase/course courante — action ignorée.');
+                return;
+            }
+
+            const gridSize = (phase === 'mkw') ? 24 : 12;
+            const gameLabel = (phase === 'mkw') ? 'MKW' : 'MK8';
+
+            // Récupère les pilotes de la phase (ordre par défaut) et ne garde que gridSize max
+            const pilots = await fetchPilotsByGameOrdered(gameLabel);
+            const pilotIds = pilots.map(p => p.id).slice(0, gridSize);
+            const N = pilotIds.length;
+            if (N === 0) {
+                console.warn('[dev fill] Aucun pilote trouvé pour', gameLabel);
+                return;
+            }
+
+            // Génére 1..N puis shuffle (Fisher-Yates)
+            const ranks = Array.from({ length: Math.max(N, gridSize) }, (_, i) => i + 1).slice(0, N);
+            for (let i = N - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [ranks[i], ranks[j]] = [ranks[j], ranks[i]];
+            }
+
+            // Multiloc update: live/results/{phase}/current/{pilotId} = { rank }
+            const updates = {};
+            for (let i = 0; i < N; i++) {
+                const pid = pilotIds[i];
+                const r = ranks[i];
+                updates[`live/results/${phase}/current/${pid}`] = { rank: r };
+            }
+
+            await update(ref(dbRealtime), updates);
+            console.log(`Ranks course ${rid} filled`);
+        } catch (err) {
+            console.error('[dev fill] Echec du remplissage:', err);
+        }
+    });
+}
+
+/* ============================================================
    État global (phase active, vue locale, caches)
    ============================================================ */
 const PATH_CONTEXT = 'context/current';
@@ -278,6 +361,7 @@ function mountPhaseSwitch() {
 
     updatePhaseSwitchUI();
     updateStartSwitchUI();
+    mountDevFillButton();
 }
 
 function setViewPhase(phase) {

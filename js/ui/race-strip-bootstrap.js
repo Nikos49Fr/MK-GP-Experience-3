@@ -9,8 +9,8 @@ const container =
     document.body;
 
 initRaceStrip(container, {
-    controller: 'external', // pas de branchement Firebase pour la page de test simple
-    mode: 'admin',
+    controller: 'firebase',
+    mode: 'simple',
     showPhaseNav: true
 });
 // Pas d’injection d’états “démo” ici.

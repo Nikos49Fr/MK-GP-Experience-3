@@ -1,73 +1,13 @@
 /**
- * MK GP Experience 3 — RTDB schema (PROD)
- *
- * Conventions de clés
- * -------------------
- * PHASE  : "mk8" | "mkw"                  // toujours en minuscules
- * RACE   : "1".."12" | "S" | "SF"         // identifiant lisible côté UI
- * PILOT  : id Firestore d'un pilote (ex: "E3zXtYEtrCvbvgARbBAi")
- *
- * Racine
- * ------
- * context/
- *   current/
- *     phase  : "mk8" | "mkw"              // phase en cours
- *     raceId : "1".."12" | "S" | "SF"     // id de course dans sa phase (format UI)
- *     rid    : string                     // identifiant global `${phase}-${raceId}` (ex: "mk8-2")
- *
- * meta/
- *   pilotsAllowed/
- *     {phase}/                        // "mk8" | "mkw"
- *       {pilotId} : boolean           // true = ce pilote peut écrire son résultat live
- *                                     // (absence ou false => pas d'autorisation)
- *
- * live/
- *   results/
- *     {phase}/                          // "mk8" | "mkw" (toujours en minuscules)
- *       current/                        // saisies temporaires par pilote (objet)
- *         {pilotId}: {
- *           rank: number                // 1..12 (mk8) | 1..24 (mkw) ; aucun timestamp
- *         }
- *
- *       byRace/                         // résultats figés par course
- *         {raceId}/                     // "1".."12" | "S" | "SF"
- *           ranks/
- *             {pilotId}: {
- *               rank: number            // rang final figé (même forme que current)
- *             }
- *           doubles/
- *             {pilotId}: true           // bonus "double points" activé AVANT la course
- *
- * live/
- *   races/
- *     {phase}/                          // "mk8" | "mkw"
- *       {raceId}/                       // "1".."12" | "S" | "SF"
- *         finalized: boolean            // true = course figée (résultats copiés dans byRace)
- *
- *   points/
- *     {phase}/
- *       byRace/
- *         {raceId}/
- *           {pilotId}: {
- *             rank    : number
- *             base    : number
- *             doubled : boolean
- *             final   : number           // base * (doubled ? 2 : 1)
- *           }
- *       totals/
- *         {pilotId} : number
- *       extras/
- *         cosplay/
- *           public : { pilotId: string } // +8
- *           jury   : { pilotId: string } // +10
- *         awards/
- *           viewers : { pilotId: string } // +3
- *           hosts   : { pilotId: string } // +2
- *
- * Notes:
- * - Pas de timestamps en BDD.
- * - Reset par course: supprimer results/byRace/{raceId} + points/byRace/{raceId}, recalculer totals,
- *   et remettre races/{phase}/{raceId}.finalized=false.
+ * MK GP Experience 3 — Control Panel (nettoyé)
+ * --------------------------------------------
+ * - L’UI "races" (tiles/checkbox/radio/track) est désormais gérée exclusivement
+ *   par le composant autonome /js/ui/race-strip.js.
+ * - Ce fichier conserve :
+ *   • la gestion du contexte & du Start switch,
+ *   • les listeners RTDB (pour le panneau pilotes),
+ *   • le panneau pilotes (badges, modale d’édition),
+ *   • l’intégration du composant race-strip (montage + sync inspection → pilotes).
  */
 
 import { dbRealtime, dbFirestore } from './firebase-config.js';
@@ -76,9 +16,10 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
 import {
-    collection, getDocs, doc, getDoc
+    collection, getDocs
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js';
-// importer la factory du composant autonome race-strip
+
+// Composant autonome race-strip
 import { initRaceStrip } from './ui/race-strip.js';
 
 /* ============================================================
@@ -112,7 +53,7 @@ let currentResultsByPhase = { mk8: {}, mkw: {} }; // /live/results/{phase}/curre
 // Résultats figés par course (toute la phase vue)
 let byRaceResultsByPhase = { mk8: {}, mkw: {} };  // /live/results/{phase}/byRace/{raceId}/{ranks|doubles}
 
-// Statut de finalisation par course (par phase)
+// Statut de finalisation par course (par phase) — objet { raceId: { finalized: bool } }
 let lastFinalizedByPhase = { mk8: {}, mkw: {} };  // /live/races/{phase}/{raceId}.finalized
 
 // Listeners
@@ -122,7 +63,8 @@ const listeners = {
     races: { ref: null, cb: null },        // live/races/{viewPhase}
     byRace: { ref: null, cb: null }        // live/results/{viewPhase}/byRace
 };
-// API du composant race-strip (monté une seule fois)
+
+// API race-strip (monté une seule fois)
 let raceStripApi = null;
 
 /* ============================================================
@@ -130,7 +72,6 @@ let raceStripApi = null;
    ============================================================ */
 const GRID_SIZE = (phase) => phase === 'mkw' ? 24 : 12;
 
-// Construction de la liste des courses (ids = "1".. ou "S"/"SF")
 function buildRaceList(phase) {
     if (phase === 'mkw') {
         const list = [];
@@ -142,19 +83,12 @@ function buildRaceList(phase) {
     }
     return Array.from({ length: 8 }, (_, i) => String(i + 1));
 }
-function raceLabel(phase, raceId) {
-    if (phase === 'mkw') {
-        if (raceId === 'S') return 'Survie 1';
-        if (raceId === 'SF') return 'Survie Finale';
-        return `Course ${raceId}/12`;
-    }
-    return `Course ${raceId}/8`;
-}
 
 /* ============================================================
    Phase active & course active
    ============================================================ */
 let lastContext = {};
+let lastSelectedByPhase = { mk8: null, mkw: null };
 
 function attachContextListener() {
     if (listeners.context) {
@@ -172,11 +106,12 @@ function attachContextListener() {
 
         updatePhaseSwitchUI();
         updateStartSwitchUI();
+        // Synchroniser la vue du composant (si monté)
+        window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase);
+
         ensureCurrentResultsListener(activeTournamentPhase);
         ensurePhaseViewListeners(viewPhase);
 
-        renderRaceStrip(viewPhase);
-        updateRaceTilesStatus();
         refreshPilotListView();
     };
     onValue(ctxRef, cb);
@@ -186,43 +121,18 @@ function attachContextListener() {
 // Détermine la course "active" pour une phase donnée
 function getActiveRaceIdForPhase(phase) {
     if (phase === activeTournamentPhase) return activeRaceId;
-
-    // Sinon: première course NON finalisée dans cette phase, sinon dernière
     const order = buildRaceList(phase);
     const finals = lastFinalizedByPhase[phase] || {};
     for (const k of order) {
-        if (!finals?.[k]?.finalized) return k;
+        const fin = finals[k];
+        const isFinalized = (typeof fin === 'object') ? !!fin.finalized : !!fin; // ← bool robuste
+        if (!isFinalized) return k;
     }
     return order[order.length - 1];
 }
 
 function isPhaseStarted(phase) {
-    // Une phase est "start" seulement si context/current pointe vers cette phase
-    // ET qu'une course courante (raceId) est définie.
     return !!(lastContext && lastContext.phase === phase && lastContext.raceId);
-}
-
-// [AJOUTER] — calcule les maps attendues par le composant autonome
-function computeRaceMaps(phase) {
-    const order = buildRaceList(phase);
-    const activeId = getActiveRaceIdForPhase(phase);
-    const inspectedId = (lastSelectedByPhase[phase] && order.includes(lastSelectedByPhase[phase]))
-        ? lastSelectedByPhase[phase]
-        : activeId;
-
-    const statusByRace = {};
-    const finalizedByRace = {};
-    order.forEach((raceId) => {
-        const status = getRaceStatusDeterministic(phase, raceId);
-        // Remontée “active, mais vide” (couleur #00b4d8) -> is-active-empty
-        const isActiveAndEmpty = (phase === activeTournamentPhase && raceId === activeId && (status == null));
-        statusByRace[raceId] = isActiveAndEmpty ? 'activeEmpty' : (status || null);
-
-        const finals = lastFinalizedByPhase[phase] || {};
-        finalizedByRace[raceId] = !!(finals?.[raceId]?.finalized);
-    });
-
-    return { order, activeId, inspectedId, statusByRace, finalizedByRace };
 }
 
 /* ============================================================
@@ -236,7 +146,6 @@ function ensureCurrentResultsListener(phase) {
     const cb = (s) => {
         currentResultsByPhase[phase] = s.val() || {};
         if (viewPhase === phase) {
-            updateRaceTilesStatus();
             refreshPilotListView();
         }
     };
@@ -246,7 +155,6 @@ function ensureCurrentResultsListener(phase) {
     get(r).then(s => {
         currentResultsByPhase[phase] = s.val() || {};
         if (viewPhase === phase) {
-            updateRaceTilesStatus();
             refreshPilotListView();
         }
     }).catch(() => {});
@@ -260,7 +168,6 @@ function ensurePhaseViewListeners(phase) {
     const racesRef = ref(dbRealtime, `live/races/${phase}`);
     const racesCb = (snap) => {
         lastFinalizedByPhase[phase] = snap.val() || {};
-        updateRaceTilesStatus();
         updateStartSwitchUI();
     };
     onValue(racesRef, racesCb);
@@ -273,7 +180,6 @@ function ensurePhaseViewListeners(phase) {
     const byRaceRef = ref(dbRealtime, `live/results/${phase}/byRace`);
     const byRaceCb = (snap) => {
         byRaceResultsByPhase[phase] = snap.val() || {};
-        updateRaceTilesStatus();
         refreshPilotListView();
         updateStartSwitchUI();
     };
@@ -281,8 +187,8 @@ function ensurePhaseViewListeners(phase) {
     listeners.byRace = { ref: byRaceRef, cb: byRaceCb };
 
     // init
-    get(racesRef).then(s => { lastFinalizedByPhase[phase] = s.val() || {}; updateRaceTilesStatus(); }).catch(()=>{});
-    get(byRaceRef).then(s => { byRaceResultsByPhase[phase] = s.val() || {}; updateRaceTilesStatus(); refreshPilotListView(); }).catch(()=>{});
+    get(racesRef).then(s => { lastFinalizedByPhase[phase] = s.val() || {}; }).catch(()=>{});
+    get(byRaceRef).then(s => { byRaceResultsByPhase[phase] = s.val() || {}; refreshPilotListView(); }).catch(()=>{});
 }
 
 /* ============================================================
@@ -332,7 +238,7 @@ function mountPhaseSwitch() {
         }, 'MKW')
     );
 
-    // Switch "Start" (une seule direction: OFF -> ON; pas de OFF manuel)
+    // Switch "Start"
     const startWrap = el('div', { class: 'cp-start-toggle' },
         el('input', {
             id: 'cp-start-input',
@@ -349,16 +255,13 @@ function mountPhaseSwitch() {
     $('#cp-btn-mk8', group).addEventListener('click', () => setViewPhase('mk8'));
     $('#cp-btn-mkw', group).addEventListener('click', () => setViewPhase('mkw'));
 
-    // Interactions Start
     const startInput = $('#cp-start-input', startWrap);
     startInput.addEventListener('change', async (e) => {
-        // Interdit de passer de ON -> OFF (si tentative, on rétablit ON)
         if (e.target.checked === false) {
             e.preventDefault();
             updateStartSwitchUI();
             return;
         }
-        // ON demandé → lancer la phase "vue" si activable
         if (computeStartEnabledForView(viewPhase)) {
             try {
                 await startPhase(viewPhase);
@@ -367,7 +270,6 @@ function mountPhaseSwitch() {
                 e.target.checked = false;
             }
         } else {
-            // Non activable → annuler le check
             e.preventDefault();
             e.target.checked = false;
         }
@@ -384,7 +286,6 @@ function setViewPhase(phase) {
     if (viewPhase === p) return;
     viewPhase = p;
 
-    // Choisir course "inspectée" par défaut
     const order = buildRaceList(viewPhase);
     const active = getActiveRaceIdForPhase(viewPhase);
     if (!lastSelectedByPhase[viewPhase] || !order.includes(lastSelectedByPhase[viewPhase])) {
@@ -392,12 +293,9 @@ function setViewPhase(phase) {
     }
 
     ensurePhaseViewListeners(viewPhase);
-    renderRaceStrip(viewPhase);
     updatePhaseSwitchUI();
-    updateRaceTilesStatus();
+    window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase);
     refreshPilotListView();
-
-    // IMPORTANT : recalcule l'état du bouton Start pour la phase vue
     updateStartSwitchUI();
 
     window.__reloadPilotsForView && window.__reloadPilotsForView();
@@ -406,15 +304,16 @@ function setViewPhase(phase) {
 // --- Start switch: logique d'activation ---
 function computeStartEnabledForView(phase) {
     if (!phase) return false;
-    const hasCurrent = !!(lastContext && lastContext.raceId); // une course "courante" existe ?
+    const hasCurrent = !!(lastContext && lastContext.raceId);
     const finals = lastFinalizedByPhase[phase] || {};
-    const anyFinalized = Object.values(finals).some(v => v && v.finalized === true);
-    // Activable seulement s'il n'y a PAS de "current" global ET qu'aucune course de la phase n'est finalisée
+    const anyFinalized = Object.values(finals).some(v =>
+        (typeof v === 'object') ? !!v.finalized : !!v
+    );
     return !hasCurrent && !anyFinalized;
 }
 
 async function startPhase(phase) {
-    const firstId = buildRaceList(phase)[0]; // "1"
+    const firstId = buildRaceList(phase)[0];
     await update(ref(dbRealtime, PATH_CONTEXT), {
         phase,
         raceId: firstId,
@@ -432,104 +331,7 @@ function updateStartSwitchUI() {
 }
 
 /* ============================================================
-   Races strip (UI)
-   ============================================================ */
-let lastSelectedByPhase = { mk8: null, mkw: null };
-
-function renderRaceStrip(phase) {
-    const racesRoot = $('#cp-races');
-    if (!racesRoot) return;
-
-    // On ne garde que .cp-races-inner
-    let inner = $('.cp-races-inner', racesRoot);
-    if (!inner) {
-        inner = el('div', { class: 'cp-races-inner' });
-        racesRoot.replaceChildren(inner);
-    } else {
-        inner.replaceChildren(); // reset propre
-    }
-
-    const order = buildRaceList(phase);
-    const activeKey = getActiveRaceIdForPhase(phase);
-    const inspectedKey = (lastSelectedByPhase[phase] && order.includes(lastSelectedByPhase[phase]))
-        ? lastSelectedByPhase[phase]
-        : activeKey;
-
-    // PISTE (segments: start/road/kart/finish) + RANGÉE TUILES
-    const track = el('div', { class: 'cp-races-track' });
-    const row   = el('div', { class: 'cp-races-row' });
-
-    order.forEach((key, idx) => {
-        // --- Segment piste (⚠️ on pose data-key pour updateRaceTilesStatus)
-        const seg = el('div', { class: 'cp-track-segment', dataset: { key } });
-        if (idx === 0) seg.classList.add('is-first');
-        if (idx === order.length - 1) seg.classList.add('is-last');
-        if (key === activeKey) seg.classList.add('is-active');
-        track.appendChild(seg);
-
-        // --- Wrap tuile + check + radio
-        const wrap = el('div', { class: 'cp-race-wrap', dataset: { key } });
-
-        // CHECK (au-dessus)
-        const checkBox = el('div', { class: 'cp-race-check' },
-            el('input', {
-                class: 'cp-race-check-input',
-                type: 'checkbox',
-                'aria-label': `Valider la course ${key}`
-            })
-        );
-
-        // TUILE
-        const tile = el('div', { class: 'cp-race-tile' }, key);
-        if (key === activeKey) tile.classList.add('is-active');
-        if (key === inspectedKey) tile.classList.add('is-inspected');
-
-        // RADIO (au-dessous)
-        const radio = el('div', { class: 'cp-race-radio' },
-            el('input', {
-                class: 'cp-race-radio-input',
-                type: 'radio',
-                name: 'cp-race-inspect',
-                value: key,
-                checked: key === inspectedKey ? 'checked' : null,
-                'aria-label': `Inspecter la course ${key}`
-            })
-        );
-
-        // Handlers
-        $('.cp-race-radio-input', radio).addEventListener('change', (e) => {
-            const selKey = e.target.value;
-            selectRaceForInspection(phase, selKey);
-        });
-
-        $('.cp-race-check-input', checkBox).addEventListener('change', async (e) => {
-            if (!isPhaseStarted(phase)) {
-                e.preventDefault();
-                updateRaceTilesStatus();
-                return;
-            }
-            if (e.target.checked) {
-                try {
-                    await finalizeRaceTile(phase, key);
-                } catch (err) {
-                    console.error('Finalisation échouée:', err);
-                    e.target.checked = false;
-                }
-            }
-        });
-
-        wrap.append(checkBox, tile, radio);
-        row.appendChild(wrap);
-    });
-
-    inner.append(track, row);
-
-    // Mise à jour couleurs/états
-    updateRaceTilesStatus();
-}
-
-/* ============================================================
-   Chargement pilotes (Firestore) pour affichage gauche
+   Panneau pilotes (Firestore + RTDB)
    ============================================================ */
 let cachedTeams = null;
 
@@ -537,7 +339,6 @@ async function fetchTeamsOrdered() {
     if (cachedTeams) return cachedTeams;
     const snap = await getDocs(collection(dbFirestore, 'teams'));
     const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    // on suppose qu'ils ont un 'order' : on trie
     list.sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
     cachedTeams = list;
     return cachedTeams;
@@ -626,7 +427,6 @@ function mountPilotsPanelSection() {
         const phaseView = (viewPhase || 'mk8').toLowerCase();
         const gameLabel = phaseView === 'mkw' ? 'MKW' : 'MK8';
 
-        // Body classes selon la VUE, pas le contexte actif
         document.body.classList.toggle('phase-mkw', phaseView === 'mkw');
         document.body.classList.toggle('phase-mk8', phaseView === 'mk8');
 
@@ -636,16 +436,12 @@ function mountPilotsPanelSection() {
         ]);
         const groups = groupPilotsByTeam(teams, pilots);
         renderPilotsPanel(groups);
+        window.__cpRaceStrip?.api?.()?.setPhaseView?.(phaseView);
 
-        // La barre des courses et le leaderboard suivent aussi la VUE
-        renderRaceStrip(phaseView);
-
-        // Rafraîchir les badges (selon course inspectée/active pour la VUE)
         refreshPilotListView();
-        updateRaceTilesStatus();
     };
 
-    // RTDB context: sert surtout à connaître l'état global, mais on rend par RAPPORT à la VUE
+    // RTDB context
     onValue(ref(dbRealtime, PATH_CONTEXT), async (snap) => {
         try {
             lastContext = snap.val() || {};
@@ -677,22 +473,17 @@ function computeRaceStatusFromResults(results, gridSize) {
 }
 
 function getResultsForDisplay(phase, raceId) {
-    // Si on regarde la course active de la phase active
     if (phase === activeTournamentPhase && raceId === activeRaceId) {
         const current = currentResultsByPhase[phase] || {};
         const hasCurrent = Object.values(current).some(v => v && v.rank != null);
         if (hasCurrent) return current;
 
-        // Fallback : si current est vide (p.ex. après validation de la dernière course),
-        // on lit les rangs figés dans byRace/ranks
         const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
         const hasRanks = Object.values(ranks).some(v => v && v.rank != null);
         if (hasRanks) return ranks;
 
         return {};
     }
-
-    // Autres phases / autres courses → lecture directe byRace/ranks
     return byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
 }
 
@@ -760,125 +551,10 @@ function refreshPilotListView() {
 }
 
 /* ============================================================
-   Statuts tuiles (filled/conflict/complete/active/inspected)
-   ============================================================ */
-function getRaceStatusDeterministic(phase, raceId) {
-    const grid = GRID_SIZE(phase);
-    const activeId = getActiveRaceIdForPhase(phase);
-
-    // Cas "course active de la phase active"
-    if (phase === activeTournamentPhase && raceId === activeId) {
-        const current = currentResultsByPhase[phase] || {};
-        const hasCurrent = Object.values(current).some(v => v && v.rank != null);
-        if (hasCurrent) {
-            return computeRaceStatusFromResults(current, grid);
-        }
-
-        // Fallback : current vide → regarder les rangs figés byRace/ranks
-        const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
-        const hasRanks = Object.values(ranks).some(v => v && v.rank != null);
-        if (hasRanks) {
-            // calcule l'état réel (complete/filled/conflict) sur le figé
-            return computeRaceStatusFromResults(ranks, grid) || 'filled';
-        }
-
-        // si rien, on regarde quand même l'état "finalized"
-        const finals = lastFinalizedByPhase[phase] || {};
-        return finals?.[raceId]?.finalized ? 'complete' : null;
-    }
-
-    // Autres cas : logique inchangée (lecture byRace/ranks)
-    const ranks = byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
-    const hasAny = Object.values(ranks).some(v => v && v.rank != null);
-    if (!hasAny) {
-        const finals = lastFinalizedByPhase[phase] || {};
-        return finals?.[raceId]?.finalized ? 'complete' : null;
-    }
-    return computeRaceStatusFromResults(ranks, grid) || 'filled';
-}
-
-function updateRaceTilesStatus() {
-    const host = document.querySelector('#cp-races');
-    if (!host || !viewPhase) return;
-
-    const phase        = viewPhase;
-    const activeId     = getActiveRaceIdForPhase(phase);
-    const inspectedId  = lastSelectedByPhase[phase] || activeId;
-    const order        = buildRaceList(phase);
-
-    const segs = host.querySelectorAll('.cp-track-segment');
-    segs.forEach(s => s.classList.remove('is-active', 'is-first', 'is-last'));
-    const firstKey = order[0];
-    const lastKey  = order[order.length - 1];
-    host.querySelector(`.cp-track-segment[data-key="${firstKey}"]`)?.classList.add('is-first');
-    host.querySelector(`.cp-track-segment[data-key="${lastKey}"]`)?.classList.add('is-last');
-    if (phase === activeTournamentPhase) {
-        host.querySelector(`.cp-track-segment[data-key="${activeId}"]`)?.classList.add('is-active');
-    }
-
-    const wraps = Array.from(host.querySelectorAll('.cp-race-wrap'));
-    const classFor = (st) =>
-        st === 'conflict' ? 'is-conflict' :
-        st === 'complete' ? 'is-complete' :
-        st === 'filled'   ? 'is-filled'   : null;
-
-    wraps.forEach(w => {
-        const key   = w.dataset.key;
-        const tile  = w.querySelector('.cp-race-tile');
-        const check = w.querySelector('.cp-race-check-input');
-        const radio = w.querySelector('.cp-race-radio-input');
-
-        tile.classList.remove('is-filled','is-conflict','is-complete','is-active','is-inspected');
-        radio.checked = (key === inspectedId);
-
-        const st  = getRaceStatusDeterministic(phase, key);
-        const cls = classFor(st);
-        if (cls) tile.classList.add(cls);
-
-        if (phase === activeTournamentPhase && key === activeId) tile.classList.add('is-active');
-        if (key === inspectedId) tile.classList.add('is-inspected');
-
-        // Checkbox enable/checked
-        if (check) {
-            // Gate global : phase non démarrée → tout disabled (lecture seule)
-            if (!isPhaseStarted(phase)) {
-                check.checked  = !!(lastFinalizedByPhase[phase]?.[key]?.finalized); // on reflète visuellement l’historique
-                check.disabled = true;
-            } else {
-                const isComplete  = (st === 'complete');
-                const finals      = lastFinalizedByPhase[phase] || {};
-                const isFinalized = !!finals?.[key]?.finalized;
-
-                if (isFinalized) {
-                    check.checked  = true;
-                    check.disabled = true;
-                } else if (isComplete) {
-                    check.checked  = false;
-                    check.disabled = false;
-                } else {
-                    check.checked  = false;
-                    check.disabled = true;
-                }
-            }
-        }
-    });
-}
-
-/* ============================================================
-   Sélection radio
-   ============================================================ */
-function selectRaceForInspection(phase, raceId) {
-    const order = buildRaceList(phase);
-    if (!order.includes(raceId)) return;
-    lastSelectedByPhase[phase] = raceId;
-    updateRaceTilesStatus();
-    refreshPilotListView();
-}
-
-/* ============================================================
    Modale d’édition (choix du rang / reset)
    - Active phase + active race => écrit dans results/{phase}/current
    - Sinon => écrit directement dans results/{phase}/byRace/{raceId}/ranks
+   - En cas d’édition d’une course finalisée → remet finalized=false
    ============================================================ */
 function openRankModal(phase, pilotId, anchorEl) {
     if (!isPhaseStarted(phase)) return;
@@ -896,15 +572,9 @@ function openRankModal(phase, pilotId, anchorEl) {
             if (phase === activeTournamentPhase && inspectedId === activeId) {
                 await remove(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`));
             } else {
-                // ÉDITION d'une course NON active → on modifie byRace/ranks et on dé-finalise
                 await remove(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`));
-                // NEW: repasser la course en "non finalisée"
-                await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
-
-                // MàJ locale immédiate (en attendant les listeners)
-                lastFinalizedByPhase[phase] = lastFinalizedByPhase[phase] || {};
-                lastFinalizedByPhase[phase][inspectedId] = { finalized: false };
-                updateRaceTilesStatus();
+                await set(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), false);
+                // rafraîchissement via listeners + panneau pilotes
                 refreshPilotListView();
             }
             backdrop.remove();
@@ -950,15 +620,8 @@ function openRankModal(phase, pilotId, anchorEl) {
                 if (useCurrent) {
                     await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), { rank: i });
                 } else {
-                    // ÉDITION d'une course NON active → on écrit directement dans byRace/ranks
                     await set(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`), { rank: i });
-                    // NEW: repasser la course en "non finalisée"
                     await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
-
-                    // MàJ locale immédiate (en attendant les listeners)
-                    lastFinalizedByPhase[phase] = lastFinalizedByPhase[phase] || {};
-                    lastFinalizedByPhase[phase][inspectedId] = { finalized: false };
-                    updateRaceTilesStatus();
                     refreshPilotListView();
                 }
                 backdrop.remove();
@@ -978,7 +641,7 @@ function openRankModal(phase, pilotId, anchorEl) {
     card.style.visibility = 'hidden';
     card.style.position = 'fixed';
 
-    // Positionnement proche de l’ancre
+    // Positionnement
     const GAP = 8;
     const fallbackMargin = 12;
     const aRect = anchorEl ? anchorEl.getBoundingClientRect() : null;
@@ -999,194 +662,17 @@ function openRankModal(phase, pilotId, anchorEl) {
 }
 
 /* ============================================================
-   Matrices de points (Firestore "points/{mk8|mkw}")
-   ============================================================ */
-let pointsMatrices = { mk8: null, mkw: null };
-
-async function loadPointsMatrices() {
-    if (pointsMatrices.mk8 && pointsMatrices.mkw) return pointsMatrices;
-
-    // mk8
-    const mk8Doc = await getDoc(doc(dbFirestore, 'points', 'mk8'));
-    pointsMatrices.mk8 = mk8Doc.exists() ? (mk8Doc.data() || {}) : {};
-
-    // mkw
-    const mkwDoc = await getDoc(doc(dbFirestore, 'points', 'mkw'));
-    pointsMatrices.mkw = mkwDoc.exists() ? (mkwDoc.data() || {}) : {};
-
-    return pointsMatrices;
-}
-
-// Retourne les points "base" pour un rang et un type de course
-function basePointsFor(phase, raceId, rank) {
-    if (phase === 'mk8') {
-        const table = pointsMatrices.mk8?.ranks || {};
-        return Number(table[String(rank)] ?? 0);
-    }
-    // MKW
-    const row = pointsMatrices.mkw?.ranks?.[String(rank)];
-    if (!row) return 0;
-    if (raceId === 'S')  return Number(row.s1 ?? 0);
-    if (raceId === 'SF') return Number(row.s2 ?? 0);
-    return Number(row.race ?? 0);
-}
-
-/* ============================================================
-   Finalisation d’une course
-   - Phase active + course active : copie current → byRace/ranks
-   - Sinon : on considère que byRace/ranks contient déjà un classement complet
-   - On calcule live/points/{phase}/byRace/{raceId} puis totals
-   - On marque races/{phase}/{raceId}.finalized = true
-   - Si active: on efface current et on avance context/current
-   ============================================================ */
-async function finalizeRaceTile(phase, raceId) {
-    if (!isPhaseStarted(phase)) {
-        throw new Error('Phase non démarrée : aucune validation possible.');
-    }
-    const gridSize = GRID_SIZE(phase);
-    const activeId = getActiveRaceIdForPhase(phase);
-    const useCurrent = (phase === activeTournamentPhase && raceId === activeId);
-
-    // Charger matrices de points
-    await loadPointsMatrices();
-
-    // 1) Préparer les rangs finaux
-    if (useCurrent) {
-        // Vérifier que current est complet/sans conflit
-        const status = computeRaceStatusFromResults(currentResultsByPhase[phase], gridSize);
-        if (status !== 'complete') throw new Error('Les classements ne sont pas complets/valides.');
-
-        // Copier current -> byRace/ranks
-        const updates = {};
-        Object.entries(currentResultsByPhase[phase] || {}).forEach(([pilotId, obj]) => {
-            if (obj && Number.isInteger(Number(obj.rank))) {
-                updates[`live/results/${phase}/byRace/${raceId}/ranks/${pilotId}`] = { rank: Number(obj.rank) };
-            }
-        });
-        await update(ref(dbRealtime, '/'), updates);
-    } else {
-        // Non active : on exige que byRace/ranks existe et soit complet
-        const ranks = (byRaceResultsByPhase?.[phase]?.[raceId]?.ranks) || {};
-        const status = computeRaceStatusFromResults(ranks, gridSize);
-        if (status !== 'complete') throw new Error('La course sélectionnée n’est pas complète/valide.');
-    }
-
-    // 2) Calculer points/byRace/{raceId}
-    //    - lire ranks finaux & doubles
-    const ranksSnap = await get(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}/ranks`));
-    const doublesSnap = await get(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}/doubles`));
-    const ranks = ranksSnap.exists() ? (ranksSnap.val() || {}) : {};
-    const doubles = doublesSnap.exists() ? (doublesSnap.val() || {}) : {};
-
-    const pointsUpdates = {};
-    Object.entries(ranks).forEach(([pilotId, v]) => {
-        const rank = Number(v?.rank ?? 0);
-        const base = basePointsFor(phase, raceId, rank);
-        const doubled = !!doubles[pilotId];
-        const final = base * (doubled ? 2 : 1);
-
-        pointsUpdates[`live/points/${phase}/byRace/${raceId}/${pilotId}`] = {
-            rank, base, doubled, final
-        };
-    });
-    await update(ref(dbRealtime, '/'), pointsUpdates);
-
-    // 3) Recalcul totals = somme des finals + extras
-    await recomputeTotalsForPhase(phase);
-
-    // 4) Marquer finalized=true
-    await set(ref(dbRealtime, `live/races/${phase}/${raceId}`), { finalized: true });
-
-    // 5) Si active: effacer current et gérer le contexte
-    if (useCurrent) {
-        // Vider les saisies courantes
-        await remove(ref(dbRealtime, `live/results/${phase}/current`)).catch(()=>{});
-
-        const order = buildRaceList(phase);
-        const idx = order.indexOf(raceId);
-        const hasNext = (idx >= 0 && idx < order.length - 1);
-        const nextId = hasNext ? order[idx + 1] : null;
-
-        if (hasNext) {
-            // Avance à la course suivante
-            await update(ref(dbRealtime, `context/current`), {
-                phase: phase,
-                raceId: nextId,
-                rid: `${phase}-${nextId}`
-            });
-            lastSelectedByPhase[phase] = nextId; // focus avance aussi
-        } else {
-            // DERNIÈRE course : aucune "current"
-            // On garde la phase, mais on retire raceId / rid
-            await update(ref(dbRealtime, `context/current`), {
-                raceId: null,
-                rid: null
-            });
-            // Focus UI: rester sur la dernière tuile validée
-            lastSelectedByPhase[phase] = raceId;
-        }
-    } else {
-        // Réédition d’une course non active -> on reste focalisé sur cette course
-        lastSelectedByPhase[phase] = raceId;
-    }
-
-    // rafraîchir l’UI
-    updateStartSwitchUI();
-    updateRaceTilesStatus();
-    refreshPilotListView();
-}
-
-/* ============================================================
-   Recalcul des totaux (somme finals + extras)
-   ============================================================ */
-async function recomputeTotalsForPhase(phase) {
-    const byRaceRoot = await get(ref(dbRealtime, `live/points/${phase}/byRace`));
-    const extrasCosplayPublicSnap = await get(ref(dbRealtime, `live/points/${phase}/extras/cosplay/public`));
-    const extrasCosplayJurySnap   = await get(ref(dbRealtime, `live/points/${phase}/extras/cosplay/jury`));
-    const extrasViewersSnap       = await get(ref(dbRealtime, `live/points/${phase}/extras/awards/viewers`));
-    const extrasHostsSnap         = await get(ref(dbRealtime, `live/points/${phase}/extras/awards/hosts`));
-
-    const totals = {};
-
-    if (byRaceRoot.exists()) {
-        const byRaceTree = byRaceRoot.val() || {};
-        Object.values(byRaceTree).forEach((raceObj) => {
-            Object.entries(raceObj || {}).forEach(([pilotId, obj]) => {
-                const final = Number(obj?.final ?? 0);
-                totals[pilotId] = (totals[pilotId] || 0) + final;
-            });
-        });
-    }
-
-    // extras
-    const cosplayPublic = extrasCosplayPublicSnap.exists() ? extrasCosplayPublicSnap.val() : null;
-    const cosplayJury   = extrasCosplayJurySnap.exists()   ? extrasCosplayJurySnap.val()   : null;
-    const viewers       = extrasViewersSnap.exists()       ? extrasViewersSnap.val()       : null;
-    const hosts         = extrasHostsSnap.exists()         ? extrasHostsSnap.val()         : null;
-
-    if (cosplayPublic?.pilotId) totals[cosplayPublic.pilotId] = (totals[cosplayPublic.pilotId] || 0) + 8;
-    if (cosplayJury?.pilotId)   totals[cosplayJury.pilotId]   = (totals[cosplayJury.pilotId]   || 0) + 10;
-    if (viewers?.pilotId)       totals[viewers.pilotId]       = (totals[viewers.pilotId]       || 0) + 3;
-    if (hosts?.pilotId)         totals[hosts.pilotId]         = (totals[hosts.pilotId]         || 0) + 2;
-
-    await set(ref(dbRealtime, `live/points/${phase}/totals`), totals);
-}
-
-/* ============================================================
    Montage global
    ============================================================ */
-
 document.addEventListener('DOMContentLoaded', async () => {
     mountPhaseSwitch();
     mountPilotsPanelSection();
-    // Le contexte va piloter tout le reste :
     attachContextListener();
 });
 
-// ====================================================================
-// Intégration "classement" — version simplifiée (leaderboard CP supprimé)
-// ====================================================================
-
+/* ============================================================
+   Intégration "classement" (inchangé)
+   ============================================================ */
 (function integrateClassementIntoControlPanel() {
     const HOST_ID = 'cp-classement-host';
     let api = null;
@@ -1208,7 +694,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const host = ensureHostInAside();
         if (!host || host.__classementMounted) return;
 
-        // Désactiver l’autoboot AVANT de charger le module
         window.__CL_FACTORY_MODE = true;
         const { initClassement } = await import('./ui/classement.js');
 
@@ -1217,7 +702,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         host.__classementMounted = true;
     }
 
-    // Attendre que le layout du CP ait créé l’aside (#cp-leaderboard)
     function whenAsideReady(cb, tries = 20) {
         const tick = () => {
             const aside = document.getElementById('cp-leaderboard');
@@ -1238,9 +722,82 @@ document.addEventListener('DOMContentLoaded', async () => {
         whenAsideReady(mountClassementOnce);
     }
 
-    // Helpers debug (facultatif)
     window.__cpClassement = {
         remount: () => { const h = document.getElementById(HOST_ID); if (h) h.__classementMounted = false; return mountClassementOnce(); },
+        destroy: () => { try { api?.destroy?.(); } catch {} }
+    };
+})();
+
+/* ============================================================
+   Intégration "race-strip" — montage dans #cp-races (mode Firebase)
+   ============================================================ */
+(function integrateRaceStripIntoControlPanel() {
+    const HOST_ID = 'cp-race-strip-host';
+    let api = null;
+
+    function ensureHostInHeader() {
+        const root = document.getElementById('cp-races'); // créé dans mountPilotsPanelSection()
+        if (!root) return null;
+        let host = root.querySelector('#' + HOST_ID);
+        if (!host) {
+            host = document.createElement('div');
+            host.id = HOST_ID;
+            host.className = 'cp-race-strip-host';
+            // on remplace le contenu existant (ancien DOM .cp-races-inner inutilisé)
+            root.replaceChildren(host);
+        }
+        return host;
+    }
+
+    async function mountOnce() {
+        const host = ensureHostInHeader();
+        if (!host || host.__raceStripMounted) return;
+
+        window.__RS_FACTORY_MODE = true;
+
+        const { initRaceStrip } = await import('./ui/race-strip.js');
+        api = initRaceStrip(host, {
+            controller: 'firebase', // écoute RTDB + calcule statuts + finalisation intégrée
+            mode: 'admin',
+            showPhaseNav: false,
+            onPhaseViewChange: (phase) => {
+                // si un jour showPhaseNav:true, on peut synchroniser la vue CP
+                // setViewPhase(phase);
+            },
+            onSelect: (raceId) => {
+                // Mémoriser l’inspection côté CP (utilisé par le panneau pilotes)
+                try {
+                    lastSelectedByPhase[viewPhase] = String(raceId);
+                    refreshPilotListView();
+                } catch (e) {
+                    console.error('[CP] onSelect race-strip -> update inspected:', e);
+                }
+            }
+        });
+
+        if (api?.ready) { try { await api.ready; } catch {} }
+        host.__raceStripMounted = true;
+    }
+
+    function whenRacesContainerReady(cb, tries = 20) {
+        const tick = () => {
+            const el = document.getElementById('cp-races');
+            if (el) cb();
+            else if (tries > 0) setTimeout(() => whenRacesContainerReady(cb, tries - 1), 100);
+            else console.warn('[CP] #cp-races introuvable, race-strip non monté.');
+        };
+        tick();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => whenRacesContainerReady(mountOnce), { once: true });
+    } else {
+        whenRacesContainerReady(mountOnce);
+    }
+
+    window.__cpRaceStrip = {
+        api: () => api,
+        remount: () => { const h = document.getElementById(HOST_ID); if (h) h.__raceStripMounted = false; return mountOnce(); },
         destroy: () => { try { api?.destroy?.(); } catch {} }
     };
 })();

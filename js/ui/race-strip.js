@@ -2,12 +2,9 @@
  * Race Strip — composant autonome (MK GP Experience 3)
  * ----------------------------------------------------
  * Bandeau de tuiles représentant les courses d'une phase (MK8/MKW).
+ * >>> Aligne sa logique "courses" strictement avec control-panel.js (listeners + calculs).
  *
- * Modes de contrôle:
- *  - controller: 'external'  → l’hôte pousse les données via setData/update.
- *  - controller: 'firebase'  → le composant se branche à Firebase, calcule les statuts, gère la finalisation.
- *
- * API (factory):
+ * API:
  *  export function initRaceStrip(container, options = {}) -> {
  *      host, ready, destroy, update, setData,
  *      setPhaseView(phase), getPhaseView()
@@ -15,28 +12,24 @@
  */
 
 /* ========================================================================== */
-/* Imports (facultatifs, lazy dans controller Firebase)                        */
-/* ========================================================================== */
-// NOTE: Pas d’import direct ici. En mode 'firebase', on fera des imports dynamiques
-// dans attachFirebaseController() pour éviter d’imposer Firebase aux intégrations externes.
-
-/* ========================================================================== */
 /* Constantes, classes, options par défaut                                     */
 /* ========================================================================== */
 
 const DEFAULTS = Object.freeze({
-    controller: 'external',           // 'external' | 'firebase'
-    mode: 'simple',                   // 'simple' | 'admin'
-    phase: 'mk8',                     // vue locale initiale
-    races: null,                      // si null → déduit de phase
-    activeRaceId: null,               // course "courante" globale (info affichage)
-    inspectedRaceId: null,            // sélection de vue
-    statusByRace: {},                 // map { raceId: 'filled'|'conflict'|'complete'|'activeEmpty'|null }
-    finalizedByRace: {},              // map { raceId: boolean }
-    onSelect: null,                   // (raceId)=>void
-    onFinalize: null,                 // async (raceId)=>void (utilisé en controller 'external')
-    showPhaseNav: false,              // nav consultative MK8 ⇄ MKW intégrée
-    onPhaseViewChange: null           // (phase)=>void — notification côté hôte
+    controller: 'firebase',            // 'firebase' (par défaut) ou 'external'
+    mode: 'simple',                    // 'simple' | 'admin'
+    phase: 'mk8',                      // vue locale initiale
+    races: null,                       // si null → déduit de phase
+    activeRaceId: null,                // affichage (sera piloté par context)
+    inspectedRaceId: null,             // sélection de vue
+    // Maps d’états PAR PHASE (strict, évite les fuites MK8<->MKW)
+    statusByRace: { mk8: {}, mkw: {} },        // { phase: { raceId: 'filled'|'conflict'|'complete'|'activeEmpty'|null } }
+    finalizedByRace: { mk8: {}, mkw: {} },     // { phase: { raceId: boolean } }
+    // Callbacks (optionnels)
+    onSelect: null,                    // (raceId)=>void
+    onFinalize: null,                  // async (raceId)=>void (controller 'external')
+    showPhaseNav: false,               // nav consultative MK8 ⇄ MKW intégrée
+    onPhaseViewChange: null            // (phase)=>void — notification côté hôte
 });
 
 const CLASSNAMES = Object.freeze({
@@ -55,13 +48,13 @@ const CLASSNAMES = Object.freeze({
         FILLED: 'is-filled',
         CONFLICT: 'is-conflict',
         ACTIVE_EMPTY: 'is-active-empty',
-        COMPLETE_PENDING: 'is-complete-pending',
-        COMPLETE_FINAL: 'is-complete-final'
+        COMPLETE_PENDING: 'is-complete-pending', // complete (non finalisée)
+        COMPLETE_FINAL: 'is-complete-final'       // complete + finalisée
     }
 });
 
 /* ========================================================================== */
-/* Utilitaires DOM basiques                                                    */
+/* Utilitaires DOM                                                             */
 /* ========================================================================== */
 
 function el(tag, attrs = {}, ...children) {
@@ -78,176 +71,84 @@ function el(tag, attrs = {}, ...children) {
 }
 
 /* ========================================================================== */
-/* Helpers “données”                                                           */
+/* Helpers “données” (alignés avec control-panel.js)                           */
 /* ========================================================================== */
 
-function buildDefaultRaces(phase) {
-    const p = String(phase || '').toLowerCase();
-    if (p === 'mkw') {
-        const arr = [];
-        for (let i = 1; i <= 6; i++) arr.push(String(i)); // 1..6
-        arr.push('S');                                    // Survie 1
-        for (let i = 7; i <= 12; i++) arr.push(String(i)); // 7..12
-        arr.push('SF');                                   // Survie Finale
-        return arr;
+function GRID_SIZE(phase) {
+    return (String(phase).toLowerCase() === 'mkw') ? 24 : 12;
+}
+
+function buildRaceList(phase) {
+    phase = String(phase).toLowerCase();
+    if (phase === 'mkw') {
+        const list = [];
+        for (let i = 1; i <= 6; i++) list.push(String(i));
+        list.push('S');
+        for (let i = 7; i <= 12; i++) list.push(String(i));
+        list.push('SF');
+        return list;
     }
-    // MK8 : 1..8
     return Array.from({ length: 8 }, (_, i) => String(i + 1));
 }
 
-function GRID_SIZE(phase) {
-    const p = String(phase || '').toLowerCase();
-    return p === 'mkw' ? 24 : 12;
-}
-
-function normalizeOptions(opts) {
-    const input = opts || {};
-    const o = { ...DEFAULTS, ...input };
-
-    // Phase normalisée
-    const phaseKey = String(o.phase || 'mk8').toLowerCase();
-    o.phase = (phaseKey === 'mkw') ? 'mkw' : 'mk8';
-
-    // Flag interne : la phase a-t-elle été fournie explicitement par l'hôte ?
-    // (utile pour ne pas écraser la vue avec context/current tant que l’hôte force une phase)
-    o._phaseLockedByOptions = Object.prototype.hasOwnProperty.call(input, 'phase');
-
-    // Normalisation des ids → 'S'/'SF' en uppercase
-    const normalizeId = (v) => (v == null ? v : String(v).toUpperCase());
-
-    o.activeRaceId = normalizeId(o.activeRaceId);
-    o.inspectedRaceId = normalizeId(o.inspectedRaceId);
-
-    // Races par défaut si non fournies
-    if (!Array.isArray(o.races) || o.races.length === 0) {
-        o.races = buildDefaultRaces(o.phase);
-    } else {
-        o.races = o.races.map(normalizeId);
-    }
-
-    // status/finalized → maps propres (copie superficielle)
-    o.statusByRace = { ...(o.statusByRace || {}) };
-    o.finalizedByRace = { ...(o.finalizedByRace || {}) };
-
-    // inspectedRaceId prioritaire: inspected valide → sinon active si valide → sinon 1ère
-    if (!o.inspectedRaceId || !o.races.includes(o.inspectedRaceId)) {
-        o.inspectedRaceId = (o.activeRaceId && o.races.includes(o.activeRaceId))
-            ? o.activeRaceId
-            : o.races[0];
-    }
-
-    return o;
-}
-
 function computeRaceStatusFromResults(results, gridSize) {
-    if (!results || typeof results !== 'object') return null;
-
-    let filledCount = 0;
     const rankCount = new Map();
-
-    for (const obj of Object.values(results)) {
-        const r = Number(obj?.rank);
+    let filledCount = 0;
+    Object.values(results || {}).forEach(v => {
+        const r = Number(v?.rank);
         if (Number.isInteger(r) && r > 0) {
             filledCount++;
             rankCount.set(r, (rankCount.get(r) || 0) + 1);
         }
-    }
-
-    // Conflits : au moins deux pilotes avec le même rang
+    });
     const hasConflict = [...rankCount.values()].some(n => n >= 2);
     if (hasConflict) return 'conflict';
-
-    // Complète : toutes les places sont remplies
-    if (gridSize && filledCount === gridSize) return 'complete';
-
-    // Partiellement remplie
+    if (gridSize && filledCount === Number(gridSize)) return 'complete';
     if (filledCount > 0) return 'filled';
-
-    // Vide
     return null;
 }
 
+function pickDefaultInspected(phase, activeId, finalizedByRace) {
+    const order = buildRaceList(phase);
+    if (activeId && order.includes(activeId)) return activeId;
+    const allFinalized = order.every(id => !!finalizedByRace?.[id]);
+    return allFinalized ? order[order.length - 1] : order[0];
+}
+
 /* ========================================================================== */
-/* Rendu & interactions                                                        */
+/* Rendu                                                                       */
 /* ========================================================================== */
 
 function computeLayout(phaseView) {
     const p = String(phaseView || '').toLowerCase();
     if (p === 'mkw') {
-        // Deux lignes: 6 courses, Survie 1, puis 6 courses, Survie Finale
-        // IDs BDD conservés: '1'..'6','S','7'..'12','SF'
         return [
             ['1','2','3','4','5','6','S'],
             ['7','8','9','10','11','12','SF']
         ];
     }
-    // MK8 : une ligne 1..8
     return [['1','2','3','4','5','6','7','8']];
 }
 
-function ensureRacesForPhase(state, phaseView) {
-    const pv = String(phaseView || '').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-    state.phase = pv;
-
-    // Liste de courses standardisée selon la vue
-    const races = buildDefaultRaces(pv);
-    state.races = races;
-
-    // Active: ne garder que si elle existe encore dans cette vue
-    if (state.activeRaceId && !races.includes(state.activeRaceId)) {
-        state.activeRaceId = null;
-    }
-
-    // Inspected: priorité à l’existante valide → sinon active → sinon 1ère
-    if (!state.inspectedRaceId || !races.includes(state.inspectedRaceId)) {
-        state.inspectedRaceId = (state.activeRaceId && races.includes(state.activeRaceId))
-            ? state.activeRaceId
-            : races[0];
-    }
-}
-
 function renderHeaderNav(host, state, getPhaseView, setPhaseView) {
-    // Nettoyer la nav si option désactivée
     if (!state.showPhaseNav) {
-        const old = host.querySelector(`.${CLASSNAMES.NAV}`);
-        if (old) old.remove();
+        host.querySelector(`.${CLASSNAMES.NAV}`)?.remove();
         return;
     }
-
-    // Créer ou réutiliser le conteneur
     let $nav = host.querySelector(`.${CLASSNAMES.NAV}`);
     if (!$nav) {
-        $nav = el('div', {
-            class: CLASSNAMES.NAV,
-            role: 'toolbar',
-            'aria-label': 'Navigation de phase'
-        });
+        $nav = el('div', { class: CLASSNAMES.NAV, role: 'toolbar', 'aria-label': 'Navigation de phase' });
         host.prepend($nav);
     } else {
         $nav.replaceChildren();
     }
 
     const current = String(getPhaseView() || 'mk8').toLowerCase();
-    const $btnPrev = el('button', {
-        class: CLASSNAMES.NAV_BTN,
-        type: 'button',
-        'aria-label': 'Phase précédente'
-    }, '‹');
+    const $btnPrev = el('button', { class: CLASSNAMES.NAV_BTN, type: 'button', 'aria-label': 'Phase précédente' }, '‹');
+    const $label  = el('div', { class: CLASSNAMES.NAV_LABEL }, current.toUpperCase());
+    const $btnNext = el('button', { class: CLASSNAMES.NAV_BTN, type: 'button', 'aria-label': 'Phase suivante' }, '›');
 
-    const $label = el('div', { class: CLASSNAMES.NAV_LABEL }, current.toUpperCase());
-
-    const $btnNext = el('button', {
-        class: CLASSNAMES.NAV_BTN,
-        type: 'button',
-        'aria-label': 'Phase suivante'
-    }, '›');
-
-    // Logique simple : alterne entre mk8 et mkw
-    const togglePhase = () => {
-        const next = (current === 'mk8') ? 'mkw' : 'mk8';
-        setPhaseView(next);
-    };
-
+    const togglePhase = () => setPhaseView(current === 'mk8' ? 'mkw' : 'mk8');
     $btnPrev.addEventListener('click', togglePhase);
     $btnNext.addEventListener('click', togglePhase);
 
@@ -258,26 +159,28 @@ function renderRows(host, state, getPhaseView) {
     const phaseView = String(getPhaseView() || 'mk8').toLowerCase();
     const rows = computeLayout(phaseView);
 
-    // Construit un inner neuf pour remplacer l'ancien (supprime les anciens listeners)
+    // Maps par phase (alignement strict)
+    const statusMap    = state.statusByRace?.[phaseView] || {};
+    const finalizedMap = state.finalizedByRace?.[phaseView] || {};
+
     const inner = el('div', { class: CLASSNAMES.INNER });
 
     rows.forEach((raceIds, rowIdx) => {
         const $row = el('div', { class: CLASSNAMES.ROW, 'data-row': String(rowIdx + 1) });
 
         raceIds.forEach((raceId) => {
-            const status = state.statusByRace?.[raceId] ?? null;
-            const finalized = !!state.finalizedByRace?.[raceId];
+            const status = statusMap[raceId] ?? null;
+            const isFinalized = !!finalizedMap[raceId];
 
-            // Libellé affiché : en MKW, on montre 8..13 pour les IDs 7..12 (BDD intacte)
+            // Libellé pour MKW (8..13 affiché pour ids 7..12)
             let label = raceId;
             if (phaseView === 'mkw') {
                 const n = Number(raceId);
-                if (Number.isInteger(n) && n >= 7 && n <= 12) {
-                    label = String(n + 1); // affichage décalé
-                }
+                if (Number.isInteger(n) && n >= 7 && n <= 12) label = String(n + 1);
+                if (raceId === 'S')  label = 'S';
+                if (raceId === 'SF') label = 'SF';
             }
 
-            // Tuile (bouton)
             const $btn = el('button', {
                 class: CLASSNAMES.TILE,
                 type: 'button',
@@ -286,7 +189,6 @@ function renderRows(host, state, getPhaseView) {
                 'aria-label': `Course ${label} (${phaseView.toUpperCase()})`
             }, label);
 
-            // États visuels
             if (state.inspectedRaceId === raceId) $btn.classList.add(CLASSNAMES.STATE.INSPECTED);
             if (state.activeRaceId === raceId)    $btn.classList.add(CLASSNAMES.STATE.ACTIVE);
 
@@ -297,19 +199,20 @@ function renderRows(host, state, getPhaseView) {
             } else if (status === 'activeEmpty') {
                 $btn.classList.add(CLASSNAMES.STATE.ACTIVE_EMPTY);
             } else if (status === 'complete') {
-                // Distinction pending/final
-                if (finalized) $btn.classList.add(CLASSNAMES.STATE.COMPLETE_FINAL);
+                if (isFinalized) $btn.classList.add(CLASSNAMES.STATE.COMPLETE_FINAL);
                 else           $btn.classList.add(CLASSNAMES.STATE.COMPLETE_PENDING);
             }
 
-            // Clic = inspect
             $btn.addEventListener('click', () => {
+                // Lock inspection côté utilisateur
+                state._inspectLocked = true;
+                state.__lastSelectedByPhase[phaseView] = raceId;
+
                 if (state.inspectedRaceId !== raceId) {
                     state.inspectedRaceId = raceId;
                     if (typeof state.onSelect === 'function') {
                         try { state.onSelect(raceId); } catch (e) { console.error(e); }
                     }
-                    // micro-maj locales
                     inner.querySelectorAll(`.${CLASSNAMES.TILE}`).forEach(t => {
                         const isMe = t.dataset.raceId === raceId;
                         t.classList.toggle(CLASSNAMES.STATE.INSPECTED, isMe);
@@ -318,25 +221,24 @@ function renderRows(host, state, getPhaseView) {
                 }
             });
 
-            // Cellule + bouton Finaliser (si mode admin)
+            // Bouton Finaliser (mode admin) — même règle que control-panel
             const $cellChildren = [$btn];
             if (state.mode === 'admin') {
                 const $finalize = el('button', {
                     class: CLASSNAMES.FINALIZE,
                     type: 'button',
-                    title: finalized ? 'Course déjà finalisée' : 'Finaliser la course'
-                }, finalized ? '✔' : '✓');
+                    title: isFinalized ? 'Course déjà finalisée' : 'Finaliser la course'
+                }, isFinalized ? '✔' : '✓');
 
-                // Règle d'activation selon le contrôleur
                 let can = false;
                 if (state.controller === 'firebase') {
-                    // s'appuie sur la logique interne de statut/finalisation
-                    can = canFinalizeFirebase(state, raceId);
+                    const started = isPhaseStarted(state, phaseView);
+                    can = (started && status === 'complete' && !isFinalized);
                 } else {
-                    // contrôleur 'external' : simple heuristique
-                    can = (status === 'complete' && finalized !== true);
+                    can = (status === 'complete' && !isFinalized);
                 }
 
+                // --- application gate (identique) ---
                 if (!can) {
                     $finalize.disabled = true;
                     $finalize.setAttribute('aria-disabled', 'true');
@@ -346,18 +248,21 @@ function renderRows(host, state, getPhaseView) {
                     ev.stopPropagation();
                     if ($finalize.disabled) return;
 
-                    try {
-                        $finalize.disabled = true;
-                        $finalize.setAttribute('aria-busy', 'true');
+                    $finalize.disabled = true;
+                    $finalize.setAttribute('aria-busy', 'true');
 
+                    try {
                         if (state.controller === 'firebase' && state.__fb?.runFinalize) {
                             await state.__fb.runFinalize(raceId);
                         } else if (typeof state.onFinalize === 'function') {
                             await state.onFinalize(raceId);
-                            // En mode external, on laisse l'hôte pousser la mise à jour via setData()
+                        } else {
+                            throw new Error('Finalize controller unavailable');
                         }
                     } catch (e) {
                         console.error('[race-strip] finalize error:', e);
+                        // 🔁 Réactiver le bouton en cas d’échec (aujourd’hui il restait grisé)
+                        $finalize.disabled = false;
                     } finally {
                         $finalize.removeAttribute('aria-busy');
                     }
@@ -373,207 +278,149 @@ function renderRows(host, state, getPhaseView) {
         inner.appendChild($row);
     });
 
-    // Remplace l’inner existant
     const currentInner = host.querySelector(`.${CLASSNAMES.INNER}`);
     if (currentInner) host.replaceChild(inner, currentInner);
     else host.appendChild(inner);
 }
 
-function attachEventHandlers(host, state) {
-    // No-op volontaire :
-    // - Pas de navigation clavier requise pour ce composant.
-    // - Les listeners click sont déjà attachés au moment du rendu des tiles.
-    // - On garde cette fonction pour une éventuelle extension future (tooltips, etc.).
-}
-
-function detachHandlers(detachBag) {
-    if (Array.isArray(detachBag)) {
-        detachBag.forEach(fn => { try { fn(); } catch {} });
-        detachBag.length = 0;
-    }
-}
-
 /* ========================================================================== */
-/* Contrôleur Firebase                                                         */
+/* Logique alignée control-panel: active & statuts                             */
 /* ========================================================================== */
 
-function getActiveRaceIdForPhase(context, caches, phase) {
-    const p = String(phase || '').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-    const order = buildDefaultRaces(p);
-    const finals = (caches && caches.races && caches.races[p]) ? caches.races[p] : {};
+// Phase démarrée = context/current pointe cette phase ET une raceId est définie
+function isPhaseStarted(state, phase) {
+    const p = String(phase || '').toLowerCase();
+    const activeP = String(state.__activeTournamentPhase || '').toLowerCase();
+    return (p === activeP) && !!state.__activeRaceId; // ne lit plus state.__ctx
+}
 
-    // 1) Si le context pointe explicitement cette phase avec une raceId valide → priorité
-    if (context && String(context.phase).toLowerCase() === p) {
-        const rid = context.raceId != null ? String(context.raceId).toUpperCase() : null;
-        if (rid && order.includes(rid)) {
-            return rid;
-        }
-        // sinon heuristique ci-dessous
+// Détermine la course "active" pour une phase donnée (exact cp)
+function getActiveRaceIdForPhase_cp(state, phase) {
+    const activeTournamentPhase = String(state.__activeTournamentPhase || 'mk8');
+    const activeRaceId = state.__activeRaceId || null;
+
+    if (phase === activeTournamentPhase) return activeRaceId;
+
+    const order = buildRaceList(phase);
+    const finals = state.finalizedByRace?.[phase] || {};
+    for (const k of order) {
+        if (!finals[k]) return k; // NON finalisée (booléen)
     }
-
-    // 2) Heuristique pré/pendant/après phase :
-    for (const rid of order) {
-        const f = finals && finals[rid];
-        const isFinalized = !!(f && f.finalized);
-        if (!isFinalized) return rid; // première non finalisée
-    }
-
-    // 3) Tout finalisé → dernière (inclut la finale)
     return order[order.length - 1];
 }
 
-function computeMapsForPhase(context, caches, phase) {
-    const p = String(phase || '').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-    const order = buildDefaultRaces(p);
-    const gridSize = GRID_SIZE(p);
+// Statut déterministe (exact cp)
+function getRaceStatusDeterministic_cp(state, caches, phase, raceId) {
+    const grid = GRID_SIZE(phase);
+    const activeId = getActiveRaceIdForPhase_cp(state, phase);
+    const activeTournamentPhase = String(state.__activeTournamentPhase || 'mk8');
+    const finals = state.finalizedByRace?.[phase] || {};
 
-    const activeId = getActiveRaceIdForPhase(context, caches, p);
-    const statusByRace = {};
-    const finalizedByRace = {};
+    // Course ACTIVE de la phase ACTIVE
+    if (phase === activeTournamentPhase && raceId === activeId) {
+        const current = caches.currentResultsByPhase?.[phase] || {};
+        const hasCurrent = Object.values(current).some(v => v && Number(v.rank) > 0);
+        if (hasCurrent) return computeRaceStatusFromResults(current, grid);
 
-    const finalsTree   = (caches && caches.races && caches.races[p]) || {};
-    const currentTree  = (caches && caches.currentResults && caches.currentResults[p]) || {};
-    const byRaceTree   = (caches && caches.byRace && caches.byRace[p]) || {};
+        const ranks = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
+        const hasRanks = Object.values(ranks).some(v => v && Number(v.rank) > 0);
+        if (hasRanks) return computeRaceStatusFromResults(ranks, grid) || 'filled';
 
-    order.forEach((raceId) => {
-        // finalized map
-        finalizedByRace[raceId] = !!(finalsTree[raceId] && finalsTree[raceId].finalized);
+        return finals[raceId] ? 'complete' : 'activeEmpty';
+    }
 
-        let status = null;
-
-        // Course active du context → lire "current"
-        if (context && String(context.phase).toLowerCase() === p && String(context.raceId || '').toUpperCase() === raceId) {
-            const hasAnyCurrent = Object.values(currentTree || {}).some(v => v && v.rank != null);
-            if (!hasAnyCurrent) {
-                status = 'activeEmpty';
-            } else {
-                status = computeRaceStatusFromResults(currentTree, gridSize) || 'filled';
-            }
-        } else {
-            // Sinon lire byRace/ranks
-            const ranks = (byRaceTree[raceId] && byRaceTree[raceId].ranks) || {};
-            const hasAny = Object.values(ranks).some(v => v && v.rank != null);
-            if (hasAny) {
-                status = computeRaceStatusFromResults(ranks, gridSize) || 'filled';
-            } else {
-                status = null;
-            }
-        }
-
-        statusByRace[raceId] = status;
-    });
-
-    return { activeId, statusByRace, finalizedByRace };
+    // NON active → byRace/ranks uniquement
+    const ranks = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
+    const hasAny = Object.values(ranks).some(v => v && Number(v.rank) > 0);
+    if (!hasAny) return finals[raceId] ? 'complete' : null;
+    return computeRaceStatusFromResults(ranks, grid) || 'filled';
 }
 
+/* ========================================================================== */
+/* Contrôleur Firebase (écoutes strictement alignées)                          */
+/* ========================================================================== */
+
 async function loadPointsMatrices(fb, pointsMatrices) {
-    // Charge une seule fois les matrices depuis Firestore (pointMatrices/default).
+    // Strictement équivalent: on suppose des matrices en Firestore si besoin.
+    // (La version control-panel calcule surtout depuis RTDB; on laisse ce helper prêt.)
     if (pointsMatrices.__loaded) return;
     const docRef = fb.doc(fb.dbFirestore, 'pointMatrices', 'default');
-    arequire(docRef); // évite l’avertissement de variable non utilisée si bundler strict
-    const snap = await fb.getDoc(docRef);
-    const data = snap.exists() ? (snap.data() || {}) : {};
-
+    const snap = await fb.getDoc(docRef).catch(()=>null);
+    const data = snap && snap.exists() ? (snap.data() || {}) : {};
     pointsMatrices.mk8 = Array.isArray(data.mk8) ? data.mk8 : [];
     pointsMatrices.mkwRace = Array.isArray(data.mkwRace) ? data.mkwRace : [];
     pointsMatrices.mkwSurvival1 = Array.isArray(data.mkwSurvival1) ? data.mkwSurvival1 : [];
     pointsMatrices.mkwSurvival2 = Array.isArray(data.mkwSurvival2) ? data.mkwSurvival2 : [];
     pointsMatrices.__loaded = true;
-
-    function arequire(_) {}
 }
 
 function basePointsFor(pointsMatrices, phase, raceId, rank) {
-    // Retourne les points de base pour un rank (1-indexé).
     const r = Number(rank);
     if (!Number.isInteger(r) || r <= 0) return 0;
-
-    if (phase === 'mk8') {
-        // mk8: tableau 12 cases indexées [0..11]
-        return Number(pointsMatrices.mk8?.[r - 1] ?? 0);
-    }
-
-    // MKW: selon type de course
-    if (raceId === 'S') {
-        return Number(pointsMatrices.mkwSurvival1?.[r - 1] ?? 0);
-    }
-    if (raceId === 'SF') {
-        return Number(pointsMatrices.mkwSurvival2?.[r - 1] ?? 0);
-    }
-    // Courses "classiques" MKW
+    if (phase === 'mk8') return Number(pointsMatrices.mk8?.[r - 1] ?? 0);
+    if (raceId === 'S')  return Number(pointsMatrices.mkwSurvival1?.[r - 1] ?? 0);
+    if (raceId === 'SF') return Number(pointsMatrices.mkwSurvival2?.[r - 1] ?? 0);
     return Number(pointsMatrices.mkwRace?.[r - 1] ?? 0);
 }
 
-function canFinalizeFirebase(state, raceId) {
-    const st = state.statusByRace?.[raceId];
-    const isFinal = !!state.finalizedByRace?.[raceId];
-    return (st === 'complete' && !isFinal);
-}
-
 async function recomputeTotalsForPhase(fb, phase) {
-    // Recalcule live/points/{phase}/totals à partir de byRace + extras (cosplay/awards)
     const totals = {};
-
-    // Agrège byRace
-    const byRaceSnap = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/byRace`));
-    if (byRaceSnap.exists()) {
-        const byRace = byRaceSnap.val() || {};
-        Object.values(byRace).forEach((raceObj) => {
-            Object.entries(raceObj || {}).forEach(([pilotId, obj]) => {
-                const val = Number(obj?.final ?? 0);
-                totals[pilotId] = (totals[pilotId] || 0) + val;
-            });
+    const byRaceSnap = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/byRace`)).catch(()=>null);
+    const byRace = byRaceSnap && byRaceSnap.exists() ? (byRaceSnap.val() || {}) : {};
+    Object.values(byRace).forEach((raceObj) => {
+        Object.entries(raceObj || {}).forEach(([pilotId, obj]) => {
+            const val = Number(obj?.final ?? 0);
+            totals[pilotId] = (totals[pilotId] || 0) + val;
         });
-    }
+    });
 
-    // Extras
-    const cosplayPublicSnap = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/cosplay/public`));
-    const cosplayJurySnap   = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/cosplay/jury`));
-    const viewersSnap       = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/awards/viewers`));
-    const hostsSnap         = await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/awards/hosts`));
+    // Extras (optionnels)
+    const cosplayPublic = (await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/cosplay/public`)).catch(()=>null));
+    const cosplayJury   = (await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/cosplay/jury`)).catch(()=>null));
+    const viewers       = (await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/awards/viewers`)).catch(()=>null));
+    const hosts         = (await fb.get(fb.ref(fb.dbRealtime, `live/points/${phase}/extras/awards/hosts`)).catch(()=>null));
 
-    const cosplayPublic = cosplayPublicSnap.exists() ? cosplayPublicSnap.val() : null;
-    const cosplayJury   = cosplayJurySnap.exists()   ? cosplayJurySnap.val()   : null;
-    const viewers       = viewersSnap.exists()       ? viewersSnap.val()       : null;
-    const hosts         = hostsSnap.exists()         ? hostsSnap.val()         : null;
+    const cvPub = cosplayPublic && cosplayPublic.exists() ? cosplayPublic.val() : null;
+    const cvJur = cosplayJury   && cosplayJury.exists()   ? cosplayJury.val()   : null;
+    const vw    = viewers       && viewers.exists()       ? viewers.val()       : null;
+    const hs    = hosts         && hosts.exists()         ? hosts.val()         : null;
 
-    if (cosplayPublic?.pilotId) totals[cosplayPublic.pilotId] = (totals[cosplayPublic.pilotId] || 0) + 8;
-    if (cosplayJury?.pilotId)   totals[cosplayJury.pilotId]   = (totals[cosplayJury.pilotId]   || 0) + 10;
-    if (viewers?.pilotId)       totals[viewers.pilotId]       = (totals[viewers.pilotId]       || 0) + 3;
-    if (hosts?.pilotId)         totals[hosts.pilotId]         = (totals[hosts.pilotId]         || 0) + 2;
+    if (cvPub?.pilotId) totals[cvPub.pilotId] = (totals[cvPub.pilotId] || 0) + 8;
+    if (cvJur?.pilotId) totals[cvJur.pilotId] = (totals[cvJur.pilotId] || 0) + 10;
+    if (vw?.pilotId)    totals[vw.pilotId]    = (totals[vw.pilotId]    || 0) + 3;
+    if (hs?.pilotId)    totals[hs.pilotId]    = (totals[hs.pilotId]    || 0) + 2;
 
     await fb.set(fb.ref(fb.dbRealtime, `live/points/${phase}/totals`), totals);
 }
 
-async function finalizeRaceFirebase(fb, context, caches, pointsMatrices, state, raceId, setStateAndRender) {
-    // Finalise une course: copie ranks, calcule points, met à jour totals et flags, avance context si nécessaire.
+async function finalizeRaceFirebase(fb, state, caches, raceId) {
     if (!raceId) throw new Error('raceId manquant.');
     const phase = state.phase;
-    const grid  = GRID_SIZE(phase);
+    const grid = GRID_SIZE(phase);
 
-    // Matrices points (lazy load)
-    await loadPointsMatrices(fb, pointsMatrices);
+    // 0) Matrices de points (Firestore)
+    await loadPointsMatrices(fb, state.__pointsMatrices);
 
-    // Course active ?
-    const isActivePhase = (context && String(context.phase).toLowerCase() === phase);
-    const activeId = getActiveRaceIdForPhase(context, caches, phase);
+    const isActivePhase = (String(state.__activeTournamentPhase || 'mk8') === phase);
+    const activeId = getActiveRaceIdForPhase_cp(state, phase);
     const useCurrent = isActivePhase && (activeId === raceId);
 
-    // 1) S'assurer que la course est complète et sans conflit
+    // 1) Vérifier complétude + récupérer les rangs source
     let ranksSource = null;
     if (useCurrent) {
-        const status = computeRaceStatusFromResults(caches.currentResults?.[phase] || {}, grid);
-        if (status !== 'complete') throw new Error('Classements incomplets/invalides (current).');
-        ranksSource = caches.currentResults?.[phase] || {};
+        const cur = caches.currentResultsByPhase?.[phase] || {};
+        const st  = computeRaceStatusFromResults(cur, grid);
+        if (st !== 'complete') throw new Error('Classements incomplets/invalides (current).');
+        ranksSource = cur;
     } else {
-        const ranksNodeSnap = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/ranks`));
-        const ranksNode = ranksNodeSnap.exists() ? (ranksNodeSnap.val() || {}) : {};
-        const status = computeRaceStatusFromResults(ranksNode, grid);
-        if (status !== 'complete') throw new Error('Classements incomplets/invalides (byRace).');
+        const ranksSnap = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/ranks`)).catch(()=>null);
+        const ranksNode = ranksSnap && ranksSnap.exists() ? (ranksSnap.val() || {}) : {};
+        const st  = computeRaceStatusFromResults(ranksNode, grid);
+        if (st !== 'complete') throw new Error('Classements incomplets/invalides (byRace).');
         ranksSource = ranksNode;
     }
 
-    // 2) Si course active: copier current → byRace/ranks
+    // 2) Copier current → byRace/ranks si course active
     if (useCurrent) {
         const updates = {};
         Object.entries(ranksSource).forEach(([pilotId, obj]) => {
@@ -587,16 +434,16 @@ async function finalizeRaceFirebase(fb, context, caches, pointsMatrices, state, 
         }
     }
 
-    // 3) Calculer points byRace
-    const ranksSnap = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/ranks`));
-    const doublesSnap = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/doubles`));
-    const ranks = ranksSnap.exists() ? (ranksSnap.val() || {}) : {};
-    const doubles = doublesSnap.exists() ? (doublesSnap.val() || {}) : {};
+    // 3) Calcul points byRace (rank/base/doubled/final)
+    const ranksSnap2 = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/ranks`)).catch(()=>null);
+    const doublesSnap = await fb.get(fb.ref(fb.dbRealtime, `live/results/${phase}/byRace/${raceId}/doubles`)).catch(()=>null);
+    const ranks = ranksSnap2 && ranksSnap2.exists() ? (ranksSnap2.val() || {}) : {};
+    const doubles = doublesSnap && doublesSnap.exists() ? (doublesSnap.val() || {}) : {};
 
     const pointsUpdates = {};
     Object.entries(ranks).forEach(([pilotId, v]) => {
         const rank = Number(v?.rank ?? 0);
-        const base = basePointsFor(pointsMatrices, phase, raceId, rank);
+        const base = basePointsFor(state.__pointsMatrices, phase, raceId, rank);
         const doubled = !!doubles[pilotId];
         const final = base * (doubled ? 2 : 1);
         pointsUpdates[`live/points/${phase}/byRace/${raceId}/${pilotId}`] = { rank, base, doubled, final };
@@ -605,101 +452,113 @@ async function finalizeRaceFirebase(fb, context, caches, pointsMatrices, state, 
         await fb.update(fb.ref(fb.dbRealtime, '/'), pointsUpdates);
     }
 
-    // 4) Totaux phase
+    // 4) Totaux de phase
     await recomputeTotalsForPhase(fb, phase);
 
-    // 5) Marquer course finalisée
-    await fb.set(fb.ref(fb.dbRealtime, `live/races/${phase}/${raceId}`), { finalized: true });
+    // 5) Marquer finalisée (booléen pur)
+    await fb.set(fb.ref(fb.dbRealtime, `live/races/${phase}/${raceId}`), true);
 
-    // 6) Si active: nettoyer current et avancer context/current
+    // 6) Si course active: nettoyer current et avancer context/current
     if (useCurrent) {
         await fb.remove(fb.ref(fb.dbRealtime, `live/results/${phase}/current`)).catch(()=>{});
-        const order = buildDefaultRaces(phase);
+        const order = buildRaceList(phase);
         const idx   = order.indexOf(raceId);
         const next  = (idx >= 0 && idx < order.length - 1) ? order[idx + 1] : null;
         if (next) {
-            await fb.update(fb.ref(fb.dbRealtime, `context/current`), {
-                phase, raceId: next, rid: `${phase}-${next}`
-            });
-            // Mise à jour locale de la sélection
-            state.inspectedRaceId = next;
+            await fb.update(fb.ref(fb.dbRealtime, `context/current`), { phase, raceId: next, rid: `${phase}-${next}` });
         } else {
-            // Fin de phase : on garde la dernière, on nettoie raceId
-            await fb.update(fb.ref(fb.dbRealtime, `context/current`), {
-                phase, raceId: null, rid: null
-            });
+            await fb.update(fb.ref(fb.dbRealtime, `context/current`), { phase, raceId: null, rid: null });
         }
     }
-
-    // 7) Refresh local via caches → maps → render
-    const maps = computeMapsForPhase(context, caches, phase);
-    setStateAndRender({
-        activeRaceId: maps.activeId,
-        statusByRace: maps.statusByRace,
-        finalizedByRace: maps.finalizedByRace
-    });
 }
 
 function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAndRender) {
-    // --- Flags & caches internes ---
-    let fb = null; // { dbRealtime, dbFirestore, ref, onValue, off, get, set, update, remove, doc, getDoc }
-    let context = null; // snapshot de context/current
-    let userPhaseOverridden = false; // l’utilisateur a changé la vue via la nav du composant
-    const unsub = { context: null, current: null, byRace: null, races: null, phaseKey: null };
+    // Refs et caches strictement alignés
+    let fb = null;
 
-    // Caches pour calculer les maps sans relire tout à chaque fois
+    // Variables “globales” du control-panel (scopées à l’instance)
+    state.__activeTournamentPhase = 'mk8';
+    state.__activeRaceId = '1';
+    state.__pointsMatrices = { mk8: null, mkwRace: null, mkwSurvival1: null, mkwSurvival2: null, __loaded: false };
+
+    // Sélection inspectée mémorisée par phase (alignement cp)
+    state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };
+
+    // Caches RTDB
     const caches = {
-        currentResults: { mk8: {}, mkw: {} }, // live/results/{phase}/current
-        byRace:         { mk8: {}, mkw: {} }, // live/results/{phase}/byRace
-        races:          { mk8: {}, mkw: {} }  // live/races/{phase}/{raceId}: { finalized }
+        currentResultsByPhase: { mk8: {}, mkw: {} }, // live/results/{phase}/current
+        byRaceResultsByPhase:  { mk8: {}, mkw: {} }, // live/results/{phase}/byRace
+        lastFinalizedByPhase:  { mk8: {}, mkw: {} }  // live/races/{phase}/{raceId}.finalized
     };
 
-    // Matrices de points Firestore (lazy-loaded)
-    const pointsMatrices = { mk8: null, mkwRace: null, mkwSurvival1: null, mkwSurvival2: null, __loaded: false };
+    // Suivi automatique du contexte en viewer (simple), comme convenu
+    const followContext = (state.mode !== 'admin');
 
-    // Intercepter les changements de phase vue (provenant de la nav du composant)
-    // pour ne plus écraser la vue utilisateur quand le contexte change.
-    const originalOnPhaseViewChange = state.onPhaseViewChange;
-    state.onPhaseViewChange = (phase) => {
-        userPhaseOverridden = true;
-        // (ré)attacher les listeners sur la phase choisie
-        ensurePhaseListeners(phase);
-        // recalc + render immédiat
-        const maps = computeMapsForPhase(context, caches, phase);
+    // Listeners en cours
+    const unsub = { context: null, currentPhase: {ref:null,cb:null}, byRace: {ref:null,cb:null}, races: {ref:null,cb:null}, phaseKey: null };
+
+    // Applique les maps pour une phase (exact cp) et déclenche le render
+    const applyMaps = (phaseLike) => {
+        const phase = (String(phaseLike || state.phase).toLowerCase() === 'mkw') ? 'mkw' : 'mk8';
+
+        // active + inspected
+        const activeId = getActiveRaceIdForPhase_cp(state, phase);
+        const inspected = state._inspectLocked
+            ? state.inspectedRaceId
+            : (state.__lastSelectedByPhase[phase] || activeId || buildRaceList(phase)[0]);
+
+        // Statuts par course (via getRaceStatusDeterministic)
+        const order = buildRaceList(phase);
+        const statusByRacePhase = {};
+        order.forEach((rid) => {
+            statusByRacePhase[rid] = getRaceStatusDeterministic_cp(state, caches, phase, rid);
+        });
+
+        // Merge PAR PHASE (strict)
+        const mergedStatus = { ...(state.statusByRace || { mk8:{}, mkw:{} }) };
+        const mergedFinal  = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }) };
+        mergedStatus[phase] = statusByRacePhase;
+        mergedFinal[phase]  = (state.finalizedByRace?.[phase] || {}); // déjà mis à jour via listener .races
+
+        // Déterminer inspected par défaut si pas de lock
+        let finalInspected = inspected;
+        if (!state._inspectLocked) {
+            const finals = mergedFinal[phase] || {};
+            finalInspected = pickDefaultInspected(phase, activeId, finals);
+            state.__lastSelectedByPhase[phase] = finalInspected;
+        }
+
+        // Active locale (affichage)
+        state.activeRaceId = activeId;
+
         setStateAndRender({
             phase,
-            activeRaceId: maps.activeId,
-            statusByRace: maps.statusByRace,
-            finalizedByRace: maps.finalizedByRace
+            activeRaceId: activeId,
+            statusByRace: mergedStatus,
+            finalizedByRace: mergedFinal,
+            inspectedRaceId: finalInspected
         });
+    };
+
+    // Intercepte la nav consultative
+    const originalOnPhaseViewChange = state.onPhaseViewChange;
+    state.onPhaseViewChange = (phase) => {
+        // En admin on peut “verrouiller” la vue; en viewer on suit toujours le contexte
+        const lockAllowed = (state.mode === 'admin');
+        if (!lockAllowed) state._inspectLocked = false; // viewer: pas de lock
+
+        // Changement de vue → oublier lock d’inspection
+        state._inspectLocked = false;
+
+        ensurePhaseViewListeners(phase);
+        applyMaps(phase);
+
         if (typeof originalOnPhaseViewChange === 'function') {
             try { originalOnPhaseViewChange(phase); } catch {}
         }
     };
 
-    // Expose l’action de finalisation pour renderRows()
-    state.__fb = {
-        runFinalize: async (raceId) => {
-            if (!fb) throw new Error('Firebase non initialisé.');
-            await finalizeRaceFirebase(fb, context, caches, pointsMatrices, state, raceId, setStateAndRender);
-        },
-        offAll: () => {
-            // Detach listeners si attachés
-            try {
-                const p = unsub.phaseKey;
-                if (p && fb) {
-                    if (unsub.current)  fb.off(fb.ref(fb.dbRealtime, `live/results/${p}/current`), 'value', unsub.current);
-                    if (unsub.byRace)   fb.off(fb.ref(fb.dbRealtime, `live/results/${p}/byRace`),  'value', unsub.byRace);
-                    if (unsub.races)    fb.off(fb.ref(fb.dbRealtime, `live/races/${p}`),           'value', unsub.races);
-                }
-                if (unsub.context && fb) {
-                    fb.off(fb.ref(fb.dbRealtime, 'context/current'), 'value', unsub.context);
-                }
-            } catch {}
-        }
-    };
-
-    // Import dynamique + bootstrap des listeners
+    // Import dynamique Firebase + bootstrap des listeners
     (async () => {
         try {
             const cfg = await import('../firebase-config.js'); // export { dbRealtime, dbFirestore }
@@ -713,197 +572,282 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
 
             fb = { dbRealtime, dbFirestore, ref, onValue, off, get, set, update, remove, doc, getDoc };
 
-            // Listener principal: context/current
-            const ctxRef = ref(dbRealtime, 'context/current');
-            unsub.context = (snap) => {
-                context = snap.val() || null;
+            // ✅ Expose finalize & offAll AVANT tout listener/rendu
+            state.__fb = {
+                runFinalize: async (raceId) => {
+                    if (!fb) throw new Error('Firebase non initialisé.');
+                    await finalizeRaceFirebase(fb, state, caches, raceId);
+                    // On s’appuie sur les listeners pour rafraîchir (évite “tout blanc”)
+                },
+                offAll: () => {
+                    try {
+                        if (unsub.currentPhase.ref && unsub.currentPhase.cb) off(unsub.currentPhase.ref, 'value', unsub.currentPhase.cb);
+                        if (unsub.byRace.ref && unsub.byRace.cb)             off(unsub.byRace.ref, 'value', unsub.byRace.cb);
+                        if (unsub.races.ref && unsub.races.cb)               off(unsub.races.ref, 'value', unsub.races.cb);
+                        if (unsub.context?.ref && unsub.context?.cb)        off(unsub.context.ref, 'value', unsub.context.cb);
+                    } catch {}
+                }
+            };
+            console.log('[race-strip] firebase controller ready');
 
-                // Par défaut, on suit la phase du context tant que l’utilisateur n’a pas “forcé” une vue
-                if (!userPhaseOverridden) {
-                    const nextPhase = (context?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-                    if (getPhaseView() !== nextPhase) {
+            // Listener: context/current
+            const ctxRef = ref(dbRealtime, 'context/current');
+            const ctxCb = (snap) => {
+                const ctx = snap.val() || null;
+                state.__ctx = ctx;
+                state.__activeTournamentPhase = (ctx?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+                state.__activeRaceId = ctx?.raceId || null;
+
+                // Suivre le contexte en viewer (ou si pas de lock admin)
+                if (followContext) {
+                    const nextPhase = state.__activeTournamentPhase;
+                    if (state.phase !== nextPhase) {
                         setPhaseView(nextPhase);
-                        return; // render sera fait par setPhaseView()
+                        return; // render via setPhaseView → on ré-attache ensuite ci-dessous
                     }
                 }
 
-                // (Ré)attacher les listeners pour la phase visible actuelle
-                ensurePhaseListeners(getPhaseView());
-
-                // Recalcul immédiat sur changement de contexte (même si la vue n’a pas changé)
-                const maps = computeMapsForPhase(context, caches, state.phase);
-                setStateAndRender({
-                    activeRaceId: maps.activeId,
-                    statusByRace: maps.statusByRace,
-                    finalizedByRace: maps.finalizedByRace
-                });
+                // Phase visible courante
+                ensurePhaseViewListeners(state.phase);
+                applyMaps(state.phase);
             };
-            onValue(ctxRef, unsub.context);
+            onValue(ctxRef, ctxCb);
+            unsub.context = { ref: ctxRef, cb: ctxCb };
 
-            // Premier attach selon la vue initiale
-            ensurePhaseListeners(getPhaseView());
-
-            // Premier recalc
-            const maps = computeMapsForPhase(context, caches, state.phase);
-            setStateAndRender({
-                activeRaceId: maps.activeId,
-                statusByRace: maps.statusByRace,
-                finalizedByRace: maps.finalizedByRace
-            });
+            // Listeners pour la phase visible (premier attach + premier render)
+            ensurePhaseViewListeners(state.phase);
+            applyMaps(state.phase);
 
         } catch (err) {
             console.error('[race-strip] Firebase init error:', err);
         }
     })();
 
-    // Attache les listeners RTDB pour la phase donnée, en nettoyant l’ancienne phase
-    function ensurePhaseListeners(phaseLike) {
-        if (!fb) return;
-        const p = String(phaseLike || '').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    function ensureCurrentResultsListener(phase) {
+        // current (uniquement sur la phase active)
+        if (unsub.currentPhase.ref && unsub.currentPhase.cb) {
+            fb.off(unsub.currentPhase.ref, 'value', unsub.currentPhase.cb);
+            unsub.currentPhase = { ref: null, cb: null };
+        }
+        const r = fb.ref(fb.dbRealtime, `live/results/${phase}/current`);
+        const cb = (s) => {
+            caches.currentResultsByPhase[phase] = s.val() || {};
+            if (state.phase === phase) applyMaps(phase);
+        };
+        fb.onValue(r, cb);
+        unsub.currentPhase = { ref: r, cb };
 
-        // Si on change de phase, détacher les anciens
-        if (unsub.phaseKey && unsub.phaseKey !== p) {
-            try {
-                if (unsub.current)  fb.off(fb.ref(fb.dbRealtime, `live/results/${unsub.phaseKey}/current`), 'value', unsub.current);
-                if (unsub.byRace)   fb.off(fb.ref(fb.dbRealtime, `live/results/${unsub.phaseKey}/byRace`),  'value', unsub.byRace);
-                if (unsub.races)    fb.off(fb.ref(fb.dbRealtime, `live/races/${unsub.phaseKey}`),           'value', unsub.races);
-            } catch {}
-            unsub.current = unsub.byRace = unsub.races = null;
+        // init
+        fb.get(r).then(s => {
+            caches.currentResultsByPhase[phase] = s.val() || {};
+            if (state.phase === phase) applyMaps(phase);
+        }).catch(()=>{});
+    }
+
+    function ensurePhaseViewListeners(phase) {
+        const p = String(phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+        if (unsub.byRace.ref && unsub.byRace.cb) {
+            fb.off(unsub.byRace.ref, 'value', unsub.byRace.cb);
+            unsub.byRace = { ref: null, cb: null };
+        }
+        if (unsub.races.ref && unsub.races.cb) {
+            fb.off(unsub.races.ref, 'value', unsub.races.cb);
+            unsub.races = { ref: null, cb: null };
         }
 
-        unsub.phaseKey = p;
+        // current: suivre la phase active réelle
+        ensureCurrentResultsListener(state.__activeTournamentPhase);
 
-        // current
-        const rCurrent = fb.ref(fb.dbRealtime, `live/results/${p}/current`);
-        unsub.current = (s) => {
-            caches.currentResults[p] = s.val() || {};
-            const maps = computeMapsForPhase(context, caches, state.phase);
-            setStateAndRender({
-                activeRaceId: maps.activeId,
-                statusByRace: maps.statusByRace,
-                finalizedByRace: maps.finalizedByRace
-            });
+        // races/{phase} — lecture normalisée en booléen
+        const racesRef = fb.ref(fb.dbRealtime, `live/races/${p}`);
+        const racesCb = (snap) => {
+            const raw = snap.val() || {};
+            const mapBool = {};
+            for (const [rid, v] of Object.entries(raw)) {
+                mapBool[rid] = (typeof v === 'object') ? !!v.finalized : !!v;
+            }
+            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapBool };
+            caches.lastFinalizedByPhase[p] = mapBool;
+            if (state.phase === p) applyMaps(p);
         };
-        fb.onValue(rCurrent, unsub.current);
+        fb.onValue(racesRef, racesCb);
+        unsub.races = { ref: racesRef, cb: racesCb };
 
-        // byRace
-        const rByRace = fb.ref(fb.dbRealtime, `live/results/${p}/byRace`);
-        unsub.byRace = (s) => {
-            caches.byRace[p] = s.val() || {};
-            const maps = computeMapsForPhase(context, caches, state.phase);
-            setStateAndRender({
-                activeRaceId: maps.activeId,
-                statusByRace: maps.statusByRace,
-                finalizedByRace: maps.finalizedByRace
-            });
+        // results/{phase}/byRace
+        const byRaceRef = fb.ref(fb.dbRealtime, `live/results/${p}/byRace`);
+        const byRaceCb = (snap) => {
+            caches.byRaceResultsByPhase[p] = snap.val() || {};
+            if (state.phase === p) applyMaps(p);
         };
-        fb.onValue(rByRace, unsub.byRace);
+        fb.onValue(byRaceRef, byRaceCb);
+        unsub.byRace = { ref: byRaceRef, cb: byRaceCb };
 
-        // races (finalized)
-        const rRaces = fb.ref(fb.dbRealtime, `live/races/${p}`);
-        unsub.races = (s) => {
-            caches.races[p] = s.val() || {};
-            const maps = computeMapsForPhase(context, caches, state.phase);
-            setStateAndRender({
-                activeRaceId: maps.activeId,
-                statusByRace: maps.statusByRace,
-                finalizedByRace: maps.finalizedByRace
-            });
-        };
-        fb.onValue(rRaces, unsub.races);
+        // init (fetch uniques)
+        fb.get(racesRef).then(s => {
+            const raw = s.val() || {};
+            const mapBool = {};
+            for (const [rid, v] of Object.entries(raw)) {
+                mapBool[rid] = (typeof v === 'object') ? !!v.finalized : !!v;
+            }
+            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapBool };
+            caches.lastFinalizedByPhase[p] = mapBool;
+            if (state.phase === p) applyMaps(p);
+        }).catch(()=>{});
+        fb.get(byRaceRef).then(s => {
+            caches.byRaceResultsByPhase[p] = s.val() || {};
+            if (state.phase === p) applyMaps(p);
+        }).catch(()=>{});
     }
 }
 
 /* ========================================================================== */
-/* Factory: initRaceStrip                                                      */
+/* Factory init                                                                */
 /* ========================================================================== */
+
+function normalizeOptions(opts) {
+    const input = opts || {};
+    const o = { ...DEFAULTS, ...input };
+
+    // Phase normalisée
+    const phaseKey = String(o.phase || 'mk8').toLowerCase();
+    o.phase = (phaseKey === 'mkw') ? 'mkw' : 'mk8';
+
+    // Flag “phase forcée par l’hôte”
+    o._phaseLockedByOptions = Object.prototype.hasOwnProperty.call(input, 'phase');
+
+    const normalizeId = (v) => (v == null ? v : String(v).toUpperCase());
+    o.activeRaceId = normalizeId(o.activeRaceId);
+    o.inspectedRaceId = normalizeId(o.inspectedRaceId);
+
+    // Races par défaut
+    if (!Array.isArray(o.races) || o.races.length === 0) {
+        o.races = buildRaceList(o.phase);
+    } else {
+        o.races = o.races.map(normalizeId);
+    }
+
+    // Maps par phase: normalisation (nested only)
+    const toPhaseMap = (val, phase) => {
+        if (val && typeof val === 'object' && (val.mk8 || val.mkw)) {
+            return { mk8: { ...(val.mk8 || {}) }, mkw: { ...(val.mkw || {}) } };
+        }
+        // sinon flat → on n’importe que sur la phase passée (compat)
+        const flat = {};
+        if (val && typeof val === 'object') {
+            for (const [k, v] of Object.entries(val)) flat[normalizeId(k)] = v;
+        }
+        return { mk8: phase === 'mk8' ? flat : {}, mkw: phase === 'mkw' ? flat : {} };
+    };
+    o.statusByRace    = toPhaseMap(input.statusByRace,    o.phase);
+    o.finalizedByRace = toPhaseMap(input.finalizedByRace, o.phase);
+
+    // inspected: inspected valide → active valide → première
+    if (!o.inspectedRaceId || !o.races.includes(o.inspectedRaceId)) {
+        o.inspectedRaceId = (o.activeRaceId && o.races.includes(o.activeRaceId))
+            ? o.activeRaceId
+            : o.races[0];
+    }
+
+    // mémoire sélection par phase
+    o.__lastSelectedByPhase = o.__lastSelectedByPhase || { mk8: null, mkw: null };
+
+    return o;
+}
+
+function ensureRacesForPhase(state, phaseView) {
+    const pv = String(phaseView || '').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    state.phase = pv;
+    state.races = buildRaceList(pv);
+
+    if (state.activeRaceId && !state.races.includes(state.activeRaceId)) state.activeRaceId = null;
+
+    if (!state.inspectedRaceId || !state.races.includes(state.inspectedRaceId)) {
+        state.inspectedRaceId = (state.activeRaceId && state.races.includes(state.activeRaceId))
+            ? state.activeRaceId
+            : state.races[0];
+    }
+}
 
 export function initRaceStrip(container, options = {}) {
     if (!(container instanceof HTMLElement)) {
         throw new Error('[race-strip] container invalide (HTMLElement requis).');
     }
 
-    // État interne minimal
     let state = normalizeOptions(options);
     let destroyed = false;
 
-    // Vue de phase consultative (décorrélée du context Firebase)
-    let phaseView = state.phase; // 'mk8' | 'mkw'
+    // Vue consultative
+    let phaseView = state.phase;
     function getPhaseView() { return phaseView; }
     function setPhaseView(p) {
         const next = (String(p).toLowerCase() === 'mkw') ? 'mkw' : 'mk8';
         if (phaseView === next) return;
         phaseView = next;
+
+        // reset lock d’inspection à chaque vue
+        state._inspectLocked = false;
+
         ensureRacesForPhase(state, phaseView);
         if (typeof state.onPhaseViewChange === 'function') {
             try { state.onPhaseViewChange(phaseView); } catch {}
         }
-        render(); // re-render consultatif
+        render();
     }
 
-    // Hôte du composant
     const host = el('div', { class: CLASSNAMES.ROOT, role: 'group', 'aria-label': 'Courses' });
     container.appendChild(host);
 
-    // Sac de détachement (listeners, observers…)
     const detachBag = [];
 
     function render() {
         if (destroyed) return;
-        // 1) recalcul “races” pour la phase courante
         ensureRacesForPhase(state, phaseView);
-
-        // 2) header nav (optionnel)
         renderHeaderNav(host, state, getPhaseView, setPhaseView);
-
-        // 3) lignes & cellules
         renderRows(host, state, getPhaseView);
-
-        // 4) handlers additionnels si besoin
-        attachEventHandlers(host, state);
     }
 
     function setStateAndRender(patch) {
-        // Utilitaire interne pour le contrôleur Firebase (et autres)
+        // ⚠️ Ne pas perdre les handles internes (ex: state.__fb)
+        const fbHandle = state && state.__fb;
         state = { ...state, ...(patch || {}) };
+        if (fbHandle) state.__fb = fbHandle;
         render();
     }
 
     function setData(patch = {}) {
         if (!patch || typeof patch !== 'object') return;
 
-        // Normalisation légère du patch
         const normPhase = Object.prototype.hasOwnProperty.call(patch, 'phase')
             ? (String(patch.phase).toLowerCase() === 'mkw' ? 'mkw' : 'mk8')
             : null;
 
         const normalizeId = (v) => (v == null ? v : String(v).toUpperCase());
 
-        // Normaliser IDs simples
-        const nextActive    = normalizeId(patch.activeRaceId);
-        const nextInspected = normalizeId(patch.inspectedRaceId);
+        const phaseTarget = normPhase || state.phase;
 
-        // Normaliser races si fournies
+        const nextActive    = Object.prototype.hasOwnProperty.call(patch, 'activeRaceId') ? normalizeId(patch.activeRaceId) : undefined;
+        const nextInspected = Object.prototype.hasOwnProperty.call(patch, 'inspectedRaceId') ? normalizeId(patch.inspectedRaceId) : undefined;
+
         let nextRaces = undefined;
-        if (Array.isArray(patch.races)) {
-            nextRaces = patch.races.map(normalizeId);
-        }
+        if (Array.isArray(patch.races)) nextRaces = patch.races.map(normalizeId);
 
-        // Normaliser maps status/finalized (clés en IDs uppercased)
-        const nextStatus = {};
-        if (patch.statusByRace && typeof patch.statusByRace === 'object') {
-            for (const [k, v] of Object.entries(patch.statusByRace)) {
-                nextStatus[normalizeId(k)] = v;
+        const mergePhaseMap = (curr, incoming, phase) => {
+            const dst = { mk8: { ...(curr?.mk8 || {}) }, mkw: { ...(curr?.mkw || {}) } };
+            if (!incoming) return dst;
+            if (incoming.mk8 || incoming.mkw) {
+                if (incoming.mk8 && typeof incoming.mk8 === 'object') Object.entries(incoming.mk8).forEach(([k, v]) => dst.mk8[normalizeId(k)] = v);
+                if (incoming.mkw && typeof incoming.mkw === 'object') Object.entries(incoming.mkw).forEach(([k, v]) => dst.mkw[normalizeId(k)] = v);
+            } else if (typeof incoming === 'object') {
+                const flat = {};
+                Object.entries(incoming).forEach(([k, v]) => flat[normalizeId(k)] = v);
+                Object.assign(dst[phase], flat);
             }
-        }
-        const nextFinalized = {};
-        if (patch.finalizedByRace && typeof patch.finalizedByRace === 'object') {
-            for (const [k, v] of Object.entries(patch.finalizedByRace)) {
-                nextFinalized[normalizeId(k)] = !!v;
-            }
-        }
+            return dst;
+        };
 
-        // Fusion contrôlée
+        const mergedStatus = mergePhaseMap(state.statusByRace, patch.statusByRace, phaseTarget);
+        const mergedFinal  = mergePhaseMap(state.finalizedByRace, patch.finalizedByRace, phaseTarget);
+
         const merged = {
             ...state,
             ...(patch || {}),
@@ -911,67 +855,44 @@ export function initRaceStrip(container, options = {}) {
             ...(nextRaces ? { races: nextRaces } : {}),
             ...(nextActive !== undefined ? { activeRaceId: nextActive } : {}),
             ...(nextInspected !== undefined ? { inspectedRaceId: nextInspected } : {}),
-            statusByRace: { ...state.statusByRace, ...nextStatus },
-            finalizedByRace: { ...state.finalizedByRace, ...nextFinalized }
+            statusByRace: mergedStatus,
+            finalizedByRace: mergedFinal
         };
 
-        // Si la phase est passée par patch, on considère que l’hôte force la vue
-        if (normPhase) {
-            merged._phaseLockedByOptions = true;
-        }
+        if (normPhase) merged._phaseLockedByOptions = true;
 
-        // Met à jour l’état
+        // Met à jour l’état sans perdre __fb
+        const fbHandle2 = state && state.__fb;
         state = merged;
+        if (fbHandle2) state.__fb = fbHandle2;
 
-        // Si on reçoit une phase dans le patch, on synchronise la vue consultative
         if (normPhase) {
             setPhaseView(normPhase);
             return;
         }
-
-        // Sinon, on s’assure que races/inspected sont cohérents, puis on rend
         ensureRacesForPhase(state, state.phase);
         render();
     }
 
-    function update(partialOptions = {}) {
-        // Permet de mettre à jour l’instance (callbacks, mode, phase, maps…)
-        // Retourne l’API pour chaîner: api.update(...).update(...)
-        setData(partialOptions);
-        return api;
-    }
+    function update(partialOptions = {}) { setData(partialOptions); return api; }
 
     function destroy() {
-        // Marque le composant comme démonté
         destroyed = true;
-
-        // Détache tous les listeners internes connus (nav/inner, etc.)
-        try { detachHandlers(detachBag); } catch {}
-
-        // Détache les listeners Firebase si présents
         try { state.__fb?.offAll?.(); } catch {}
-
-        // Vide et retire le host du DOM
         try { host.replaceChildren(); } catch {}
         try { host.parentNode && host.parentNode.removeChild(host); } catch {}
-
-        // Optionnel: libérer quelques refs
         try { state = null; } catch {}
     }
 
-    // Rendu initial
-    render();
-
-    // Contrôleur Firebase (optionnel)
+    // Contrôleur Firebase AVANT premier rendu (pour que state.__fb soit prêt)
     if (state.controller === 'firebase') {
         attachFirebaseController(state, getPhaseView, setPhaseView, setStateAndRender);
     }
 
-    const ready = Promise.resolve();
+    // Premier rendu (le contrôleur appellera aussi render via applyMaps)
+    render();
 
-    const api = {
-        host, ready, destroy, update, setData,
-        setPhaseView, getPhaseView
-    };
+    const ready = Promise.resolve();
+    const api = { host, ready, destroy, update, setData, setPhaseView, getPhaseView };
     return api;
 }

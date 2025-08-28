@@ -12,7 +12,7 @@
  */
 
 /* DEBUG */
-window.__RS_DEBUG = true;
+window.__RS_DEBUG = false;
 
 /* ========================================================================== */
 /* Constantes, classes, options par défaut                                     */
@@ -240,17 +240,6 @@ function renderRows(host, state, getPhaseView) {
                 //     - complete & non finalisée => activable
                 //     - pas de dépendance à "started" (inutile si la course est complète)
                 const can = (status === 'complete' && !isFinalized);
-
-                if (window.__RS_DEBUG) {
-                    console.log('[RS can?]', {
-                        phase: state.phase,
-                        raceId,
-                        status_local: status,
-                        finalized_state_phase: state.finalizedByRace?.[phaseView]?.[raceId],
-                        controller: state.controller,
-                        can
-                    });
-                }
 
                 if (!can) {
                     $finalize.disabled = true;
@@ -668,33 +657,37 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
             // Listener: context/current
             const ctxRef = ref(dbRealtime, 'context/current');
             const ctxCb = (snap) => {
+                const prev = state.__ctx || null;
                 const ctx = snap.val() || null;
+
+                // Mémorise le dernier snapshot de contexte (source de vérité)
                 state.__ctx = ctx;
-                
-                if (window.__RS_DEBUG) {
-                    console.log('[RS ctx@save]', {
-                        ctxPhase: (ctx?.phase ?? null),
-                        ctxRace: (ctx?.raceId ?? null)
-                    });
-                }
 
+                // Petit compteur pour diagnostiquer l'ordre des événements
+                state.__ctxTick = (state.__ctxTick | 0) + 1;
+
+                // Lecture normalisée depuis le contexte
                 const nextPhase = (ctx?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-                const nextRace  = ctx?.raceId || null;
+                const nextRace  = (ctx?.raceId ?? null);
 
-                // Poser immédiatement la phase/course actives
+                // Pose immédiatement la phase/course actives strictes (tournoi)
                 state.__activeTournamentPhase = nextPhase;
                 state.__activeRaceId = nextRace;
 
-                // 🔎 LOG (diagnostic ordre d'événements)
+                // Log détaillé (diagnostic propagation)
                 if (window.__RS_DEBUG) {
-                    console.log('[RS ctx]', {
+                    console.log('[RS ctx@onValue]', {
+                        tick: state.__ctxTick,
+                        prevPhase: (prev?.phase ?? null),
+                        prevRace : (prev?.raceId ?? null),
+                        ctxPhase : (ctx?.phase ?? null),
+                        ctxRace  : (ctx?.raceId ?? null),
                         phaseView: state.phase,
-                        nextPhase,
-                        nextRace
+                        followContext: (state.mode !== 'admin')
                     });
                 }
 
-                // Forcer l’inspection sur la course ACTIVE au moment d’un Start
+                // Forcer l’inspection sur la course ACTIVE (au Start ou lors d’un jump)
                 if (nextRace) {
                     state._inspectLocked = false;
                     state.inspectedRaceId = nextRace;
@@ -702,15 +695,19 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
                     state.__lastSelectedByPhase[nextPhase] = nextRace;
                 }
 
-                // En viewer, si la vue n’est pas la bonne phase, on bascule (render plus loin)
+                // En viewer (mode simple), on “suit” toujours la phase du contexte
+                const followContext = (state.mode !== 'admin');
                 if (followContext && state.phase !== nextPhase) {
+                    // ⚠️ Déclenche le switch consultatif → attach listeners via onPhaseViewChange
                     setPhaseView(nextPhase);
-                    return;
+                    return; // on laisse onPhaseViewChange gérer ensurePhaseViewListeners + applyMaps
                 }
 
-                // Sinon (ré)attacher phase vue puis calculer
+                // Sinon, on (ré)attache explicitement sur la phase VUE actuelle,
+                // puis on (re)calcule les statuts/rendu dans une micro-tâche
+                // pour garantir la visibilité de __ctx/__active* pendant render().
                 ensurePhaseViewListeners(state.phase);
-                applyMaps(state.phase);
+                queueMicrotask(() => applyMaps(state.phase));
             };
 
             onValue(ctxRef, ctxCb);

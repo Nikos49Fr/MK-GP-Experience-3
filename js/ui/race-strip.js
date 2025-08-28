@@ -340,26 +340,36 @@ function getRaceStatusDeterministic_cp(state, caches, phase, raceId) {
 /* ========================================================================== */
 
 async function loadPointsMatrices(fb, pointsMatrices) {
-    // Strictement équivalent: on suppose des matrices en Firestore si besoin.
-    // (La version control-panel calcule surtout depuis RTDB; on laisse ce helper prêt.)
-    if (pointsMatrices.__loaded) return;
-    const docRef = fb.doc(fb.dbFirestore, 'pointMatrices', 'default');
-    const snap = await fb.getDoc(docRef).catch(()=>null);
-    const data = snap && snap.exists() ? (snap.data() || {}) : {};
-    pointsMatrices.mk8 = Array.isArray(data.mk8) ? data.mk8 : [];
-    pointsMatrices.mkwRace = Array.isArray(data.mkwRace) ? data.mkwRace : [];
-    pointsMatrices.mkwSurvival1 = Array.isArray(data.mkwSurvival1) ? data.mkwSurvival1 : [];
-    pointsMatrices.mkwSurvival2 = Array.isArray(data.mkwSurvival2) ? data.mkwSurvival2 : [];
+    // Aligne strictement control-panel : Firestore "points/{mk8|mkw}" avec "ranks"
+    if (pointsMatrices.__loaded && pointsMatrices.mk8 && pointsMatrices.mkw) return;
+
+    // Docs Firestore
+    const mk8Doc = await fb.getDoc(fb.doc(fb.dbFirestore, 'points', 'mk8')).catch(() => null);
+    const mkwDoc = await fb.getDoc(fb.doc(fb.dbFirestore, 'points', 'mkw')).catch(() => null);
+
+    pointsMatrices.mk8 = (mk8Doc && mk8Doc.exists()) ? (mk8Doc.data() || {}) : {};
+    pointsMatrices.mkw = (mkwDoc && mkwDoc.exists()) ? (mkwDoc.data() || {}) : {};
+
+    // Marque "chargé" si on a bien quelque chose (même objet vide est ok)
     pointsMatrices.__loaded = true;
 }
 
 function basePointsFor(pointsMatrices, phase, raceId, rank) {
-    const r = Number(rank);
-    if (!Number.isInteger(r) || r <= 0) return 0;
-    if (phase === 'mk8') return Number(pointsMatrices.mk8?.[r - 1] ?? 0);
-    if (raceId === 'S')  return Number(pointsMatrices.mkwSurvival1?.[r - 1] ?? 0);
-    if (raceId === 'SF') return Number(pointsMatrices.mkwSurvival2?.[r - 1] ?? 0);
-    return Number(pointsMatrices.mkwRace?.[r - 1] ?? 0);
+    const r = String(Number(rank));
+    if (!/^\d+$/.test(r)) return 0;
+
+    if (phase === 'mk8') {
+        // control-panel : points.mk8.ranks[rank] -> number
+        const table = pointsMatrices.mk8?.ranks || {};
+        return Number(table[r] ?? 0);
+    }
+
+    // phase mkw : points.mkw.ranks[rank] -> { race, s1, s2 }
+    const row = pointsMatrices.mkw?.ranks?.[r];
+    if (!row) return 0;
+    if (raceId === 'S')  return Number(row.s1 ?? 0);
+    if (raceId === 'SF') return Number(row.s2 ?? 0);
+    return Number(row.race ?? 0);
 }
 
 async function recomputeTotalsForPhase(fb, phase) {
@@ -478,7 +488,7 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
     // Variables “globales” du control-panel (scopées à l’instance)
     state.__activeTournamentPhase = 'mk8';
     state.__activeRaceId = '1';
-    state.__pointsMatrices = { mk8: null, mkwRace: null, mkwSurvival1: null, mkwSurvival2: null, __loaded: false };
+    state.__pointsMatrices = { mk8: null, mkw: null, __loaded: false };
 
     // Sélection inspectée mémorisée par phase (alignement cp)
     state.__lastSelectedByPhase = state.__lastSelectedByPhase || { mk8: null, mkw: null };

@@ -207,8 +207,7 @@ function getActiveRaceIdForPhase(phase) {
     const order = buildRaceList(phase);
     const finals = lastFinalizedByPhase[phase] || {};
     for (const k of order) {
-        const fin = finals[k];
-        const isFinalized = (typeof fin === 'object') ? !!fin.finalized : !!fin; // ← bool robuste
+        const isFinalized = !!(finals[k] && finals[k].finalized === true);
         if (!isFinalized) return k;
     }
     return order[order.length - 1];
@@ -250,7 +249,18 @@ function ensurePhaseViewListeners(phase) {
     }
     const racesRef = ref(dbRealtime, `live/races/${phase}`);
     const racesCb = (snap) => {
-        lastFinalizedByPhase[phase] = snap.val() || {};
+        const raw = snap.val() || {};
+        // 🔧 Normalisation stricte en objet { finalized: boolean }
+        const normalized = {};
+        for (const [rid, v] of Object.entries(raw)) {
+            if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
+                normalized[rid] = { finalized: !!v.finalized };
+            } else {
+                // compat ancienne donnée bool → on bascule côté UI en objet
+                normalized[rid] = { finalized: !!v };
+            }
+        }
+        lastFinalizedByPhase[phase] = normalized;
         updateStartSwitchUI();
     };
     onValue(racesRef, racesCb);
@@ -270,8 +280,23 @@ function ensurePhaseViewListeners(phase) {
     listeners.byRace = { ref: byRaceRef, cb: byRaceCb };
 
     // init
-    get(racesRef).then(s => { lastFinalizedByPhase[phase] = s.val() || {}; }).catch(()=>{});
-    get(byRaceRef).then(s => { byRaceResultsByPhase[phase] = s.val() || {}; refreshPilotListView(); }).catch(()=>{});
+    get(racesRef).then(s => {
+        const raw = s.val() || {};
+        const normalized = {};
+        for (const [rid, v] of Object.entries(raw)) {
+            if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
+                normalized[rid] = { finalized: !!v.finalized };
+            } else {
+                normalized[rid] = { finalized: !!v };
+            }
+        }
+        lastFinalizedByPhase[phase] = normalized;
+    }).catch(()=>{});
+
+    get(byRaceRef).then(s => {
+        byRaceResultsByPhase[phase] = s.val() || {};
+        refreshPilotListView();
+    }).catch(()=>{});
 }
 
 /* ============================================================
@@ -390,9 +415,7 @@ function computeStartEnabledForView(phase) {
     if (!phase) return false;
     const hasCurrent = !!(lastContext && lastContext.raceId);
     const finals = lastFinalizedByPhase[phase] || {};
-    const anyFinalized = Object.values(finals).some(v =>
-        (typeof v === 'object') ? !!v.finalized : !!v
-    );
+    const anyFinalized = Object.values(finals).some(v => !!(v && v.finalized === true));
     return !hasCurrent && !anyFinalized;
 }
 
@@ -657,8 +680,8 @@ function openRankModal(phase, pilotId, anchorEl) {
                 await remove(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`));
             } else {
                 await remove(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`));
-                await set(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), false);
-                // rafraîchissement via listeners + panneau pilotes
+                // 🔒 Un-finalize explicite en OBJET
+                await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
                 refreshPilotListView();
             }
             backdrop.remove();
@@ -705,6 +728,7 @@ function openRankModal(phase, pilotId, anchorEl) {
                     await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), { rank: i });
                 } else {
                     await set(ref(dbRealtime, `live/results/${phase}/byRace/${inspectedId}/ranks/${pilotId}`), { rank: i });
+                    // 🔒 Un-finalize explicite en OBJET
                     await update(ref(dbRealtime, `live/races/${phase}/${inspectedId}`), { finalized: false });
                     refreshPilotListView();
                 }

@@ -111,7 +111,7 @@ function computeRaceStatusFromResults(results, gridSize) {
 function pickDefaultInspected(phase, activeId, finalizedByRace) {
     const order = buildRaceList(phase);
     if (activeId && order.includes(activeId)) return activeId;
-    const allFinalized = order.every(id => !!finalizedByRace?.[id]);
+    const allFinalized = order.every(id => !!finalizedByRace?.[id]?.finalized === true);
     return allFinalized ? order[order.length - 1] : order[0];
 }
 
@@ -170,7 +170,7 @@ function renderRows(host, state, getPhaseView) {
 
         raceIds.forEach((raceId) => {
             const status = statusMap[raceId] ?? null;
-            const isFinalized = !!finalizedMap[raceId];
+            const isFinalized = !!(finalizedMap[raceId]?.finalized === true);
 
             // Libellé pour MKW (8..13 affiché pour ids 7..12)
             let label = raceId;
@@ -200,7 +200,7 @@ function renderRows(host, state, getPhaseView) {
                 $btn.classList.add(CLASSNAMES.STATE.ACTIVE_EMPTY);
             } else if (status === 'complete') {
                 if (isFinalized) $btn.classList.add(CLASSNAMES.STATE.COMPLETE_FINAL);
-                else           $btn.classList.add(CLASSNAMES.STATE.COMPLETE_PENDING);
+                else             $btn.classList.add(CLASSNAMES.STATE.COMPLETE_PENDING);
             }
 
             $btn.addEventListener('click', () => {
@@ -221,7 +221,7 @@ function renderRows(host, state, getPhaseView) {
                 }
             });
 
-            // Bouton Finaliser (mode admin) — même règle que control-panel
+            // Bouton Finaliser (mode admin)
             const $cellChildren = [$btn];
             if (state.mode === 'admin') {
                 const $finalize = el('button', {
@@ -238,7 +238,6 @@ function renderRows(host, state, getPhaseView) {
                     can = (status === 'complete' && !isFinalized);
                 }
 
-                // --- application gate (identique) ---
                 if (!can) {
                     $finalize.disabled = true;
                     $finalize.setAttribute('aria-disabled', 'true');
@@ -261,7 +260,6 @@ function renderRows(host, state, getPhaseView) {
                         }
                     } catch (e) {
                         console.error('[race-strip] finalize error:', e);
-                        // 🔁 Réactiver le bouton en cas d’échec (aujourd’hui il restait grisé)
                         $finalize.disabled = false;
                     } finally {
                         $finalize.removeAttribute('aria-busy');
@@ -304,7 +302,8 @@ function getActiveRaceIdForPhase_cp(state, phase) {
     const order = buildRaceList(phase);
     const finals = state.finalizedByRace?.[phase] || {};
     for (const k of order) {
-        if (!finals[k]) return k; // NON finalisée (booléen)
+        const isFinal = !!(finals[k]?.finalized === true);
+        if (!isFinal) return k;
     }
     return order[order.length - 1];
 }
@@ -326,13 +325,13 @@ function getRaceStatusDeterministic_cp(state, caches, phase, raceId) {
         const hasRanks = Object.values(ranks).some(v => v && Number(v.rank) > 0);
         if (hasRanks) return computeRaceStatusFromResults(ranks, grid) || 'filled';
 
-        return finals[raceId] ? 'complete' : 'activeEmpty';
+        return finals[raceId]?.finalized ? 'complete' : 'activeEmpty';
     }
 
     // NON active → byRace/ranks uniquement
     const ranks = caches.byRaceResultsByPhase?.[phase]?.[raceId]?.ranks || {};
     const hasAny = Object.values(ranks).some(v => v && Number(v.rank) > 0);
-    if (!hasAny) return finals[raceId] ? 'complete' : null;
+    if (!hasAny) return finals[raceId]?.finalized ? 'complete' : null;
     return computeRaceStatusFromResults(ranks, grid) || 'filled';
 }
 
@@ -455,8 +454,8 @@ async function finalizeRaceFirebase(fb, state, caches, raceId) {
     // 4) Totaux de phase
     await recomputeTotalsForPhase(fb, phase);
 
-    // 5) Marquer finalisée (booléen pur)
-    await fb.set(fb.ref(fb.dbRealtime, `live/races/${phase}/${raceId}`), true);
+    // 5) Marquer finalisée — OBJET { finalized:true }
+    await fb.set(fb.ref(fb.dbRealtime, `live/races/${phase}/${raceId}`), { finalized: true });
 
     // 6) Si course active: nettoyer current et avancer context/current
     if (useCurrent) {
@@ -658,16 +657,21 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
         // current: suivre la phase active réelle
         ensureCurrentResultsListener(state.__activeTournamentPhase);
 
-        // races/{phase} — lecture normalisée en booléen
+        // races/{phase} — lecture normalisée en OBJET { finalized: boolean }
         const racesRef = fb.ref(fb.dbRealtime, `live/races/${p}`);
         const racesCb = (snap) => {
             const raw = snap.val() || {};
-            const mapBool = {};
+            const mapObj = {};
             for (const [rid, v] of Object.entries(raw)) {
-                mapBool[rid] = (typeof v === 'object') ? !!v.finalized : !!v;
+                if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
+                    mapObj[rid] = { finalized: !!v.finalized };
+                } else {
+                    // compat ancienne donnée bool → on présente comme objet
+                    mapObj[rid] = { finalized: !!v };
+                }
             }
-            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapBool };
-            caches.lastFinalizedByPhase[p] = mapBool;
+            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapObj };
+            caches.lastFinalizedByPhase[p] = mapObj;
             if (state.phase === p) applyMaps(p);
         };
         fb.onValue(racesRef, racesCb);
@@ -685,12 +689,16 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
         // init (fetch uniques)
         fb.get(racesRef).then(s => {
             const raw = s.val() || {};
-            const mapBool = {};
+            const mapObj = {};
             for (const [rid, v] of Object.entries(raw)) {
-                mapBool[rid] = (typeof v === 'object') ? !!v.finalized : !!v;
+                if (v && typeof v === 'object' && Object.prototype.hasOwnProperty.call(v, 'finalized')) {
+                    mapObj[rid] = { finalized: !!v.finalized };
+                } else {
+                    mapObj[rid] = { finalized: !!v };
+                }
             }
-            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapBool };
-            caches.lastFinalizedByPhase[p] = mapBool;
+            state.finalizedByRace = { ...(state.finalizedByRace || { mk8:{}, mkw:{} }), [p]: mapObj };
+            caches.lastFinalizedByPhase[p] = mapObj;
             if (state.phase === p) applyMaps(p);
         }).catch(()=>{});
         fb.get(byRaceRef).then(s => {

@@ -236,17 +236,28 @@ function renderRows(host, state, getPhaseView) {
                     title: isFinalized ? 'Course déjà finalisée' : 'Finaliser la course'
                 }, isFinalized ? '✔' : '✓');
 
-                let can = false;
-                if (state.controller === 'firebase') {
-                    const started = isPhaseStarted(state, phaseView);
-                    can = (started && status === 'complete' && !isFinalized);
-                } else {
-                    can = (status === 'complete' && !isFinalized);
+                // ✅ Gate simplifié : on s'appuie sur l'état de la tuile du même rendu.
+                //     - complete & non finalisée => activable
+                //     - pas de dépendance à "started" (inutile si la course est complète)
+                const can = (status === 'complete' && !isFinalized);
+
+                if (window.__RS_DEBUG) {
+                    console.log('[RS can?]', {
+                        phase: state.phase,
+                        raceId,
+                        status_local: status,
+                        finalized_state_phase: state.finalizedByRace?.[phaseView]?.[raceId],
+                        controller: state.controller,
+                        can
+                    });
                 }
 
                 if (!can) {
                     $finalize.disabled = true;
                     $finalize.setAttribute('aria-disabled', 'true');
+                } else {
+                    $finalize.disabled = false;
+                    $finalize.removeAttribute('aria-disabled');
                 }
 
                 $finalize.addEventListener('click', async (ev) => {
@@ -294,8 +305,20 @@ function renderRows(host, state, getPhaseView) {
 // Phase démarrée = context/current pointe cette phase ET une raceId est définie
 function isPhaseStarted(state, phaseLike) {
     const p = String(phaseLike).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
-    const activePhase = String(state.__activeTournamentPhase || 'mk8');
-    const activeRace  = state.__activeRaceId || null;
+
+    // ✅ Source de vérité prioritaire : dernier snapshot du contexte RTDB
+    const ctx = state.__ctx || null;
+    if (ctx) {
+        const ctxPhase = (String(ctx.phase || '').toLowerCase() === 'mkw') ? 'mkw' : 'mk8';
+        const ctxRace  = ctx.raceId ?? null; // peut être null en fin de phase
+        if (ctxPhase && ctxRace != null) {
+            return (ctxPhase === p) && !!ctxRace;
+        }
+    }
+
+    // Fallback : champs internes posés par le listener (peuvent être transitoirement désync)
+    const activePhase = state.__activeTournamentPhase || null;
+    const activeRace  = state.__activeRaceId ?? null;
     return (activePhase === p) && !!activeRace;
 }
 
@@ -647,6 +670,13 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
             const ctxCb = (snap) => {
                 const ctx = snap.val() || null;
                 state.__ctx = ctx;
+                
+                if (window.__RS_DEBUG) {
+                    console.log('[RS ctx@save]', {
+                        ctxPhase: (ctx?.phase ?? null),
+                        ctxRace: (ctx?.raceId ?? null)
+                    });
+                }
 
                 const nextPhase = (ctx?.phase || 'mk8').toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
                 const nextRace  = ctx?.raceId || null;

@@ -178,25 +178,49 @@ function attachContextListener() {
         off(listeners.context.ref, 'value', listeners.context.cb);
         listeners.context = null;
     }
+
     const ctxRef = ref(dbRealtime, PATH_CONTEXT);
     const cb = (snap) => {
         const ctx = snap.val() || {};
-        lastContext = ctx;
+
+        // Mémoriser l'état précédent pour savoir si on doit "suivre" l'avancée
+        const prevActivePhase = activeTournamentPhase;
+        const prevActiveRace  = activeRaceId;
+
+        // Phase/course actives du tournoi depuis le contexte
         activeTournamentPhase = (ctx.phase || 'mk8').toLowerCase();
         activeRaceId = (ctx.raceId != null && ctx.raceId !== '') ? String(ctx.raceId).toUpperCase() : null;
 
+        // Vue locale par défaut = phase active si non initialisée
         if (!viewPhase) viewPhase = activeTournamentPhase;
+
+        // --- 🔁 Suivi d’inspection “soft follow” ---
+        // Si on inspectait l’ancienne course active (ou rien), on bascule l’inspection sur la nouvelle.
+        // On n’écrase pas si l’utilisateur a explicitement sélectionné une autre course.
+        if (viewPhase === activeTournamentPhase) {
+            const wasFollowing =
+                (lastSelectedByPhase[viewPhase] == null) ||
+                (prevActivePhase === viewPhase && lastSelectedByPhase[viewPhase] === prevActiveRace);
+
+            if (wasFollowing && activeRaceId) {
+                lastSelectedByPhase[viewPhase] = activeRaceId;
+            }
+        }
 
         updatePhaseSwitchUI();
         updateStartSwitchUI();
-        // Synchroniser la vue du composant (si monté)
+
+        // Synchroniser la vue du composant race-strip
         window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase);
 
+        // Rebrancher les listeners alignés
         ensureCurrentResultsListener(activeTournamentPhase);
         ensurePhaseViewListeners(viewPhase);
 
+        // Rafraîchir le panneau pilotes (badges)
         refreshPilotListView();
     };
+
     onValue(ctxRef, cb);
     listeners.context = { ref: ctxRef, cb };
 }

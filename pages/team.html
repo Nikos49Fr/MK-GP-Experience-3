@@ -2,72 +2,97 @@
 <html lang="fr">
 <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Équipe — MK GP Experience 3</title>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>MK GP — Équipe</title>
 
-    <!-- CSS global + spécifique page équipe -->
-    <link rel="stylesheet" href="../css/main.css">
-    <link rel="stylesheet" href="../css/team.css">
+    <!-- Feuille de styles dédiée à la page "team" -->
+    <link rel="stylesheet" href="../css/team.css" />
 </head>
 <body>
 
-    <!-- Ancre haut de page (pour la nav latérale si besoin) -->
-    <div id="top"></div>
-
-    <!-- Barre supérieure : retour + zone contextuelle (tournoi / course / flash info) + puce équipe -->
-    <header class="team-topbar">
-        <nav class="topbar-left">
-            <a href="../index.html" class="btn-back" aria-label="Retour">← Retour</a>
-            <div class="context">
-                <span id="ctx-game" class="pill">—</span>
-                <span id="ctx-race" class="pill">Course —</span>
+    <!-- =========================================================
+         HEADER — style control-panel (logo à gauche, retour à droite)
+         ========================================================= -->
+    <header id="app-header" class="app-header" role="banner" aria-label="En-tête">
+        <div class="app-header__inner">
+            <!-- Logo Mario Kart (125x60) -->
+            <div class="app-header__brand">
+                <img
+                    src="../assets/images/MK_Grand_Prix-Experience_redim.png"
+                    width="125" height="60"
+                    alt="Mario Kart Grand Prix Experience"
+                    class="app-header__logo"
+                />
             </div>
 
-        <!-- Phase switch temporaire (basculer MK8 / MKW) -->
-            <div class="phase-switch" id="phase-switch">
-                <label class="switch">
-                    <input type="checkbox" id="phase-toggle" aria-label="Basculer MK8/MKW">
-                    <span class="slider"></span>
-                </label>
-                <span class="phase-label">
-                    <span class="mk8">MK8</span>
-                    <span class="sep">/</span>
-                    <span class="mkw">MKW</span>
-                </span>
-            </div>
+            <!-- Espace flexible central (vide par design) -->
+            <div class="app-header__spacer" aria-hidden="true"></div>
 
-        </nav>
-
-        <div class="topbar-right">
-            <div id="flash-ticker" class="flash-ticker" aria-live="polite" aria-atomic="true">
-                <!-- messages flash info (RTDB) -->
-            </div>
-
-            <!-- puce équipe (logo + tag) -->
-            <div id="team-chip" class="team-chip">
-                <img id="team-logo" src="" alt="" />
-                <span id="team-tag">—</span>
+            <!-- Bouton retour vers l'accueil -->
+            <div class="app-header__actions">
+                <a href="../index.html" class="btn btn--ghost" aria-label="Retour à l’accueil">Retour</a>
             </div>
         </div>
     </header>
 
-    <!-- En-tête équipe (nom + couleurs) -->
-    <section class="team-header-band">
-        <h1 id="team-name">Nom de l’équipe</h1>
-    </section>
+    <!-- =========================================================
+         CONTENU PRINCIPAL — 3 panneaux en colonne
+         gauche : pilotes (écurie)
+         centre : race-strip (viewer) + pilotes actifs + mosaïques
+         droite : classement (250x800, sans chrome)
+         ========================================================= -->
+    <main id="content" class="app-content" role="main">
+        <div class="content-grid">
+            <!-- ========== Panel gauche : liste des pilotes de l’écurie ========== -->
+            <aside id="panel-left" class="panel panel--left" aria-label="Pilotes de l’écurie">
+                <header class="panel__header">
+                    <h2 class="panel__title">Pilotes</h2>
+                </header>
 
-    <!-- Grille pilotes : chaque pilote = card + sélecteur classement -->
-    <main class="team-main">
-        <section id="pilots-grid" class="pilots-grid" aria-label="Pilotes de l’équipe">
-            <!-- rempli dynamiquement par JS -->
-        </section>
+                <!-- Colonne des mini-cards (6 cartes doivent tenir dans ≤800px de hauteur) -->
+                <div id="team-pilots" class="pilot-list" aria-live="polite">
+                    <!-- Rempli par /js/team.js (mini-cards : photo, nom, n°) -->
+                </div>
+            </aside>
+
+            <!-- ========== Panel central : race-strip (viewer) + pilotes actifs ========== -->
+            <section id="panel-center" class="panel panel--center" aria-label="Saisie des résultats">
+                <!-- Header du panel : composant ui/race-strip (mode viewer, piloté par RTDB) -->
+                <header class="panel__header">
+                    <div id="race-strip-host" class="race-strip-host" aria-live="polite">
+                        <!-- Rempli par /js/ui/race-strip.js via initRaceStrip(container, { mode:'viewer', controller:'firebase' }) -->
+                    </div>
+                </header>
+
+                <!-- Contenu central : cartes des pilotes actifs (2 en MK8, 4 en MKW) + mosaïques 12/24 -->
+                <div class="panel__body">
+                    <div id="active-pilots" class="active-pilots" aria-live="polite">
+                        <!-- Rempli par /js/team.js :
+                             - card pilote (photo, nom, n°)
+                             - bouton "Bonus" (états/UX à affiner)
+                             - mosaïque (12/24) liée à la course courante -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- ========== Panel droit : classement (250x800, sans bordure/padding/margin) ========== -->
+            <aside id="panel-right" class="panel panel--right" aria-label="Classements">
+                <!-- Wrapper strict 250x800 ; le widget se charge seul dedans -->
+                <div class="classement-wrapper">
+                    <div class="classement-widget"></div>
+                    <!-- /js/ui/classement.js : widget auto-boot, aucune API de rendu nécessaire -->
+                </div>
+            </aside>
+        </div>
     </main>
 
-    <!-- Ancre bas de page -->
-    <div id="bottom"></div>
-
-    <!-- Scripts (ajoutés plus tard) -->
-    <script type="module" src="../js/firebase-config.js"></script>
+    <!-- =========================================================
+         Scripts
+         ========================================================= -->
+    <!-- Script page (logique Firestore/RTDB, rendu des panels) -->
     <script type="module" src="../js/team.js"></script>
 </body>
 </html>

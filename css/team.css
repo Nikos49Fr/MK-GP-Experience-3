@@ -1,378 +1,468 @@
 @charset "UTF-8";
-/* sass/team.scss */
-/* Pré-requis : dans main.scss tu as déjà @use "variables" as *; et @use "fonts"; */
-:root {
-  /* fallback si JS n’a pas encore posé --c1/--c2 sur le <body> */
-  --c1: #bdbdbd;
-  --c2: #e0e0e0;
+/* ============================================================
+   Imports globaux
+   ============================================================ */
+/* sass/_fonts.scss */
+@font-face {
+  font-family: "MarioKartF2";
+  src: url("../assets/fonts/mario_kart_f2.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1 Wide";
+  src: url("../assets/fonts/Formula1-Wide.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+/* ============================================================
+   Reset minimal (local à la page)
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-body {
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
   background: #0c0616;
   color: #fff;
-  margin: 0;
-  min-width: 468px;
+  font-family: "Poppins", sans-serif;
 }
 
-/* Contrainte largeur + page pleine hauteur visuelle */
-.team-main,
-.team-header-band,
-.team-topbar {
-  max-width: 1440px;
-  margin: 0 auto;
+/* Utilitaires */
+.muted {
+  opacity: 0.7;
 }
 
-/* ------------------------------------------------------ */
-/* Topbar : retour + contexte + flash + puce équipe       */
-/* ------------------------------------------------------ */
-.team-topbar {
+/* ============================================================
+   HEADER — style control-panel (logo à gauche, retour à droite)
+   ============================================================ */
+.app-header {
   position: sticky;
   top: 0;
-  z-index: 100;
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.35));
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 20;
+  background: rgba(12, 6, 22, 0.9);
   backdrop-filter: blur(6px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.team-topbar .topbar-left {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.team-topbar .topbar-left .btn-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.45rem 0.75rem;
-  border-radius: 8px;
-  text-decoration: none;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-  transition: background 0.2s ease, transform 0.15s ease;
-}
-.team-topbar .topbar-left .btn-back:hover {
-  background: rgba(255, 255, 255, 0.18);
-  transform: translateY(-1px);
-}
-.team-topbar .topbar-left .context {
-  display: inline-flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-.team-topbar .topbar-left .context .pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.9rem;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  white-space: nowrap;
-}
-.team-topbar .topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.team-topbar .topbar-right .flash-ticker {
-  min-width: 360px;
-  max-width: 560px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 0.75rem;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.95rem;
-}
-.team-topbar .topbar-right .team-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.3rem 0.6rem;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.team-topbar .topbar-right .team-chip img {
-  width: 28px;
-  height: 28px;
-  object-fit: contain;
-  display: block;
-}
-.team-topbar .topbar-right .team-chip #team-tag {
-  font-family: var(--font-title, "MarioKartF2"), system-ui, sans-serif;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  color: var(--c2);
-}
-
-/* ------------------------------------------------------ */
-/* Ruban d’entête équipe (nom + effet léger)              */
-/* ------------------------------------------------------ */
-.team-header-band {
-  padding: 0.75rem 1rem 1rem;
-}
-.team-header-band h1 {
-  margin: 0;
-  text-align: center;
-  font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
-  font-size: clamp(1.4rem, 2.2vw, 2rem);
-  color: var(--c1);
-  text-shadow: 0 0 4px var(--c1), 0 0 8px var(--c2);
-  letter-spacing: 1px;
-  font-weight: 700;
-}
-
-/* ------------------------------------------------------ */
-/* Grille des pilotes + carte pilote + sélecteur rang     */
-/* ------------------------------------------------------ */
-.team-main {
-  padding: 0 1rem 2rem;
-}
-
-.pilots-grid {
+.app-header__inner {
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* desktop : 3 par ligne */
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
   gap: 1rem;
+  padding: 0.5rem 1rem;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.app-header__brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.app-header__logo {
+  display: block;
+  width: 125px;
+  height: 60px;
+  object-fit: contain;
+}
+.app-header__spacer {
+  min-width: 1px;
+}
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
-/* Carte visuelle (identique à l’accueil, léger ajustement) */
-.pilot-card {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.28);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-.pilot-card figure {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.pilot-card .img-wrap {
-  aspect-ratio: 3/4;
-  position: relative;
-  overflow: hidden;
-  background: radial-gradient(60% 60% at 50% 35%, color-mix(in srgb, var(--c1) 28%, transparent), transparent 70%);
-}
-.pilot-card img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.45));
-}
-.pilot-card .pilot-num {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 2;
-  font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: 0.5px;
-  color: var(--c1);
-  opacity: 0.9;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
-  user-select: none;
-  pointer-events: none;
-}
-.pilot-card .pilot-name {
-  font-weight: 400;
-  font-family: var(--font-subtitle, "Orbitron"), system-ui, sans-serif;
-  font-size: 0.85rem;
-  height: 30px;
-  padding: 0.5rem 0.6rem;
-  display: flex;
+/* Bouton fantôme (retour) */
+.btn {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  color: #fff;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--c1) 35%, transparent), color-mix(in srgb, var(--c2) 25%, transparent));
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-.pilot-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35), 0 0 18px color-mix(in srgb, var(--c1) 25%, transparent);
-  border-color: color-mix(in srgb, var(--c1) 35%, rgba(255, 255, 255, 0.08));
-}
-.pilot-card .just-updated {
-  outline: 2px solid color-mix(in srgb, var(--c1) 65%, #fff);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--c1) 35%, transparent);
-  transition: outline 0.2s ease, box-shadow 0.2s ease;
-}
-
-/* Item pilote = carte + contrôle */
-.pilot-item {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0.5rem;
-}
-
-/* === États de saisie rang (cohorte MK8) ========================== */
-/* pending = en cours; conflict = doublon; final = complet & unique */
-.pilot-item {
-  transition: filter 0.2s ease;
-}
-.pilot-item[data-state=pending] .rank-select {
-  border-color: #f5c542;
-  box-shadow: 0 0 0 2px rgba(245, 197, 66, 0.25);
-}
-.pilot-item[data-state=pending] .pilot-card {
-  outline: 2px solid rgba(245, 197, 66, 0.35);
-  box-shadow: 0 0 14px rgba(245, 197, 66, 0.25);
-}
-.pilot-item[data-state=conflict] .rank-select {
-  border-color: #e74c3c;
-  box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.25);
-}
-.pilot-item[data-state=conflict] .pilot-card {
-  outline: 2px solid rgba(231, 76, 60, 0.5);
-  box-shadow: 0 0 14px rgba(231, 76, 60, 0.35);
-}
-.pilot-item[data-state=final] .rank-select {
-  border-color: #2ecc71;
-  box-shadow: 0 0 0 2px rgba(46, 204, 113, 0.25);
-  opacity: 0.85;
-  cursor: not-allowed;
-}
-.pilot-item[data-state=final] .pilot-card {
-  outline: 2px solid rgba(46, 204, 113, 0.45);
-  box-shadow: 0 0 14px rgba(46, 204, 113, 0.3);
-}
-.pilot-item[data-state=empty] .rank-select {
-  border-color: rgba(255, 255, 255, 0.18);
-  box-shadow: none;
-}
-.pilot-item[data-state=empty] .pilot-card {
-  outline: 2px solid transparent;
-  box-shadow: none;
-}
-
-/* Petit feedback "pulse" quand une saisie vient d’être enregistrée */
-.pilot-card.just-updated {
-  outline: 2px solid color-mix(in srgb, var(--c1) 65%, #fff);
-  box-shadow: 0 0 14px color-mix(in srgb, var(--c1) 35%, transparent);
-  transition: outline 0.2s ease, box-shadow 0.2s ease;
-}
-
-/* Contrôle de classement (gros, ergonomique, “pilote-friendly”) */
-.rank-control {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 0.6rem;
-}
-.rank-control .rank-label {
-  font-size: 0.95rem;
-  opacity: 0.85;
-}
-.rank-control .rank-select {
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  color: #fff;
-  padding: 0.5rem 0.9rem;
-  border-radius: 10px;
-  min-width: 120px;
-  font-size: 1rem;
+  height: 36px;
+  padding: 0 14px;
+  font-family: "Orbitron", sans-serif;
   font-weight: 600;
-  text-align: center;
-  cursor: pointer;
-  /* petite flèche custom */
-  background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
-  background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
-  background-size: 6px 6px, 6px 6px;
-  background-repeat: no-repeat;
+  text-decoration: none;
+  border-radius: 10px;
+  transition: transform 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
-.rank-control .rank-select:hover {
-  background-color: rgba(255, 255, 255, 0.12);
+.btn--ghost {
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
 }
-.rank-control .rank-select:focus {
-  outline: 2px solid var(--c1);
-  outline-offset: 2px;
+.btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  transform: translateY(-1px);
 }
-.rank-control .rank-hint {
-  font-size: 0.8rem;
-  opacity: 0.6;
+.btn--ghost:active {
+  transform: translateY(0);
 }
 
-/* ------------------------------------------------------ */
-/* (Optionnel) Media queries légers pour desktop large    */
-/* ------------------------------------------------------ */
-@media (min-width: 1280px) {
-  .pilots-grid {
-    gap: 1.1rem;
-  }
-  .rank-control .rank-select {
-    min-width: 140px;
-  }
+/* ============================================================
+   LAYOUT PRINCIPAL — 3 colonnes
+   ============================================================ */
+.app-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1rem;
 }
-/* ----------------------- Phase switch ----------------------- */
-.phase-switch {
+
+.content-grid {
+  display: grid;
+  grid-template-columns: 250px 1fr 250px; /* gauche / centre / droite */
+  gap: 1rem;
+  align-items: start;
+}
+
+/* Panneaux génériques */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.panel__header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
-  font-size: 0.9rem;
+  min-height: 40px;
+}
+.panel__title {
+  margin: 0;
+  font-family: "Orbitron", sans-serif;
+  letter-spacing: 0.3px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.panel__body {
+  display: block;
+}
+
+/* ============================================================
+   PANEL GAUCHE — Liste des pilotes (mini-cards)
+   - largeur fixée par la grille (250px)
+   - 6 cartes dans 800px max
+   ============================================================ */
+.panel--left {
+  /* rien de spécial ici; la grille fixe la largeur */
+}
+
+/* Hauteur utile pour 6 mini-cards (800px max) */
+/* hauteur approx header de panel */
+/* gap vertical entre éléments */
+.pilot-list {
+  display: grid;
+  grid-auto-rows: calc(calc(800px - 40px - 0.75rem) / 6);
+  gap: 0.5rem;
+  /* Pas de scrollbar : on contraint la hauteur totale à 800px */
+  max-height: 800px;
+  overflow: hidden;
+}
+
+/* Mini-card pilote */
+.pilot-card {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.pilot-card .img-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.pilot-card .img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pilot-card .img-wrap .pilot-num {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
   color: #fff;
 }
-.phase-switch .phase-label {
+.pilot-card .pilot-caption {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.pilot-card .pilot-caption .pilot-name {
+  font-weight: 700;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.95rem;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.pilot-card .pilot-caption .pilot-tag {
+  opacity: 0.8;
+  font-size: 0.8rem;
+}
+
+/* ============================================================
+   PANEL DROIT — Classements (250x800, sans chrome)
+   ============================================================ */
+.panel--right {
+  /* Sans bordure/padding/margin sur le wrapper */
+}
+.panel--right .classement-wrapper {
+  width: 250px;
+  height: 800px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  /* Le widget interne doit prendre 100% */
+}
+.panel--right .classement-wrapper .classement-widget {
+  width: 100%;
+  height: 100%;
+  /* Si le widget a un fond, on ne le force pas ici */
+}
+
+/* ============================================================
+   PANEL CENTRAL — Race-strip (viewer) + pilotes actifs
+   ============================================================ */
+.panel--center .race-strip-host {
+  /* Le composant ui/race-strip viendra ici ;
+     pas de padding supplémentaire pour laisser son style s'exprimer */
+}
+
+/* Grille des pilotes actifs (2 en MK8, 4 en MKW) — 4 cartes par ligne */
+.active-pilots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: start;
+  margin-top: 0.75rem;
+}
+
+/* Card pilote active */
+.active-pilot-card {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  /* Bouton BONUS (visuel fort, adaptable) */
+  /* Mosaïque 12/24 sous la barre bonus
+     -> le style interne vient de _tiles.scss (module partagé).
+     Ici on peut ajuster marges pour l’intégration. */
+}
+.active-pilot-card .pilot-figure {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0;
+}
+.active-pilot-card .pilot-figure .img-wrap {
+  position: relative;
+  width: 68px;
+  height: 68px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.active-pilot-card .pilot-figure .img-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.active-pilot-card .pilot-figure .img-wrap .pilot-num {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+}
+.active-pilot-card .pilot-figure .pilot-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.active-pilot-card .pilot-figure .pilot-caption .pilot-name {
+  font-weight: 800;
+  font-family: "Orbitron", sans-serif;
+  font-size: 1rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  line-height: 1.15;
+}
+.active-pilot-card .pilot-figure .pilot-caption .pilot-tag {
+  opacity: 0.85;
+  font-size: 0.85rem;
+}
+.active-pilot-card .bonus-bar {
   display: flex;
   align-items: center;
-  gap: 0.2rem;
+  justify-content: flex-start;
 }
-.phase-switch .phase-label .sep {
-  opacity: 0.6;
-}
-.phase-switch .switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 22px;
-}
-.phase-switch .switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.phase-switch .switch .slider {
-  position: absolute;
+.active-pilot-card .bonus-btn {
+  --bonus-bg: #00b4d8; /* état prêt */
+  --bonus-fg: #ffffff;
+  --bonus-bg-armed: #ff9f1c; /* armé (pendant timer) */
+  --bonus-bg-used: #6c757d; /* utilisé */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--bonus-bg);
+  color: var(--bonus-fg);
+  font-family: "Orbitron", sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.3px;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #666;
-  border-radius: 22px;
-  transition: 0.3s;
+  transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
 }
-.phase-switch .switch .slider::before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  border-radius: 50%;
-  transition: 0.3s;
+.active-pilot-card .bonus-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
 }
-.phase-switch .switch input:checked + .slider {
-  background-color: #9146ff; /* violet Twitch */
+.active-pilot-card .bonus-btn:active {
+  transform: translateY(0);
 }
-.phase-switch .switch input:checked + .slider::before {
-  transform: translateX(22px);
+.active-pilot-card .bonus-btn.is-armed {
+  background: var(--bonus-bg-armed);
+}
+.active-pilot-card .bonus-btn.is-used, .active-pilot-card .bonus-btn:disabled {
+  background: var(--bonus-bg-used);
+  cursor: not-allowed;
+  opacity: 0.9;
+}
+.active-pilot-card .bonus-btn .bonus-label {
+  font-size: 0.95rem;
+}
+.active-pilot-card .bonus-btn .bonus-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.active-pilot-card .race-tiles {
+  margin: 0.25rem 0 0;
+}
+
+/* ============================================================
+   Variantes & Responsif minimal
+   ============================================================ */
+/* Sur petits écrans, on empile (fallback basique si jamais visible sur mobile) */
+@media (max-width: 1024px) {
+  .content-grid {
+    grid-template-columns: 220px 1fr 220px;
+  }
+  .active-pilots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 768px) {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+  .panel--right .classement-wrapper {
+    width: 100%;
+    height: 50vh;
+  }
+  .pilot-list {
+    max-height: none;
+    grid-auto-rows: auto;
+  }
+}
+/* ============================================================
+   Harmonisation tuiles — sémantique couleurs (page team)
+   ------------------------------------------------------------
+   On suit ta règle :
+   - blanc : défaut
+   - bleu  : sélection du pilote
+   - rouge : conflit
+   - vert  : tout rempli et OK (toutes les tuiles sauf la bleue deviennent vertes)
+   - (pas de jaune ici)
+   Les classes proviennent du module _tiles.scss :
+     .race-tile.is-blank / .is-selected / .is-conflict
+   Ici on force le "complet" via une classe de portée sur la grille.
+   ============================================================ */
+/* Marqueur "complet & OK" appliqué par le JS sur la racine de la mosaïque */
+.race-tiles--complete {
+  /* Exception : la tuile sélectionnée par le pilote reste bleue */
+}
+.race-tiles--complete .race-tile {
+  background: #2ecc71;
+  border-color: #2ecc71;
+  color: #ffffff;
+}
+.race-tiles--complete .race-tile.is-selected {
+  background: #00b4d8;
+  border-color: #00b4d8;
+  color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 180, 216, 0.2);
+}
+
+/* Option : harmoniser le rendu par défaut (si _tiles.scss n'est pas chargé),
+   on redéclare les couleurs des états principaux pour sécurité visuelle. */
+.race-tile.is-selected {
+  background: #00b4d8;
+  border-color: #00b4d8;
+  color: #ffffff;
+}
+
+.race-tile.is-conflict {
+  background: #e74c3c;
+  border-color: #e74c3c;
+  color: #ffffff;
 }/*# sourceMappingURL=team.css.map */

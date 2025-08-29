@@ -150,6 +150,15 @@ const listeners = {
 // API race-strip (monté une seule fois)
 let raceStripApi = null;
 
+// --- Bonus window (doublesLocked) ---
+const BONUS_WINDOW_SECONDS = 120;  // timer de sécurité (2 minutes)
+
+let bonusTimer = {
+    rid: null,           // "mk8-1", "mkw-8", etc.
+    expiresAt: 0,        // timestamp ms
+    intervalId: null     // setInterval handle
+};
+
 /* ============================================================
    Constantes utilitaires
    ============================================================ */
@@ -165,6 +174,115 @@ function buildRaceList(phase) {
         return list;
     }
     return Array.from({ length: 8 }, (_, i) => String(i + 1));
+}
+
+function isSurvivalRaceId(rid) {
+    const v = String(rid || '').toUpperCase();
+    return v === 'S' || v === 'SF';
+}
+
+function doublesLockedOf(phase, raceId) {
+    return !!(byRaceResultsByPhase?.[phase]?.[raceId]?.doublesLocked);
+}
+
+async function setDoublesLocked(phase, raceId, locked) {
+    if (!phase || !raceId) return;
+    try {
+        await update(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`), { doublesLocked: !!locked });
+    } catch (e) {
+        console.error('[CP] setDoublesLocked error', e);
+    }
+}
+
+function stopBonusTimer() {
+    if (bonusTimer.intervalId) {
+        clearInterval(bonusTimer.intervalId);
+    }
+    bonusTimer = { rid: null, expiresAt: 0, intervalId: null };
+    const t = document.getElementById('cp-bonus-timer');
+    if (t) t.textContent = '';
+}
+
+function startBonusTimerFor(rid) {
+    stopBonusTimer();
+    bonusTimer.rid = rid;
+    bonusTimer.expiresAt = Date.now() + BONUS_WINDOW_SECONDS * 1000;
+
+    const t = document.getElementById('cp-bonus-timer');
+    const tick = async () => {
+        const ms = Math.max(0, bonusTimer.expiresAt - Date.now());
+        const s = Math.ceil(ms / 1000);
+        if (t) {
+            const mm = String(Math.floor(s / 60)).padStart(1, '0');
+            const ss = String(s % 60).padStart(2, '0');
+            t.textContent = `⏳ ${mm}:${ss}`;
+        }
+        if (s <= 0) {
+            stopBonusTimer();
+            // Auto-fermeture à l’expiration, si on est toujours sur la même course
+            const curRid = `${activeTournamentPhase}-${activeRaceId}`;
+            if (curRid === rid && !isSurvivalRaceId(activeRaceId)) {
+                await setDoublesLocked(activeTournamentPhase, activeRaceId, true);
+            }
+        }
+    };
+    tick();
+    bonusTimer.intervalId = setInterval(tick, 250);
+}
+
+async function openBonusWindowForCurrent(auto = false) {
+    if (!activeTournamentPhase || !activeRaceId) return;
+    if (isSurvivalRaceId(activeRaceId)) return; // pas de bonus en S/SF
+    const rid = `${activeTournamentPhase}-${activeRaceId}`;
+    await setDoublesLocked(activeTournamentPhase, activeRaceId, false);
+    startBonusTimerFor(rid);
+    if (auto) {
+        // Optionnel: log ou petit feedback visuel plus tard
+        // console.log('[CP] Fenêtre bonus auto-ouverte pour', rid);
+    }
+}
+
+async function closeBonusWindowForCurrent() {
+    if (!activeTournamentPhase || !activeRaceId) return;
+    await setDoublesLocked(activeTournamentPhase, activeRaceId, true);
+    stopBonusTimer();
+}
+
+function updateBonusToggleUI() {
+    const btn = document.getElementById('cp-bonus-toggle');
+    const timer = document.getElementById('cp-bonus-timer');
+    if (!btn) return;
+
+    const phase = activeTournamentPhase;
+    const raceId = activeRaceId;
+    const rid = (phase && raceId) ? `${phase}-${raceId}` : '';
+
+    // indisponible si pas de contexte ou S/SF
+    const disabled = !(phase && raceId) || isSurvivalRaceId(raceId);
+    btn.disabled = disabled;
+    btn.title = disabled
+        ? (isSurvivalRaceId(raceId) ? 'Bonus indisponible en Survie' : 'Pas de course active')
+        : '';
+
+    // état lock/unlock
+    const locked = doublesLockedOf(phase, raceId);
+    const isOpen = !locked && !disabled;
+
+    btn.classList.toggle('is-on', isOpen);
+    btn.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
+
+    // timer visible uniquement si ouvert
+    if (timer) {
+        timer.style.visibility = isOpen ? 'visible' : 'hidden';
+        // redémarrer un timer local si ouvert sans timer (ou si course a changé)
+        const currentRid = bonusTimer.rid;
+        if (isOpen && currentRid !== rid) {
+            startBonusTimerFor(rid);
+        }
+        if (!isOpen) {
+            stopBonusTimer();
+        }
+    }
 }
 
 /* ============================================================
@@ -191,6 +309,12 @@ function attachContextListener() {
         activeTournamentPhase = (ctx.phase || 'mk8').toLowerCase();
         activeRaceId = (ctx.raceId != null && ctx.raceId !== '') ? String(ctx.raceId).toUpperCase() : null;
 
+        // Garantir un gridSize cohérent avec la phase (utile si ancien contexte)
+        const desiredGrid = (activeTournamentPhase === 'mkw') ? 24 : 12;
+        if (ctx.gridSize !== desiredGrid) {
+            update(ref(dbRealtime, PATH_CONTEXT), { gridSize: desiredGrid }).catch(() => {});
+        }
+
         // Vue locale par défaut = phase active si non initialisée
         if (!viewPhase) viewPhase = activeTournamentPhase;
 
@@ -209,6 +333,19 @@ function attachContextListener() {
 
         updatePhaseSwitchUI();
         updateStartSwitchUI();
+
+        // UI du bouton bonus mise à jour à chaque changement de contexte
+        updateBonusToggleUI();
+
+        // Auto ouverture si la course vient de changer (start ou post-finalisation)
+        const raceChanged = (prevActivePhase !== activeTournamentPhase) || (prevActiveRace !== activeRaceId);
+        if (raceChanged && activeRaceId && !isSurvivalRaceId(activeRaceId)) {
+            // On n’ouvre que si la fenêtre est verrouillée ou non définie
+            const locked = doublesLockedOf(activeTournamentPhase, activeRaceId);
+            if (locked || typeof locked === 'undefined') {
+                openBonusWindowForCurrent(true);
+            }
+        }
 
         // Synchroniser la vue du composant race-strip
         window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase);
@@ -286,6 +423,7 @@ function ensurePhaseViewListeners(phase) {
         }
         lastFinalizedByPhase[phase] = normalized;
         updateStartSwitchUI();
+        updateBonusToggleUI();
     };
     onValue(racesRef, racesCb);
     listeners.races = { ref: racesRef, cb: racesCb };
@@ -299,6 +437,7 @@ function ensurePhaseViewListeners(phase) {
         byRaceResultsByPhase[phase] = snap.val() || {};
         refreshPilotListView();
         updateStartSwitchUI();
+        updateBonusToggleUI();
     };
     onValue(byRaceRef, byRaceCb);
     listeners.byRace = { ref: byRaceRef, cb: byRaceCb };
@@ -382,7 +521,19 @@ function mountPhaseSwitch() {
         el('label', { for: 'cp-start-input', class: 'cp-start-label' }, 'Start')
     );
 
-    center.replaceChildren(group, startWrap);
+    // Toggle "Fenêtre Bonus" (doré) + timer
+    const bonusWrap = el('div', { class: 'cp-bonus-toggle-wrap' },
+        el('button', {
+            id: 'cp-bonus-toggle',
+            class: 'cp-bonus-toggle',
+            type: 'button',
+            'aria-pressed': 'false',
+            title: ''
+        }, 'Bonus'),
+        el('span', { id: 'cp-bonus-timer', class: 'cp-bonus-timer', 'aria-live': 'polite' }, '')
+    );
+
+    center.replaceChildren(group, startWrap, bonusWrap);
 
     $('#cp-btn-mk8', group).addEventListener('click', () => setViewPhase('mk8'));
     $('#cp-btn-mkw', group).addEventListener('click', () => setViewPhase('mkw'));
@@ -408,9 +559,28 @@ function mountPhaseSwitch() {
         updateStartSwitchUI();
     });
 
+    // Toggle clic
+    $('#cp-bonus-toggle', bonusWrap).addEventListener('click', async () => {
+        if (!activeTournamentPhase || !activeRaceId) return;
+        if (isSurvivalRaceId(activeRaceId)) return;
+
+        const locked = doublesLockedOf(activeTournamentPhase, activeRaceId);
+        try {
+            if (locked) {
+                await openBonusWindowForCurrent(false);
+            } else {
+                await closeBonusWindowForCurrent();
+            }
+        } catch (e) {
+            console.error('[CP] toggle bonus error', e);
+        }
+        updateBonusToggleUI();
+    });
+
     updatePhaseSwitchUI();
     updateStartSwitchUI();
     mountDevFillButton();
+    updateBonusToggleUI();
 }
 
 function setViewPhase(phase) {
@@ -445,10 +615,12 @@ function computeStartEnabledForView(phase) {
 
 async function startPhase(phase) {
     const firstId = buildRaceList(phase)[0];
+    const gridSize = (phase === 'mkw') ? 24 : 12; // requis par les règles RTDB
     await update(ref(dbRealtime, PATH_CONTEXT), {
         phase,
         raceId: firstId,
-        rid: `${phase}-${firstId}`
+        rid: `${phase}-${firstId}`,
+        gridSize
     });
 }
 

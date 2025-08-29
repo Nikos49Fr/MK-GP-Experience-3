@@ -13,7 +13,13 @@
  */
 
 // ./js/team.js
-import { dbFirestore, dbRealtime } from "./firebase-config.js";
+import { app, dbFirestore, dbRealtime } from "./firebase-config.js";
+import {
+    getAuth,
+    onAuthStateChanged,
+    signInAnonymously
+} from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
+const auth = getAuth(app);
 import {
     collection, getDocs, query, where, limit
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
@@ -30,6 +36,17 @@ import "./ui/classement.js";
 /* ============================================================
    Helpers
    ============================================================ */
+
+async function ensureAnonymousAuth() {
+    try {
+        if (!auth.currentUser) {
+            await signInAnonymously(auth);
+        }
+    } catch (err) {
+        console.warn("[team] signInAnonymously failed:", err?.code || err);
+    }
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -131,6 +148,58 @@ function syncActivePilotCardHeight() {
     const h = getLeftPilotCardHeight();
     const grid = $("#active-pilots");
     if (grid) grid.style.setProperty("--pilot-card-h", `${h}px`);
+}
+
+// -- Bonus helpers (fenêtre + UI) -------------------------------------------
+function ensureInfoBanner() {
+    const body = document.querySelector("#panel-center .panel__body");
+    if (!body) return null;
+    let banner = body.querySelector(".panel__info");
+    if (!banner) {
+        banner = h("div", { class: "panel__info", id: "info-banner", "aria-live": "polite" });
+        body.insertBefore(banner, body.firstChild);
+    }
+    return banner;
+}
+
+function updateInfoBanner(phase, raceId, doublesLocked) {
+    const banner = ensureInfoBanner();
+    if (!banner) return;
+    const isSurvival = isSurvivalRace(raceId);
+    const isOpen = !doublesLocked && !isSurvival && !!phase && !!raceId;
+    banner.hidden = !isOpen;
+    if (isOpen) {
+        banner.textContent = `Fenêtre bonus ouverte — Course ${raceId}. Active ton bonus avant la fin de la course.`;
+    } else {
+        banner.textContent = "";
+    }
+}
+
+// Applique les états visuels du bouton Bonus pour chaque pilote
+function updateBonusButtonsUI(phase, raceId, allowedMap, bonusUsageMap, doublesLocked, doublesMap) {
+    const isSurvival = isSurvivalRace(raceId);
+    document.querySelectorAll("#active-pilots .bonus-btn").forEach(btn => {
+        const pid = btn.dataset.pilot;
+        const used = !!bonusUsageMap?.[pid];          // bonus déjà consommé dans la phase
+        const locked = !!doublesLocked || isSurvival; // fenêtre fermée ou survie
+        const armed = !!doublesMap?.[pid];            // armé pour la course courante
+        const canWrite = !!allowedMap?.[pid];
+
+        // classes
+        btn.classList.toggle("is-used", used);
+        btn.classList.toggle("is-locked", !used && locked);
+        btn.classList.toggle("is-armed", !used && !locked && armed);
+
+        // interactivité
+        const disabled = used || locked || !canWrite;
+        btn.disabled = disabled;
+        btn.title =
+            used      ? "Bonus déjà utilisé dans cette phase" :
+            isSurvival? "Bonus indisponible en Survie" :
+            locked    ? "Fenêtre bonus fermée" :
+            !canWrite ? "Action non autorisée" :
+                        "Activer/annuler le bonus pour cette course";
+    });
 }
 
 /* ============================================================
@@ -417,16 +486,23 @@ async function wireBonusButtonsInitial(team, phase, activePilots) {
     });
 }
 
-function wireBonusButtons(phase, raceId) {
+function wireBonusButtons(phase, raceId, allowedMap, doublesLocked, doublesMap) {
     $("#active-pilots")?.querySelectorAll(".bonus-btn").forEach(btn => {
         const pid = btn.dataset.pilot;
         btn.onclick = async () => {
+            // garde-fous runtime
             if (!phase || !raceId || isSurvivalRace(raceId)) return;
+            if (btn.disabled) return;
+
+            // toggle armement : /live/results/{phase}/byRace/{raceId}/doubles/{pilotId}
+            const path = `live/results/${phase}/byRace/${raceId}/doubles/${pid}`;
+            const isArmedNow = btn.classList.contains("is-armed") || !!doublesMap?.[pid];
             try {
-                const path = `live/points/${phase}/byRace/${raceId}/${pid}`;
-                await update(ref(dbRealtime, path), { doubled: true });
-                btn.classList.add("is-used");
-                btn.disabled = true;
+                if (isArmedNow) {
+                    await set(ref(dbRealtime, path), null);   // désarmer = delete
+                } else {
+                    await set(ref(dbRealtime, path), true);   // armer
+                }
             } catch (e) {
                 console.error("[team] bonus toggle error", e);
             }
@@ -449,11 +525,56 @@ function subCurrent(phase, cb) {
 function subFinalized(phase, raceId, cb) {
     return onValue(ref(dbRealtime, `live/races/${phase}/${raceId}`), s => cb(!!(s.val()?.finalized)));
 }
+function subByRace(phase, raceId, cb) {
+    return onValue(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`), s => cb(s.val() || {}));
+}
+function subBonusUsage(phase, cb) {
+    return onValue(ref(dbRealtime, `live/results/${phase}/bonusUsage`), s => cb(s.val() || {}));
+}
 
 /* ============================================================
    INIT
    ============================================================ */
 (async function init() {
+    // --- Assure une session avant toute lecture RTDB, sans "downgrader" un compte Google ---
+    // Idée : on attend d'abord la restauration éventuelle d'une session Google.
+    // Si, après un court délai, il n'y a toujours aucun user, on bascule en anonyme.
+    await new Promise((resolve) => {
+        let resolved = false;
+
+        const off = onAuthStateChanged(auth, async (user) => {
+            off();
+            if (!resolved) {
+                resolved = true;
+                // Si un user (Google) est déjà là, on démarre immédiatement.
+                resolve();
+            }
+        });
+
+        // Petit délai de grâce pour laisser le temps à la session Google de se restaurer
+        setTimeout(async () => {
+            if (!resolved) {
+                // Heuristique : si on voit un email stocké (accueil), on prolonge un peu l'attente
+                const maybeAdminEmail = localStorage.getItem("mk_user_email");
+                if (maybeAdminEmail) {
+                    // On attend encore un peu avant de tenter l'anonyme
+                    setTimeout(async () => {
+                        if (!auth.currentUser) {
+                            try { await signInAnonymously(auth); } catch (e) { console.warn("[team] anon fallback failed:", e); }
+                        }
+                        if (!resolved) { resolved = true; resolve(); }
+                    }, 400); // 400 ms additionnels
+                } else {
+                    // Pas d'indice admin → on tente directement l'anonyme
+                    if (!auth.currentUser) {
+                        try { await signInAnonymously(auth); } catch (e) { console.warn("[team] anon fallback failed:", e); }
+                    }
+                    if (!resolved) { resolved = true; resolve(); }
+                }
+            }
+        }, 300); // 300 ms de grâce initiale
+    });
+
     const tag = getParam("id");
     if (!tag) {
         $("#content").innerHTML = "<p class='muted'>Paramètre ?id=TAG manquant.</p>";
@@ -478,31 +599,57 @@ function subFinalized(phase, raceId, cb) {
         // State local
         let phase = null, raceId = null;
         let allowed = {}, ranks = {}, finalized = false;
+        let doublesLocked = true;      // fenêtre fermée par défaut
+        let doubles = {};              // { pilotId: true }
+        let bonusUsage = {};           // { pilotId: raceId }
 
         // Unsubs
-        let unAllowed = null, unCurrent = null, unFinalized = null;
+        let unAllowed = null, unCurrent = null, unFinalized = null, unByRace = null, unUsage = null;
         const resubPhaseDeps = () => {
             if (typeof unAllowed === "function") unAllowed(); unAllowed = null;
             if (typeof unCurrent === "function") unCurrent(); unCurrent = null;
             if (typeof unFinalized === "function") unFinalized(); unFinalized = null;
+            if (typeof unByRace === "function") unByRace(); unByRace = null;
+            if (typeof unUsage === "function") unUsage(); unUsage = null;
 
             if (!phase) return;
 
             unAllowed = subAllowed(phase, (v) => {
                 allowed = v || {};
                 updateTilesState(phase, ranks, allowed, finalized);
+                updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+                // ⬇️ Re-render des pilotes actifs dès que la whitelist change pour la phase courante
+                renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
+                applyPilotGridColumns(phase, /* reveal */ false);
+                wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
+                syncActivePilotCardHeight();
             });
+
             unCurrent = subCurrent(phase, (v) => {
-                // Tolère anciens schémas {pilotId:n} et nouveaux {pilotId:{rank:n}}
+                // Tolère {pilotId:n} et {pilotId:{rank:n}}
                 ranks = v || {};
                 updateTilesState(phase, ranks, allowed, finalized);
             });
+
             if (raceId) {
                 unFinalized = subFinalized(phase, raceId, (v) => {
                     finalized = !!v;
                     updateTilesState(phase, ranks, allowed, finalized);
+                    updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+                });
+
+                unByRace = subByRace(phase, raceId, (v) => {
+                    doublesLocked = !!v?.doublesLocked;     // undefined => false ? on choisit "fermé" par défaut
+                    doubles = v?.doubles || {};
+                    updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+                    updateInfoBanner(phase, raceId, doublesLocked);
                 });
             }
+
+            unUsage = subBonusUsage(phase, (v) => {
+                bonusUsage = v || {};
+                updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+            });
         };
 
         // Contexte global
@@ -513,6 +660,8 @@ function subFinalized(phase, raceId, cb) {
                 syncActivePilotCardHeight();
                 $("#active-pilots").innerHTML = "";
                 applyPilotGridColumns("mk8", /* reveal */ false);
+                updateInfoBanner(null, null, true);
+                updateBonusButtonsUI(null, null, {}, {}, true, {});
                 resubPhaseDeps();
                 return;
             }
@@ -522,12 +671,19 @@ function subFinalized(phase, raceId, cb) {
             const phaseChanged = phase !== nextPhase;
             const raceChanged = raceId !== nextRaceId;
             phase = nextPhase; raceId = nextRaceId;
+            // ⬇️ On purge les caches locaux pour éviter d'utiliser les valeurs MK8 en MKW
+            if (phaseChanged) {
+                allowed = {};
+                ranks = {};
+            }
 
             renderLeftColumn(team, pilots, phase);
             syncActivePilotCardHeight();
             renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
             applyPilotGridColumns(nextPhase, /* reveal */ false);
-            wireBonusButtons(phase, raceId);
+            wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
+            updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+            updateInfoBanner(phase, raceId, doublesLocked);
             updateTilesState(phase, ranks, allowed, finalized);
 
             if (phaseChanged || raceChanged) resubPhaseDeps();

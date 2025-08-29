@@ -47,6 +47,11 @@
     --kart-zoom: 3;
     --kart-tx: 0px;
     --kart-ty: 0px;
+
+    /* Bonus window (doré) */
+    --bonus-on-bg: #ffd166;                /* doré (état ON) */
+    --bonus-off-bg: rgba(255,255,255,0.14);/* OFF */
+    --bonus-border: rgba(255,255,255,0.25);/* contour */
 }
 
 /* ==========================================================================
@@ -213,6 +218,59 @@ body.cp-body {
 .cp-start-input:disabled + .cp-start-label { cursor: not-allowed; opacity: .6; }
 .cp-start-input:checked:disabled + .cp-start-label { opacity: .95; }
 .cp-start-input:checked:disabled + .cp-start-label::after { background: #0c0616; }
+
+/* ==========================================================================
+   Switch Bonus (doré) + timer
+   ========================================================================== */
+
+/* Wrapper ligne header centre */
+.cp-bonus-toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Bouton (généré en JS : #cp-bonus-toggle) */
+.cp-bonus-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    height: 28px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 10px;
+    color: rgba(255,255,255,0.9);
+    background: var(--bonus-off-bg);
+    border: 1px solid var(--bonus-border);
+    cursor: pointer;
+    user-select: none;
+    transition: background .2s ease, border-color .2s ease, box-shadow .2s ease, color .2s ease;
+
+    &:hover:not(:disabled) {
+        background: rgba(255,255,255,0.18);
+    }
+    &.is-on {
+        background: var(--bonus-on-bg);
+        color: #0c0616;
+        border-color: transparent;
+        box-shadow: 0 0 0 3px rgba(255,209,102,0.25) inset;
+    }
+    &:disabled {
+        cursor: not-allowed;
+        opacity: .6;
+    }
+}
+
+/* Timer texte (⏳ mm:ss), montré/masqué par JS via visibility */
+.cp-bonus-timer {
+    min-width: 44px;
+    text-align: right;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .02em;
+    color: rgba(255,255,255,0.9);
+}
 
 /* ==========================================================================
    3) Main (3 colonnes) : gauche (pilotes) | centre (races) | droite (classement)

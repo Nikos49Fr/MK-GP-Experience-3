@@ -32,6 +32,14 @@
     --tile-w: 40px;
     --track-h: 18px;
     --race-gap: 10px;
+
+    /* Couleurs par défaut (peuvent être surchargées en CSS vars) */
+    --bonus-bg: #00b4d8;        /* prêt (bleu) */
+    --bonus-fg: #ffffff;
+    --bonus-bg-armed: #ffd166;  /* armé (doré) */
+    --bonus-bg-locked: #6c757d; /* verrouillé (gris) */
+    --bonus-bg-used: #6c757d;   /* utilisé (gris) */
+    --bonus-border: rgba(255,255,255,0.16);
 }
 /* ==========================================================================
    Variables — Mosaïques (tuiles & conteneur)
@@ -435,6 +443,25 @@ body {
         /* Le CSS spécifique du composant est dans race-strip.css */
     }
 
+    .panel__info {
+        margin: 8px 4px 8px;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: linear-gradient(
+            90deg,
+            rgba(255,255,255,0.06),
+            rgba(255,255,255,0.03)
+        );
+        color: #ffffff;
+        font-family: $font-subtitle;
+        font-weight: 800;
+        letter-spacing: .2px;
+        text-align: center;
+        line-height: 1.2;
+        box-shadow: 0 1px 0 rgba(0,0,0,0.14);
+    }
+
     .panel__body {
         flex: 1 1 auto;
         min-height: 0;
@@ -477,10 +504,6 @@ body {
         margin-top: 2px;
     }
     .bonus-btn {
-        --bonus-bg: #00b4d8;     /* prêt */
-        --bonus-fg: #ffffff;
-        --bonus-bg-armed: #ff9f1c;
-        --bonus-bg-used: #6c757d;
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -490,6 +513,7 @@ body {
         border: 1px solid rgba(255,255,255,0.12);
         background: var(--bonus-bg);
         color: var(--bonus-fg);
+        border-color: var(--bonus-border);
         font-family: $font-subtitle;
         font-weight: 800;
         letter-spacing: .3px;
@@ -498,8 +522,35 @@ body {
 
         &:hover { transform: translateY(-1px); filter: brightness(1.05); }
         &:active { transform: translateY(0); }
-        &.is-armed { background: var(--bonus-bg-armed); }
-        &.is-used, &:disabled { background: var(--bonus-bg-used); cursor: not-allowed; opacity: .9; }
+        /* État : armé (doré) */
+        &.is-armed {
+            background: var(--bonus-bg-armed);
+            color: #0c0616;
+            border-color: transparent;
+            box-shadow: 0 0 0 2px rgba(255,209,102,0.25) inset;
+        }
+
+        /* État : verrouillé (gris) */
+        &.is-locked {
+            background: var(--bonus-bg-locked);
+            color: #f2f2f2;
+            cursor: not-allowed;
+            opacity: .85;
+        }
+
+        /* État : utilisé (gris + opacité) */
+        &.is-used {
+            background: var(--bonus-bg-used);
+            color: #e8e8e8;
+            cursor: not-allowed;
+            opacity: .5;
+            filter: grayscale(.15) saturate(.8);
+        }
+
+        /* Fallback neutre pour tout bouton désactivé (laisse la priorité aux classes ci-dessus) */
+        &:disabled {
+            cursor: not-allowed;
+        }
 
         .bonus-label { font-size: 14px; }
         .bonus-badge {

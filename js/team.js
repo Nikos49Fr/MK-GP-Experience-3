@@ -83,6 +83,56 @@ function resolveAssetUrl(path = "") {
     return base + "../" + path;
 }
 
+// -- Pilot grid columns (2|3|4) pilotées par var CSS sur #active-pilots
+function applyPilotGridColumns(phase, reveal = false) {
+    const grid = $("#active-pilots");
+    if (!grid) return;
+    const cols = reveal ? 3 : (phase === "mk8" ? 2 : 4);
+    grid.style.setProperty("--pilot-cols", String(cols));
+
+    // (optionnel) états de confort si tu veux cibler en CSS
+    grid.classList.toggle("mode-mk8", !reveal && phase === "mk8");
+    grid.classList.toggle("mode-mkw", !reveal && phase === "mkw");
+    grid.classList.toggle("mode-reveal", !!reveal);
+}
+
+function buildPilotCard(team, p) {
+    const $card = h("article", { class: "pilot-card", "data-pilot": p.id });
+
+    // Couleurs d’équipe (portées sur la card, pour être indépendantes du conteneur)
+    if (team?.color1) $card.style.setProperty("--team-c1", team.color1);
+    if (team?.color2) $card.style.setProperty("--team-c2", team.color2);
+
+    const $photo = h("div", { class: "pilot-card__photo" },
+        h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" })
+    );
+
+    const $meta = h("div", { class: "pilot-meta" },
+        h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
+        h("span", { class: "pilot-tag" }, p.tag || "")
+    );
+
+    const $info = h("div", { class: "pilot-card__info" },
+        $meta,
+        h("div", { class: "pilot-name" }, p.name || "—")
+    );
+
+    $card.appendChild($photo);
+    $card.appendChild($info);
+    return $card;
+}
+
+function getLeftPilotCardHeight() {
+    const leftCard = document.querySelector("#team-pilots .pilot-card");
+    return leftCard ? leftCard.offsetHeight : 127; // fallback
+}
+
+function syncActivePilotCardHeight() {
+    const h = getLeftPilotCardHeight();
+    const grid = $("#active-pilots");
+    if (grid) grid.style.setProperty("--pilot-card-h", `${h}px`);
+}
+
 /* ============================================================
    Firestore: load team + pilots
    ============================================================ */
@@ -198,45 +248,55 @@ function fitLeftColumnForSixCards() {
    ============================================================ */
 const activeTiles = new Map(); // pilotId -> { rootEl, gridSize }
 
-function renderActivePilots(team, pilots, phase, allowedMap = {}, finalized = false, currentRanks = {}) {
-    const container = $("#active-pilots");
-    if (!container) return;
-    container.innerHTML = "";
-    activeTiles.clear();
+function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
+    const host = $("#active-pilots");
+    if (!host) return;
+    host.innerHTML = "";
 
-    const { mk8, mkw } = splitPilotsByGame(pilots);
-    const actives = phase === "mkw" ? mkw.slice(0, 4) : mk8.slice(0, 2);
-    const gridSize = phaseGridSize(phase);
+    // Détermine les pilotes actifs :
+    // 1) priorité à la whitelist RTDB (meta/pilotsAllowed)
+    // 2) fallback par phase (MK8=2 / MKW=4)
+    const getById = new Map(pilots.map(x => [x.id, x]));
+    const allowedList = Object.keys(allowed || {})
+        .filter(id => allowed[id])
+        .map(id => getById.get(id))
+        .filter(Boolean);
 
-    actives.forEach(p => {
-        const myRank = Number(currentRanks[p.id] ?? null);
-        const card = h("div", { class: "active-pilot-card", "data-pilot": p.id },
-            // En-tête (style mini-card réduit)
-            h("figure", { class: "pilot-figure" },
-                h("div", { class: "img-wrap" },
-                    h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" }),
-                    h("span", { class: "pilot-num" }, p.num ?? "")
-                ),
-                h("figcaption", { class: "pilot-caption" },
-                    h("span", { class: "pilot-name" }, p.name || "—"),
-                    h("span", { class: "pilot-tag" }, p.tag || "")
-                )
-            ),
-            // Barre Bonus
-            h("div", { class: "bonus-bar" },
-                h("button", { class: "bonus-btn", type: "button", "data-pilot": p.id },
-                    h("span", { class: "bonus-label" }, "Bonus"),
-                    h("span", { class: "bonus-badge" }, "x1")
-                )
-            ),
-            // Mosaïque
-            buildTiles(p.id, phase, gridSize, myRank, allowedMap[p.id], finalized)
+    let list = allowedList;
+    if (list.length === 0) {
+        const { mk8, mkw } = splitPilotsByGame(pilots);
+        list = (phase === "mk8") ? mk8.slice(0, 2) : mkw.slice(0, 4);
+    }
+
+    const gridSize = (phase === "mk8") ? 12 : 24;
+
+    list.forEach((p) => {
+        const $col = h("div", { class: "active-pilot-card", "data-pilot": p.id });
+
+        // 1) Card pilote (identique à la colonne gauche)
+        const $pilotCard = buildPilotCard(team, p);
+        $col.appendChild($pilotCard);
+
+        // 2) Bonus (inchangé)
+        const $bonus = h("div", { class: "bonus-bar" },
+            h("button", { class: "bonus-btn", type: "button", "data-pilot": p.id },
+                h("span", { class: "bonus-label" }, "Bonus"),
+                h("span", { class: "bonus-badge" }, "x1")
+            )
         );
-        container.appendChild(card);
-    });
+        $col.appendChild($bonus);
 
-    // Bonus buttons (états init si déjà doubled)
-    wireBonusButtonsInitial(team, phase, actives);
+        // 3) Mosaïque (12/24 tuiles) — classes compatibles avec updateTilesState
+        const $tiles = h("div", { class: "race-tiles" });
+        for (let i = 1; i <= gridSize; i++) {
+            $tiles.appendChild(
+                h("button", { class: "race-tile is-blank", type: "button", "data-rank": String(i) }, String(i))
+            );
+        }
+        $col.appendChild($tiles);
+
+        host.appendChild($col);
+    });
 }
 
 function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
@@ -433,7 +493,9 @@ function subFinalized(phase, raceId, cb) {
             if (!ctx || !ctx.phase) {
                 phase = null; raceId = null;
                 renderLeftColumn(team, pilots, null);
+                syncActivePilotCardHeight();
                 $("#active-pilots").innerHTML = "";
+                applyPilotGridColumns("mk8", /* reveal */ false);
                 resubPhaseDeps();
                 return;
             }
@@ -445,7 +507,9 @@ function subFinalized(phase, raceId, cb) {
             phase = nextPhase; raceId = nextRaceId;
 
             renderLeftColumn(team, pilots, phase);
+            syncActivePilotCardHeight();
             renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
+            applyPilotGridColumns(nextPhase, /* reveal */ false);
             wireBonusButtons(phase, raceId);
             updateTilesState(phase, ranks, allowed, finalized);
 
@@ -453,7 +517,10 @@ function subFinalized(phase, raceId, cb) {
         });
 
         // Ajustement "six cartes sans scroll" au resize
-        window.addEventListener("resize", () => fitLeftColumnForSixCards());
+        window.addEventListener("resize", () => {
+            fitLeftColumnForSixCards();
+            syncActivePilotCardHeight();
+        });
 
     } catch (err) {
         console.error("[team] init error:", err);

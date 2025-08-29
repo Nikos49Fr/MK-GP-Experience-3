@@ -422,79 +422,40 @@ body {
 /* Grille des pilotes actifs (4 par ligne) */
 #active-pilots.active-pilots {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(var(--pilot-cols, 4), 202px);
+  overflow-x: hidden;
+  gap: 30px;
   align-items: start;
   min-height: 0;
+  justify-content: center;
+}
+#active-pilots.active-pilots.mode-mk8 {
+  --pilot-cols: 2;
+}
+#active-pilots.active-pilots.mode-mkw {
+  --pilot-cols: 4;
+}
+#active-pilots.active-pilots.mode-reveal {
+  --pilot-cols: 3;
 }
 
 /* Card pilote active (compact) */
 .active-pilot-card {
   display: grid;
-  grid-template-rows: auto auto auto;
   gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
   min-width: 0;
+  grid-auto-rows: max-content;
   /* Bonus */
   /* Mosaïque : spacing local (le cœur visuel est dans les CSS du module) */
 }
-.active-pilot-card .pilot-figure {
-  display: grid;
-  grid-template-columns: 68px 1fr;
-  gap: 10px;
-  align-items: center;
-  margin: 0;
-}
-.active-pilot-card .pilot-figure .img-wrap {
-  position: relative;
-  width: 68px;
-  height: 68px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-}
-.active-pilot-card .pilot-figure .img-wrap img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-.active-pilot-card .pilot-figure .img-wrap .pilot-num {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  font-family: "Orbitron", sans-serif;
-  font-size: 12px;
-  font-weight: 800;
-  padding: 2px 6px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
-}
-.active-pilot-card .pilot-figure .pilot-caption {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.active-pilot-card .pilot-figure .pilot-caption .pilot-name {
-  font-family: "Orbitron", sans-serif;
-  font-weight: 800;
-  font-size: 15px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.active-pilot-card .pilot-figure .pilot-caption .pilot-tag {
-  opacity: 0.9;
-  font-size: 12px;
+.active-pilot-card .pilot-card {
+  height: var(--pilot-card-h, 127px);
 }
 .active-pilot-card .bonus-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
+  margin-top: 2px;
 }
 .active-pilot-card .bonus-btn {
   --bonus-bg: #00b4d8; /* prêt */
@@ -546,7 +507,71 @@ body {
   font-weight: 700;
 }
 .active-pilot-card .race-tiles {
+  margin-top: 2px; /* Card mosaïque autonome */
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  position: relative;
+  min-width: 0;
+  /* Titre provisoire (remplacé par le JS plus tard) */
+  /* Footer réservé pour alerte conflit (placeholder) */
+}
+.active-pilot-card .race-tiles::before {
+  content: "Ton classement";
+  grid-column: 1/-1;
+  margin-bottom: 4px;
+  font-family: "Orbitron", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  line-height: 1.2;
+  opacity: 0.95;
+  color: #fff;
+  display: block;
+  text-align: center;
+}
+.active-pilot-card .race-tiles::after {
+  content: "";
+  grid-column: 1/-1;
+  min-height: 16px; /* réserve d’espace */
   margin-top: 2px;
+}
+.active-pilot-card .race-tiles .race-tile {
+  /* Carré responsive occupant la case de grille */
+  width: 100%;
+  aspect-ratio: 1/1; /* carré */
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  font-weight: 800;
+  font-size: clamp(14px, 2.4vw, 18px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
+  /* états de base — garde ta palette si déjà définie ailleurs */
+}
+.active-pilot-card .race-tiles .race-tile.is-blank {
+  background: #101018;
+  color: #cfd3d7;
+}
+.active-pilot-card .race-tiles .race-tile.is-chosen {
+  background: #00b4d8;
+  color: #fff;
+}
+.active-pilot-card .race-tiles .race-tile.is-conflict {
+  background: #e74c3c;
+  color: #fff;
+}
+.active-pilot-card .race-tiles .race-tile:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+.active-pilot-card .race-tiles .race-tile:active {
+  transform: translateY(0);
 }
 
 /* ==========================================================================

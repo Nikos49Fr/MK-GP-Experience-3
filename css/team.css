@@ -59,6 +59,17 @@
 }
 
 /* ==========================================================================
+   Variables — Mosaïques (tuiles & conteneur)
+   Ajuste librement ces couleurs selon ton thème
+   ========================================================================== */
+/* Tuiles */
+/* bleu (moi) */
+/* vert (autres) */
+/* rouge (conflit me concernant) */
+/* jaune (conflit des autres) */
+/* Conteneur mosaïque */
+/* États globaux (gradients doux superposés au fond) */
+/* ==========================================================================
    1) Reset / Base
    ========================================================================== */
 *, *::before, *::after {
@@ -520,13 +531,19 @@ body {
   /* Titre provisoire (remplacé par le JS plus tard) */
   /* Footer réservé pour alerte conflit (placeholder) */
 }
+.active-pilot-card .race-tiles.tiles--all-filled.tiles--ok {
+  background: linear-gradient(180deg, color-mix(in srgb, #2ecc71 18%, transparent), transparent 65%); /* ex: gradient bg ↔︎ vert doux */
+}
+.active-pilot-card .race-tiles.tiles--has-conflict {
+  background: linear-gradient(180deg, color-mix(in srgb, #e74c3c 18%, transparent), transparent 65%); /* ex: gradient bg ↔︎ rouge doux */
+}
 .active-pilot-card .race-tiles::before {
   content: "Ton classement";
   grid-column: 1/-1;
   margin-bottom: 4px;
   font-family: "Orbitron", system-ui, sans-serif;
   font-weight: 800;
-  font-size: 12px;
+  font-size: 18px;
   line-height: 1.2;
   opacity: 0.95;
   color: #fff;
@@ -552,19 +569,36 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
+  /* base (blanc) */
+  background: #ffffff;
+  color: #0a0a0a;
+  /* autre pilote (vert) */
+  /* conflit d’autres pilotes (jaune) */
+  /* moi (bleu) */
+  /* moi en conflit (rouge) — priorité max */
+  /* état désactivé (finalized / not allowed) */
   /* états de base — garde ta palette si déjà définie ailleurs */
 }
-.active-pilot-card .race-tiles .race-tile.is-blank {
-  background: #101018;
-  color: #cfd3d7;
+.active-pilot-card .race-tiles .race-tile.is-other {
+  background: rgba(79, 214, 90, 0.8);
+  color: #073b10;
 }
-.active-pilot-card .race-tiles .race-tile.is-chosen {
+.active-pilot-card .race-tiles .race-tile.is-conflict-other {
+  background: #f5c542;
+  color: #0a0a0a;
+}
+.active-pilot-card .race-tiles .race-tile.is-self {
   background: #00b4d8;
-  color: #fff;
+  color: #ffffff;
 }
-.active-pilot-card .race-tiles .race-tile.is-conflict {
+.active-pilot-card .race-tiles .race-tile.is-conflict-self {
   background: #e74c3c;
-  color: #fff;
+  color: #ffffff;
+}
+.active-pilot-card .race-tiles .race-tile:disabled {
+  cursor: not-allowed;
+  opacity: 0.9;
+  filter: saturate(0.85);
 }
 .active-pilot-card .race-tiles .race-tile:hover {
   transform: translateY(-1px);

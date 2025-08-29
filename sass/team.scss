@@ -33,6 +33,42 @@
     --track-h: 18px;
     --race-gap: 10px;
 }
+/* ==========================================================================
+   Variables — Mosaïques (tuiles & conteneur)
+   Ajuste librement ces couleurs selon ton thème
+   ========================================================================== */
+
+/* Tuiles */
+$tile-blank-bg: #ffffff;
+$tile-blank-fg: #0a0a0a;
+
+$tile-self-bg: #00b4d8;         /* bleu (moi) */
+$tile-self-fg: #ffffff;
+
+$tile-other-bg: #4fd65acc;        /* vert (autres) */
+$tile-other-fg: #073b10;
+
+$tile-conflict-self-bg: #e74c3c;    /* rouge (conflit me concernant) */
+$tile-conflict-self-fg: #ffffff;
+
+$tile-conflict-other-bg: #f5c542;   /* jaune (conflit des autres) */
+$tile-conflict-other-fg: #0a0a0a;
+
+/* Conteneur mosaïque */
+$tiles-bg: rgba(255, 255, 255, 0.03);
+
+/* États globaux (gradients doux superposés au fond) */
+$tiles-ok-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, #2ecc71 18%, transparent),
+    transparent 65%
+);
+
+$tiles-conflict-bg: linear-gradient(
+    180deg,
+    color-mix(in srgb, #e74c3c 18%, transparent),
+    transparent 65%
+);
 
 /* ==========================================================================
    1) Reset / Base
@@ -483,9 +519,16 @@ body {
         padding: 10px;
         border: 1px solid var(--border);
         border-radius: 10px;
-        background: rgba(255,255,255,0.03);
+        background: $tiles-bg;
         position: relative;
         min-width: 0;
+
+        &.tiles--all-filled.tiles--ok {
+            background: $tiles-ok-bg; /* ex: gradient bg ↔︎ vert doux */
+        }
+        &.tiles--has-conflict {
+            background: $tiles-conflict-bg; /* ex: gradient bg ↔︎ rouge doux */
+        }
 
         /* Titre provisoire (remplacé par le JS plus tard) */
         &::before {
@@ -494,7 +537,7 @@ body {
             margin-bottom: 4px;
             font-family: 'Orbitron', system-ui, sans-serif;
             font-weight: 800;
-            font-size: 12px;
+            font-size: 18px;
             line-height: 1.2;
             opacity: .95;
             color: #fff;
@@ -523,11 +566,37 @@ body {
             justify-content: center;
             cursor: pointer;
             transition: transform .12s ease, filter .12s ease, background .12s ease;
-
+            
+            /* base (blanc) */
+            background: $tile-blank-bg;
+            color: $tile-blank-fg;
+            /* autre pilote (vert) */
+            &.is-other {
+                background: $tile-other-bg;
+                color: $tile-other-fg;
+            }
+            /* conflit d’autres pilotes (jaune) */
+            &.is-conflict-other {
+                background: $tile-conflict-other-bg;
+                color: $tile-conflict-other-fg;
+            }
+            /* moi (bleu) */
+            &.is-self {
+                background: $tile-self-bg;
+                color: $tile-self-fg;
+            }
+            /* moi en conflit (rouge) — priorité max */
+            &.is-conflict-self {
+                background: $tile-conflict-self-bg;
+                color: $tile-conflict-self-fg;
+            }
+            /* état désactivé (finalized / not allowed) */
+            &:disabled {
+                cursor: not-allowed;
+                opacity: .9;
+                filter: saturate(.85);
+            }
             /* états de base — garde ta palette si déjà définie ailleurs */
-            &.is-blank    { background: #101018; color: #cfd3d7; }
-            &.is-chosen   { background: #00b4d8; color: #fff; }
-            &.is-conflict { background: #e74c3c; color: #fff; }
             &:hover { transform: translateY(-1px); filter: brightness(1.06); }
             &:active { transform: translateY(0); }
         }

@@ -252,10 +252,9 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
     const host = $("#active-pilots");
     if (!host) return;
     host.innerHTML = "";
+    activeTiles.clear(); // important : on repart propre
 
-    // Détermine les pilotes actifs :
-    // 1) priorité à la whitelist RTDB (meta/pilotsAllowed)
-    // 2) fallback par phase (MK8=2 / MKW=4)
+    // Détermine les pilotes actifs
     const getById = new Map(pilots.map(x => [x.id, x]));
     const allowedList = Object.keys(allowed || {})
         .filter(id => allowed[id])
@@ -268,16 +267,16 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
         list = (phase === "mk8") ? mk8.slice(0, 2) : mkw.slice(0, 4);
     }
 
-    const gridSize = (phase === "mk8") ? 12 : 24;
+    const gridSize = phaseGridSize(phase);
 
     list.forEach((p) => {
         const $col = h("div", { class: "active-pilot-card", "data-pilot": p.id });
 
-        // 1) Card pilote (identique à la colonne gauche)
+        // 1) Card pilote (identique col. gauche)
         const $pilotCard = buildPilotCard(team, p);
         $col.appendChild($pilotCard);
 
-        // 2) Bonus (inchangé)
+        // 2) Bonus
         const $bonus = h("div", { class: "bonus-bar" },
             h("button", { class: "bonus-btn", type: "button", "data-pilot": p.id },
                 h("span", { class: "bonus-label" }, "Bonus"),
@@ -286,13 +285,9 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
         );
         $col.appendChild($bonus);
 
-        // 3) Mosaïque (12/24 tuiles) — classes compatibles avec updateTilesState
-        const $tiles = h("div", { class: "race-tiles" });
-        for (let i = 1; i <= gridSize; i++) {
-            $tiles.appendChild(
-                h("button", { class: "race-tile is-blank", type: "button", "data-rank": String(i) }, String(i))
-            );
-        }
+        // 3) Mosaïque (enregistrée dans activeTiles + clic -> RTDB)
+        const myRank = Number(ranks?.[p.id]?.rank ?? ranks?.[p.id] ?? null);
+        const $tiles = buildTiles(p.id, phase, gridSize, myRank, !!allowed?.[p.id], finalized);
         $col.appendChild($tiles);
 
         host.appendChild($col);
@@ -301,6 +296,7 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
 
 function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
     const root = h("div", { class: "race-tiles" });
+
     for (let r = 1; r <= gridSize; r++) {
         const btn = h("button", {
             class: "race-tile is-blank",
@@ -309,62 +305,83 @@ function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
             disabled: finalized || !allowed
         }, String(r));
 
-        if (myRank === r) btn.classList.add("is-selected");
+        // Clic = set/unset rank dans RTDB
         btn.addEventListener("click", async () => {
             if (btn.disabled) return;
             const next = (myRank === r) ? null : r;
             try {
                 await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), { rank: next });
-            } catch (e) { console.error("[team] set rank error", e); }
+            } catch (e) {
+                console.error("[team] set rank error", e);
+            }
         });
 
         root.appendChild(btn);
     }
+
+    // Registre pour mise à jour visuelle via updateTilesState
     activeTiles.set(pilotId, { rootEl: root, gridSize });
     return root;
 }
 
 /* ============================================================
-   Mise à jour mosaïques — conflits et "complet"
-   - Couleurs page team : blanc / bleu (sélection) / rouge (conflit)
-   - Pas de jaune (rangs pris par d'autres = blanc)
-   - Quand "complet & sans conflit" -> tout vert, sauf la tuile bleue du pilote
+   Mise à jour mosaïques
    ============================================================ */
 function updateTilesState(phase, currentRanks = {}, allowedMap = {}, finalized = false) {
     const gridSize = phaseGridSize(phase);
-    const counts = Array(gridSize + 1).fill(0);
 
-    for (const val of Object.values(currentRanks)) {
-        const n = Number(val?.rank ?? val); // tolère {rank:n} ou n
-        if (Number.isFinite(n) && n >= 1 && n <= gridSize) counts[n]++;
+    // Comptes & ensembles de choix par rang
+    const chosenByRank = Array.from({ length: gridSize + 1 }, () => new Set());
+    for (const [pid, val] of Object.entries(currentRanks || {})) {
+        const n = Number(val?.rank ?? val);
+        if (Number.isFinite(n) && n >= 1 && n <= gridSize) chosenByRank[n].add(pid);
     }
 
     const conflicts = new Set();
     let filledCount = 0;
     for (let r = 1; r <= gridSize; r++) {
-        if (counts[r] > 0) filledCount++;
-        if (counts[r] >= 2) conflicts.add(r);
+        const c = chosenByRank[r].size;
+        if (c > 0) filledCount++;
+        if (c >= 2) conflicts.add(r);
     }
-    const isComplete = (filledCount === gridSize && conflicts.size === 0);
+    const allFilled = (filledCount === gridSize);
+    const noConflict = (conflicts.size === 0);
+    const isCompleteOk = allFilled && noConflict;
 
-    activeTiles.forEach((obj, pilotId) => {
-        const root = obj.rootEl;
-        const myRank = Number(currentRanks[pilotId]?.rank ?? currentRanks[pilotId] ?? null);
+    // Parcourt seulement les mosaïques présentes à l'écran
+    activeTiles.forEach(({ rootEl }, pilotId) => {
+        const myRank = Number(currentRanks?.[pilotId]?.rank ?? currentRanks?.[pilotId] ?? null);
 
-        root.classList.toggle("race-tiles--complete", isComplete);
+        // État conteneur
+        rootEl.classList.toggle("tiles--all-filled", allFilled);
+        rootEl.classList.toggle("tiles--ok", isCompleteOk);
+        rootEl.classList.toggle("tiles--has-conflict", conflicts.size > 0);
 
-        // MAJ boutons
-        root.querySelectorAll(".race-tile").forEach(btn => {
+        // Boutons (tuiles)
+        rootEl.querySelectorAll(".race-tile").forEach(btn => {
             const rank = Number(btn.dataset.rank);
-            btn.classList.remove("is-blank", "is-selected", "is-conflict");
-            btn.disabled = finalized || !allowedMap[pilotId];
+            // reset classes
+            btn.classList.remove(
+                "is-blank", "is-self", "is-other", "is-conflict-self", "is-conflict-other"
+            );
 
-            if (myRank === rank) {
-                btn.classList.add("is-selected"); // bleu
-            } else if (conflicts.has(rank)) {
-                btn.classList.add("is-conflict"); // rouge
+            // disabled selon finalized/allowed
+            btn.disabled = finalized || !allowedMap?.[pilotId];
+
+            const c = chosenByRank[rank].size;
+            const iAmOnThisRank = (myRank === rank);
+
+            // Priorité: red (self conflict) > blue (self) > yellow (other conflict) > green (other) > white
+            if (iAmOnThisRank && c >= 2) {
+                btn.classList.add("is-conflict-self");      // rouge
+            } else if (iAmOnThisRank && c === 1) {
+                btn.classList.add("is-self");               // bleu
+            } else if (!iAmOnThisRank && c >= 2) {
+                btn.classList.add("is-conflict-other");     // jaune
+            } else if (!iAmOnThisRank && c === 1) {
+                btn.classList.add("is-other");              // vert
             } else {
-                btn.classList.add("is-blank"); // blanc
+                btn.classList.add("is-blank");              // blanc
             }
         });
     });

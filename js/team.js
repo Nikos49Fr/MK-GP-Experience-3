@@ -141,6 +141,10 @@ function renderLeftColumn(team, pilots, phase = null) {
     if (!col) return;
     col.innerHTML = "";
 
+    // Couleurs d’équipe pour la colonne (CSS vars)
+    if (team?.color1) col.style.setProperty("--team-c1", team.color1);
+    if (team?.color2) col.style.setProperty("--team-c2", team.color2);
+
     const { mk8, mkw } = splitPilotsByGame(pilots);
 
     // Par défaut (avant départ) : tous les 6 (ou moins).
@@ -151,23 +155,17 @@ function renderLeftColumn(team, pilots, phase = null) {
 
     list.forEach(p => {
         const card = h("article", { class: "pilot-card", "data-pilot": p.id },
-            // Bloc gauche : logo d’écurie + infos texte
-            h("div", { class: "pilot-card__info" },
-                h("div", { class: "team-logo" },
-                    h("img", { src: resolveAssetUrl(team?.urlLogo || ""), alt: team?.name || "Équipe" })
-                ),
-                h("div", { class: "pilot-card__text" },
-                    h("div", { class: "pilot-name" }, p.name || "—"),
-                    h("div", { class: "pilot-tags" },
-                        h("span", { class: "pilot-num" }, p.num ?? ""),
-                        " · ",
-                        h("span", { class: "pilot-tag" }, p.tag || "")
-                    )
-                )
-            ),
-            // Bloc droit : photo pilote
+            // Photo à gauche (pleine hauteur)
             h("div", { class: "pilot-card__photo" },
                 h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" })
+            ),
+            // Infos à droite : ligne 1 = num + tag, ligne 2 = nom
+            h("div", { class: "pilot-card__info" },
+                h("div", { class: "pilot-meta" },
+                    h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
+                    h("span", { class: "pilot-tag" }, p.tag || "")
+                ),
+                h("div", { class: "pilot-name" }, p.name || "—")
             )
         );
         col.appendChild(card);

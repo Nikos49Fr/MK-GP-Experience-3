@@ -11,7 +11,7 @@
     /* Layout */
     --header-h: 50px;
     --races-h: 44px;
-    --left-col-w: 250px;
+    --left-col-w: 220px;
     --right-col-w: 250px;
 
     /* Rythmes & couleurs de base (rappels CP) */
@@ -245,66 +245,126 @@ body {
        (fitLeftColumnForSixCards) qui affecte grid-auto-rows */
 }
 
-/* Mini-card au format “équipe” : logo + infos + photo pilote (compacte) */
+/* Couleurs d'équipe (écrasées par le JS sur #team-pilots) */
+#team-pilots.pilot-list {
+    --team-c1: #ffffff;
+    --team-c2: #ffffff;
+}
+
 .pilot-card {
     display: grid;
-    grid-template-columns: 1fr 64px;
-    gap: 10px;
-    padding: 6px 8px;
+    grid-template-rows: auto;
+    overflow: hidden;
+    min-width: 0;
     border: 1px solid var(--border);
     border-radius: 10px;
-    background: rgba(255,255,255,0.03);
-    min-width: 0;
+    position: relative;
+
+    &__photo {
+        width: 100px;
+        height: 100px;
+        justify-self: center;
+        border: 0;
+        border-radius: 0;
+        overflow: hidden;
+        background: radial-gradient(60% 60% at 50% 35%,
+            color-mix(in srgb, var(--team-c1) 28%, transparent), transparent 70%);
+
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+    }
 
     &__info {
-        display: grid;
-        grid-template-columns: 40px 1fr;
-        gap: 8px;
-        align-items: center;
+        padding: 5px 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
         min-width: 0;
+        text-align: center;
+        background: linear-gradient(90deg,
+            color-mix(in srgb, var(--team-c1) 35%, transparent),
+            color-mix(in srgb, var(--team-c2) 25%, transparent));
 
-        .team-logo {
+        .team-logo { display: none !important; } /* logo retiré */
+        
+        &__text, .pilot-card__text { min-width: 0; }
+
+        /* Ligne 1 : numéro + tag (Orbitron, couleur 1) */
+        .pilot-meta {
+            font-family: 'Orbitron', system-ui, sans-serif;
+            font-weight: 800;
+            font-size: 16px;
+            line-height: 1.1;
+            letter-spacing: .3px;
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            right: 6px;
             display: flex;
+            justify-content: space-between;
             align-items: center;
-            justify-content: center;
-            img {
-                max-width: 32px;
-                max-height: 32px;
-                object-fit: contain;
-                filter: drop-shadow(0 1px 0 rgba(0,0,0,.25));
+            gap: 6px;
+            z-index: 2;
+            pointer-events: none;
+
+            .pilot-num { margin-right: 6px; }
+            .pilot-tag { opacity: .95; }
+
+        //modif
+            .pilot-num,
+            .pilot-tag {
+                pointer-events: auto; /* si tu veux rendre cliquable plus tard */
+                display: inline-flex;
+                align-items: center;
+                line-height: 1;
+                padding: 4px 4px;
+                font-size: 12px;
+                text-shadow: 0 1px 0 rgba(0,0,0,.25);
+                white-space: nowrap;
+                border: 1px solid rgba(255,255,255,0.2);
+                box-shadow: 0 1px 0 rgba(0,0,0,.25);
+                background: rgba(0,0,0,0.65);
+                color: var(--team-c1);
+            }
+
+            /* Badge gauche : numéro — Orbitron, fond sombre lisible */
+            .pilot-num {
+                font-family: 'Orbitron', system-ui, sans-serif;
+                font-weight: 900;
+                font-size: 16px;
+                border-radius: 10px;
+            }
+
+            /* Badge droit : tag — MarioKartF2, accent couleurs équipe */
+            .pilot-tag {
+                font-family: 'MarioKartF2', system-ui, sans-serif;
+                font-weight: 800;
+                font-size: 12px;
+                border-radius: 4px;
             }
         }
-        &__text, .pilot-card__text {
-            min-width: 0;
-        }
+
+        /* Ligne 2 : nom complet (Orbitron, couleur 2) */
         .pilot-name {
-            font-family: $font-subtitle;
-            font-weight: 800;
-            font-size: 14px;
+            margin: 0 8px 8px;
+            text-align: center;
+            font-family: 'Orbitron', system-ui, sans-serif;
+            font-weight: 700;
+            font-size: 15px;
             line-height: 1.1;
+            color: #fff;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .pilot-tags {
-            font-size: 12px;
-            opacity: .9;
-            .pilot-num {
-                font-weight: 800;
-                font-family: $font-subtitle;
-            }
-            .pilot-tag { opacity: .85; }
-        }
-    }
 
-    &__photo {
-        position: relative;
-        width: 64px;
-        height: 64px;
-        border-radius: 10px;
-        overflow: hidden;
-        border: 1px solid rgba(255,255,255,0.12);
-        img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        /* hérité de l’ancienne structure, désormais masqué */
+        .pilot-tags { display: none !important; }
     }
 }
 

@@ -56,12 +56,13 @@
   --tile-w: 40px;
   --track-h: 18px;
   --race-gap: 10px;
-  /* Couleurs par défaut (peuvent être surchargées en CSS vars) */
-  --bonus-bg: #00b4d8; /* prêt (bleu) */
+  /* Couleurs par défaut (ajuste si besoin) */
+  --bonus-bg: #00b4d8; /* prêt (bleu)     */
   --bonus-fg: #ffffff;
-  --bonus-bg-armed: #ffd166; /* armé (doré) */
+  --bonus-bg-armed: #ffd166; /* armé (doré)     */
   --bonus-bg-locked: #6c757d; /* verrouillé (gris) */
-  --bonus-bg-used: #6c757d; /* utilisé (gris) */
+  --bonus-bg-used: #7a1f1f; /* utilisé (rouge foncé permanent) */
+  --bonus-used-fg: #ffffff; /* texte sur rouge foncé */
   --bonus-border: rgba(255,255,255,0.16);
 }
 
@@ -428,7 +429,10 @@ body {
   align-items: center;
   justify-content: center;
   padding-block: 4px;
-  /* Le CSS spécifique du composant est dans race-strip.css */
+}
+.panel--center .race-strip__tile {
+  pointer-events: none;
+  cursor: default;
 }
 .panel--center .panel__info {
   margin: 8px 4px 8px;
@@ -507,6 +511,7 @@ body {
   transition: transform 0.12s ease, filter 0.12s ease, background 0.12s ease;
   /* État : armé (doré) */
   /* État : verrouillé (gris) */
+  /* Armé + verrouillé → rester doré mais atténué (verrou visuel) */
   /* État : utilisé (gris + opacité) */
   /* Fallback neutre pour tout bouton désactivé (laisse la priorité aux classes ci-dessus) */
 }
@@ -529,12 +534,23 @@ body {
   cursor: not-allowed;
   opacity: 0.85;
 }
+.active-pilot-card .bonus-btn.is-armed.is-locked {
+  background: var(--bonus-bg-armed);
+  color: #0c0616;
+  opacity: 0.85; /* léger voile */
+  filter: grayscale(0.05) saturate(0.9) brightness(0.98);
+  border-color: rgba(255, 209, 102, 0.35);
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.18) inset;
+  cursor: not-allowed;
+}
 .active-pilot-card .bonus-btn.is-used {
   background: var(--bonus-bg-used);
-  color: #e8e8e8;
+  color: var(--bonus-used-fg);
+  border-color: transparent;
+  box-shadow: 0 0 0 2px rgba(122, 31, 31, 0.22) inset;
   cursor: not-allowed;
-  opacity: 0.5;
-  filter: grayscale(0.15) saturate(0.8);
+  opacity: 1; /* pas d’affaiblissement */
+  filter: none; /* pas de grisaille */
 }
 .active-pilot-card .bonus-btn:disabled {
   cursor: not-allowed;

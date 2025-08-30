@@ -180,25 +180,28 @@ function updateBonusButtonsUI(phase, raceId, allowedMap, bonusUsageMap, doublesL
     const isSurvival = isSurvivalRace(raceId);
     document.querySelectorAll("#active-pilots .bonus-btn").forEach(btn => {
         const pid = btn.dataset.pilot;
-        const used = !!bonusUsageMap?.[pid];          // bonus déjà consommé dans la phase
-        const locked = !!doublesLocked || isSurvival; // fenêtre fermée ou survie
-        const armed = !!doublesMap?.[pid];            // armé pour la course courante
+        const used   = !!bonusUsageMap?.[pid];          // bonus déjà consommé (appliqué après finalisation)
+        const locked = !!doublesLocked || isSurvival;   // fenêtre fermée OU survie
+        const armed  = !!doublesMap?.[pid];             // armé pour la course courante
         const canWrite = !!allowedMap?.[pid];
 
-        // classes
-        btn.classList.toggle("is-used", used);
-        btn.classList.toggle("is-locked", !used && locked);
-        btn.classList.toggle("is-armed", !used && !locked && armed);
+        // États visuels (on permet .is-armed + .is-locked simultanément)
+        btn.classList.toggle("is-used",   used);
+        btn.classList.toggle("is-armed", !used && armed);
+        btn.classList.toggle("is-locked",!used && locked);
 
-        // interactivité
+        // Interaction
         const disabled = used || locked || !canWrite;
         btn.disabled = disabled;
+
+        // Titres
         btn.title =
-            used      ? "Bonus déjà utilisé dans cette phase" :
-            isSurvival? "Bonus indisponible en Survie" :
-            locked    ? "Fenêtre bonus fermée" :
-            !canWrite ? "Action non autorisée" :
-                        "Activer/annuler le bonus pour cette course";
+            used        ? "Bonus utilisé (appliqué)" :
+            isSurvival  ? "Bonus indisponible en Survie" :
+            (locked && armed) ? "Fenêtre fermée — bonus armé" :
+            locked      ? "Fenêtre bonus fermée" :
+            !canWrite   ? "Action non autorisée" :
+                          "Activer/annuler le bonus pour cette course";
     });
 }
 
@@ -349,7 +352,7 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
         const $bonus = h("div", { class: "bonus-bar" },
             h("button", { class: "bonus-btn", type: "button", "data-pilot": p.id },
                 h("span", { class: "bonus-label" }, "Bonus"),
-                h("span", { class: "bonus-badge" }, "x1")
+                h("span", { class: "bonus-badge" }, "x2")
             )
         );
         $col.appendChild($bonus);

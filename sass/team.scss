@@ -33,12 +33,13 @@
     --track-h: 18px;
     --race-gap: 10px;
 
-    /* Couleurs par défaut (peuvent être surchargées en CSS vars) */
-    --bonus-bg: #00b4d8;        /* prêt (bleu) */
+    /* Couleurs par défaut (ajuste si besoin) */
+    --bonus-bg: #00b4d8;        /* prêt (bleu)     */
     --bonus-fg: #ffffff;
-    --bonus-bg-armed: #ffd166;  /* armé (doré) */
+    --bonus-bg-armed: #ffd166;  /* armé (doré)     */
     --bonus-bg-locked: #6c757d; /* verrouillé (gris) */
-    --bonus-bg-used: #6c757d;   /* utilisé (gris) */
+    --bonus-bg-used: #7a1f1f;   /* utilisé (rouge foncé permanent) */
+    --bonus-used-fg: #ffffff;   /* texte sur rouge foncé */
     --bonus-border: rgba(255,255,255,0.16);
 }
 /* ==========================================================================
@@ -439,8 +440,11 @@ body {
         align-items: center;
         justify-content: center;
         padding-block: 4px;
+    }
 
-        /* Le CSS spécifique du composant est dans race-strip.css */
+    .race-strip__tile {
+        pointer-events: none;
+        cursor: default;
     }
 
     .panel__info {
@@ -538,13 +542,26 @@ body {
             opacity: .85;
         }
 
+        /* Armé + verrouillé → rester doré mais atténué (verrou visuel) */
+        &.is-armed.is-locked {
+            background: var(--bonus-bg-armed);
+            color: #0c0616;
+            opacity: .85; /* léger voile */
+            filter: grayscale(.05) saturate(.9) brightness(.98);
+            border-color: rgba(255,209,102,0.35);
+            box-shadow: 0 0 0 2px rgba(255,209,102,0.18) inset;
+            cursor: not-allowed;
+        }
+
         /* État : utilisé (gris + opacité) */
         &.is-used {
             background: var(--bonus-bg-used);
-            color: #e8e8e8;
+            color: var(--bonus-used-fg);
+            border-color: transparent;
+            box-shadow: 0 0 0 2px rgba(122,31,31,0.22) inset;
             cursor: not-allowed;
-            opacity: .5;
-            filter: grayscale(.15) saturate(.8);
+            opacity: 1;           /* pas d’affaiblissement */
+            filter: none;         /* pas de grisaille */
         }
 
         /* Fallback neutre pour tout bouton désactivé (laisse la priorité aux classes ci-dessus) */

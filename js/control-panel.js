@@ -151,7 +151,7 @@ const listeners = {
 let raceStripApi = null;
 
 // --- Bonus window (doublesLocked) ---
-const BONUS_WINDOW_SECONDS = 120;  // timer de sécurité (2 minutes)
+const BONUS_WINDOW_SECONDS = 60;  // timer de sécurité (1 minutes)
 
 let bonusTimer = {
     rid: null,           // "mk8-1", "mkw-8", etc.
@@ -282,6 +282,45 @@ function updateBonusToggleUI() {
         if (!isOpen) {
             stopBonusTimer();
         }
+    }
+}
+
+// --- Consommation de bonus au moment de la finalisation ---
+const consumedBonusForRace = new Set(); // clés "phase|raceId"
+
+function _raceKey(phase, raceId) {
+    return `${phase}|${raceId}`;
+}
+
+async function consumeBonusesForRace(phase, raceId) {
+    if (!phase || !raceId) return;
+    const key = _raceKey(phase, raceId);
+    if (consumedBonusForRace.has(key)) return; // idempotent
+
+    try {
+        // 1) lire les doubles armés pour cette course
+        const doublesSnap = await get(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}/doubles`));
+        const doubles = doublesSnap.val() || {};
+
+        // 2) lire l'usage existant pour éviter d'écraser
+        const usageSnap = await get(ref(dbRealtime, `live/results/${phase}/bonusUsage`));
+        const usage = usageSnap.val() || {};
+
+        // 3) préparer les updates pour tous les pilotes armés
+        const updates = {};
+        for (const pid of Object.keys(doubles)) {
+            if (doubles[pid] === true && !usage[pid]) {
+                updates[`live/results/${phase}/bonusUsage/${pid}`] = String(raceId);
+            }
+        }
+
+        if (Object.keys(updates).length > 0) {
+            await update(ref(dbRealtime), updates);
+        }
+
+        consumedBonusForRace.add(key);
+    } catch (e) {
+        console.error("[CP] consumeBonusesForRace error", e);
     }
 }
 
@@ -422,6 +461,14 @@ function ensurePhaseViewListeners(phase) {
             }
         }
         lastFinalizedByPhase[phase] = normalized;
+
+        // ⬇️ Consommer les bonus pour chaque course finalisée (idempotent)
+        for (const [rid, obj] of Object.entries(normalized)) {
+            if (obj && obj.finalized === true) {
+                consumeBonusesForRace(phase, rid);
+            }
+        }
+
         updateStartSwitchUI();
         updateBonusToggleUI();
     };
@@ -454,11 +501,13 @@ function ensurePhaseViewListeners(phase) {
             }
         }
         lastFinalizedByPhase[phase] = normalized;
-    }).catch(()=>{});
 
-    get(byRaceRef).then(s => {
-        byRaceResultsByPhase[phase] = s.val() || {};
-        refreshPilotListView();
+        // ⬇️ Consommer à froid les bonus pour toute course déjà finalisée
+        for (const [rid, obj] of Object.entries(normalized)) {
+            if (obj && obj.finalized === true) {
+                consumeBonusesForRace(phase, rid);
+            }
+        }
     }).catch(()=>{});
 }
 
@@ -727,7 +776,8 @@ function mountPilotsPanelSection() {
 
     // Expose un reloader basé sur la PHASE DE VUE (switch MK8/MKW)
     window.__reloadPilotsForView = async function() {
-        const phaseView = (viewPhase || 'mk8').toLowerCase();
+        const ctxPhase = (lastContext && lastContext.phase) ? String(lastContext.phase).toLowerCase() : null;
+        const phaseView = (viewPhase || ctxPhase || activeTournamentPhase || 'mk8').toLowerCase();
         const gameLabel = phaseView === 'mkw' ? 'MKW' : 'MK8';
 
         document.body.classList.toggle('phase-mkw', phaseView === 'mkw');
@@ -748,7 +798,11 @@ function mountPilotsPanelSection() {
     onValue(ref(dbRealtime, PATH_CONTEXT), async (snap) => {
         try {
             lastContext = snap.val() || {};
+            const ctxPhase = lastContext?.phase ? String(lastContext.phase).toLowerCase() : null;
+            if (!viewPhase && ctxPhase) viewPhase = ctxPhase; // <-- aligne la vue locale sur la phase en cours
             await window.__reloadPilotsForView();
+            // synchronise aussi le composant si monté
+            window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase || ctxPhase || 'mk8');
         } catch (err) {
             console.error('Erreur rendu layout:', err);
         }
@@ -1081,6 +1135,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         if (api?.ready) { try { await api.ready; } catch {} }
         host.__raceStripMounted = true;
+        // ⬇️ Aligner la vue initiale sur la phase courante (fallback 'mk8')
+        try {
+            const initialPhase =
+                (typeof viewPhase === 'string' && (viewPhase === 'mk8' || viewPhase === 'mkw'))
+                    ? viewPhase
+                    : (typeof lastContext?.phase === 'string'
+                        ? String(lastContext.phase).toLowerCase()
+                        : (typeof activeTournamentPhase === 'string'
+                            ? String(activeTournamentPhase).toLowerCase()
+                            : 'mk8'));
+
+            api?.setPhaseView?.(initialPhase);
+        } catch (e) {
+            console.warn('[CP] init phaseView failed:', e);
+        }
     }
 
     function whenRacesContainerReady(cb, tries = 20) {

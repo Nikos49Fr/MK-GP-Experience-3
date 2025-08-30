@@ -300,9 +300,8 @@ body {
   border-radius: 10px;
   position: relative;
   isolation: isolate;
-  /* Overlay neutre (non bloquant) */
-  /* Variante "Agent double" (libellé + petit cadre discret) */
-  /* Assure que les éléments utiles restent au-dessus du watermark */
+  /* Badges num/tag — déplacés au niveau racine de .pilot-card */
+  /* Watermark (derrière) */
 }
 .pilot-card__photo {
   width: 100px;
@@ -329,67 +328,13 @@ body {
   text-align: center;
   background: linear-gradient(90deg, color-mix(in srgb, var(--team-c1) 35%, transparent), color-mix(in srgb, var(--team-c2) 25%, transparent));
   /* logo retiré */
-  /* Ligne 1 : numéro + tag (Orbitron, couleur 1) */
-  /* Ligne 2 : nom complet (Orbitron, couleur 2) */
-  /* hérité de l’ancienne structure, désormais masqué */
+  /* Ligne 2 : nom complet */
 }
 .pilot-card__info .team-logo {
   display: none !important;
 }
 .pilot-card__info__text, .pilot-card__info .pilot-card__text {
   min-width: 0;
-}
-.pilot-card__info .pilot-meta {
-  font-family: "Orbitron", system-ui, sans-serif;
-  font-weight: 800;
-  font-size: 16px;
-  line-height: 1.1;
-  letter-spacing: 0.3px;
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  right: 6px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 6px;
-  z-index: 2;
-  pointer-events: none;
-  /* Badge gauche : numéro — Orbitron, fond sombre lisible */
-  /* Badge droit : tag — MarioKartF2, accent couleurs équipe */
-}
-.pilot-card__info .pilot-meta .pilot-num {
-  margin-right: 6px;
-}
-.pilot-card__info .pilot-meta .pilot-tag {
-  opacity: 0.95;
-}
-.pilot-card__info .pilot-meta .pilot-num,
-.pilot-card__info .pilot-meta .pilot-tag {
-  pointer-events: auto; /* si tu veux rendre cliquable plus tard */
-  display: inline-flex;
-  align-items: center;
-  line-height: 1;
-  padding: 4px 4px;
-  font-size: 12px;
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
-  white-space: nowrap;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
-  background: rgba(0, 0, 0, 0.65);
-  color: var(--team-c1);
-}
-.pilot-card__info .pilot-meta .pilot-num {
-  font-family: "Orbitron", system-ui, sans-serif;
-  font-weight: 900;
-  font-size: 16px;
-  border-radius: 10px;
-}
-.pilot-card__info .pilot-meta .pilot-tag {
-  font-family: "MarioKartF2", system-ui, sans-serif;
-  font-weight: 800;
-  font-size: 12px;
-  border-radius: 4px;
 }
 .pilot-card__info .pilot-name {
   margin: 0 8px 8px;
@@ -406,6 +351,56 @@ body {
 .pilot-card__info .pilot-tags {
   display: none !important;
 }
+.pilot-card > .pilot-meta {
+  font-family: "Orbitron", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.1;
+  letter-spacing: 0.3px;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  z-index: 5; /* au-dessus du watermark */
+  pointer-events: none;
+}
+.pilot-card > .pilot-meta .pilot-num {
+  margin-right: 6px;
+}
+.pilot-card > .pilot-meta .pilot-tag {
+  opacity: 0.95;
+}
+.pilot-card > .pilot-meta .pilot-num,
+.pilot-card > .pilot-meta .pilot-tag {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  padding: 4px 4px;
+  font-size: 12px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--team-c1);
+}
+.pilot-card > .pilot-meta .pilot-num {
+  font-family: "Orbitron", system-ui, sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  border-radius: 10px;
+}
+.pilot-card > .pilot-meta .pilot-tag {
+  font-family: "MarioKartF2", system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  border-radius: 4px;
+}
 .pilot-card .pilot-badge {
   position: absolute;
   inset: 0;
@@ -414,18 +409,16 @@ body {
   justify-content: center;
   pointer-events: none;
   user-select: none;
-  z-index: 0; /* passe derrière les badges .pilot-meta ci-dessous */
+  z-index: 0; /* derrière */
   transform: rotate(-10deg);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  /* Couleurs liées à l’équipe si dispo */
   color: color-mix(in srgb, var(--team-c1, #ffd43b) 35%, #ffffff);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 0 10px color-mix(in srgb, var(--team-c2, #00b4d8) 35%, transparent);
-  /* Taille/poids par défaut (cartes ~200px) */
   font-family: "MarioKartF2", "Orbitron", sans-serif;
   font-weight: 900;
   font-size: clamp(14px, 5vw, 26px);
-  opacity: 0.12; /* très léger */
+  opacity: 0.12;
 }
 .pilot-card .pilot-badge--double {
   padding: 4px 10px;
@@ -438,9 +431,6 @@ body {
 .pilot-card .pilot-card__info {
   position: relative;
   z-index: 1;
-}
-.pilot-card .pilot-meta {
-  z-index: 5;
 }
 
 /* ==========================================================================

@@ -123,26 +123,30 @@ function applyPilotGridColumns(phase, reveal = false) {
 function buildPilotCard(team, p) {
     const $card = h("article", { class: "pilot-card", "data-pilot": p.id });
 
-    // Couleurs d’équipe (portées sur la card, pour être indépendantes du conteneur)
+    // Couleurs d’équipe sur la card (indépendant du conteneur)
     if (team?.color1) $card.style.setProperty("--team-c1", team.color1);
     if (team?.color2) $card.style.setProperty("--team-c2", team.color2);
 
+    // Photo
     const $photo = h("div", { class: "pilot-card__photo" },
         h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" })
     );
 
+    // Bloc texte (nom uniquement)
+    const $info = h("div", { class: "pilot-card__info" },
+        h("div", { class: "pilot-name" }, p.name || "—")
+    );
+
+    // Badges (num + tag) — au même niveau que photo/info
     const $meta = h("div", { class: "pilot-meta" },
         h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
         h("span", { class: "pilot-tag" }, p.tag || "")
     );
 
-    const $info = h("div", { class: "pilot-card__info" },
-        $meta,
-        h("div", { class: "pilot-name" }, p.name || "—")
-    );
-
     $card.appendChild($photo);
     $card.appendChild($info);
+    $card.appendChild($meta);
+
     return $card;
 }
 
@@ -368,20 +372,21 @@ async function renderLeftColumn(team, pilots, phase = null, revealOn = false) {
     // Rendu mini-cards (inchangé)
     list.forEach(p => {
         const card = h("article", { class: "pilot-card", "data-pilot": p.id },
-            // Photo (en haut)
+            // Photo
             h("div", { class: "pilot-card__photo" },
                 h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" })
             ),
-            // Infos (en bas)
+            // Infos (nom)
             h("div", { class: "pilot-card__info" },
-                h("div", { class: "pilot-meta" },
-                    h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
-                    h("span", { class: "pilot-tag" }, p.tag || "")
-                ),
                 h("div", { class: "pilot-name" }, p.name || "—")
+            ),
+            // Badges (num + tag) — sortis de __info
+            h("div", { class: "pilot-meta" },
+                h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
+                h("span", { class: "pilot-tag" }, p.tag || "")
             )
         );
-        // Watermark "Agent double" si nécessaire
+        // Watermark agent double (inchangé)
         if (String(p.traitorMode || "").toLowerCase() === "double") {
             card.appendChild(h("div", { class: "pilot-badge pilot-badge--double" }, "Agent double"));
         }

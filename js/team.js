@@ -82,17 +82,29 @@ function splitPilotsByGame(pilots = []) {
 function phaseGridSize(phase) { return phase === "mkw" ? 24 : 12; }
 
 /**
- * Résolution d'assets (pour GitHub Pages ou paths BDD "./assets/...").
- * - Support d’un préfixe global optionnel window.__ASSET_BASE__ (ex: "/repo/").
- * - Normalise "./assets/..." -> "../assets/..." depuis /pages/.
+ * Résolution d'assets depuis n'importe quelle page (local + GitHub Pages).
+ * - BDD stocke typiquement "./assets/images/…"
+ * - Si on est sous /pages/, on remonte d’un cran → "../assets/…"
+ * - Sinon on reste relatif à la racine du site → "assets/…"
+ * - URLs absolues (http/https) inchangées.
  */
 function resolveAssetUrl(path = "") {
     if (!path) return "";
     if (/^https?:\/\//i.test(path)) return path;
-    const base = (window.__ASSET_BASE__ || "");
-    if (path.startsWith("./")) return base + "../" + path.slice(2); // ../assets/...
-    if (path.startsWith("/")) return base + path.slice(1);
-    return base + "../" + path;
+
+    // Normalise l’input: enlève "./" et les "/" initiaux
+    let clean = String(path)
+        .replace(/^\.\//, "")   // "./assets/…" -> "assets/…"
+        .replace(/^\/+/, "");   // "/assets/…"   -> "assets/…"
+
+    // Si la BDD a mis autre chose que "assets/…", on force le préfixe "assets/"
+    if (!/^assets\//i.test(clean)) clean = `assets/${clean}`;
+
+    // Sommes-nous dans /pages/ ? → on remonte d’un niveau
+    const inPages = window.location.pathname.includes("/pages/");
+    const prefix = inPages ? "../" : "";
+
+    return prefix + clean;
 }
 
 // -- Pilot grid columns (2|3|4) pilotées par var CSS sur #active-pilots

@@ -1,8 +1,9 @@
 // js/home-teams.js
-import { dbFirestore } from "./firebase-config.js";
+import { dbFirestore, dbRealtime } from "./firebase-config.js";
 import {
     collection, getDocs, query, orderBy
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+import { ref, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 /* --------- helpers --------- */
 const grid = document.getElementById("teams-grid");
@@ -123,10 +124,63 @@ function buildTeamNav(teams) {
     });
 }
 
+/* --------- state (reveal) --------- */
+let _allTeams = [];
+let _allPilots = [];
+let _phase = null;          // "mk8" | "mkw" | null
+let _reveal = false;        // context/reveal.enabled
+
+function shouldApplyReveal() {
+    return _reveal && String(_phase || "").toLowerCase() === "mkw";
+}
+
+function normalizeGame(v) {
+    return String(v || "").toLowerCase();
+}
+
+/**
+ * Appartenance visuelle d’un pilote à une équipe
+ * - reveal actif: dans team si pilot.secretTeamName === team.name
+ *                 ou (traitorMode==="double" && pilot.teamName === team.name)  (double → visible aussi dans l’équipe d’origine)
+ * - sinon:        dans team si pilot.teamName === team.name
+ */
+function isPartOfTeam(team, pilot, applyReveal) {
+    const tname = team.name || "";
+    const mode = String(pilot.traitorMode || "").toLowerCase();
+    if (applyReveal) {
+        if ((pilot.secretTeamName || "") === tname) return true;
+        if (mode === "double" && (pilot.teamName || "") === tname) return true;
+        return false;
+    }
+    return (pilot.teamName || "") === tname;
+}
+
+/**
+ * Construit un roster compact visible :
+ * - Sans reveal : 6 pilotes Firestore “naturels” (ton BDD a 6 par team → OK)
+ * - Avec reveal : 2 MK8 + 3 MKW (max) en respectant l’ordre Firestore
+ */
+function buildRosterForTeam(team, pilots, applyReveal) {
+    const part = pilots.filter(p => isPartOfTeam(team, p, applyReveal));
+
+    // tri par 'order' déjà présent en BDD
+    const byOrder = (a, b) => (Number(a.order || 0) - Number(b.order || 0));
+
+    if (!applyReveal) {
+        // Avant reveal, on renvoie simplement tous les pilotes de la team (ton BDD en a 6)
+        return part.sort(byOrder);
+    }
+
+    // Reveal actif → forcer 2 MK8 + 3 MKW
+    const mk8 = part.filter(p => normalizeGame(p.game) === "mk8").sort(byOrder).slice(0, 2);
+    const mkw = part.filter(p => normalizeGame(p.game) === "mkw").sort(byOrder).slice(0, 3);
+    return [...mk8, ...mkw];
+}
+
 /* --------- rendu team card (structure exacte demandée) --------- */
 function renderTeamCard(team, pilots) {
     // Pilotes de l’écurie (pas de tri additionnel ici)
-    const teamPilots = pilots.filter(p => (p.teamName || "") === team.name);
+    const teamPilots = buildRosterForTeam(team, pilots, shouldApplyReveal());
 
     const header = h("header", { class: "team-header" },
         h("img", {
@@ -173,15 +227,13 @@ function renderTeamCard(team, pilots) {
 
 /* --------- chargement Firestore --------- */
 async function loadData() {
-    // Équipes visibles — tri Firestore par 'order'
+    // Équipes — tri Firestore par 'order' (inclut secrètes)
     const tq = query(
         collection(dbFirestore, "teams"),
         orderBy("order")
     );
     const tsnap = await getDocs(tq);
-    const teams = tsnap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(t => !t.isSecret);
+    const teams = tsnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     // Pilotes — tri Firestore par 'order'
     const pq = query(
@@ -194,6 +246,35 @@ async function loadData() {
     return { teams, pilots };
 }
 
+function renderGridConditional() {
+    if (!grid || !_allTeams.length) return;
+    const applyReveal = shouldApplyReveal();
+
+    // 6 teams avant reveal, 8 après
+    const teamsToShow = applyReveal
+        ? _allTeams
+        : _allTeams.filter(t => !t.isSecret);
+
+    grid.innerHTML = "";
+    teamsToShow.forEach(team => {
+        grid.appendChild(renderTeamCard(team, _allPilots));
+    });
+    buildTeamNav(teamsToShow);
+}
+
+function subscribeRevealAndPhase() {
+    onValue(ref(dbRealtime, "context/current"), (snap) => {
+        const ctx = snap.val() || {};
+        _phase = (ctx.phase || null);
+        renderGridConditional();
+    });
+    onValue(ref(dbRealtime, "context/reveal"), (snap) => {
+        const v = snap.val() || {};
+        _reveal = !!v.enabled;
+        renderGridConditional();
+    });
+}
+
 /* --------- init --------- */
 (async function init() {
     if (!grid) {
@@ -204,14 +285,18 @@ async function loadData() {
     try {
         const { teams, pilots } = await loadData();
 
-        // Nettoyage et injection
-        grid.innerHTML = "";
-        teams.forEach(team => {
-            grid.appendChild(renderTeamCard(team, pilots));
-        });
-        buildTeamNav(teams);
+        // cache local
+        _allTeams = teams;
+        _allPilots = pilots;
+
+        // 1er rendu sans reveal (6 teams visibles)
+        renderGridConditional();
+
+        // écoutes reveal/phase → re-render auto
+        subscribeRevealAndPhase();
     } catch (err) {
         console.error("[home] Erreur chargement équipes/pilotes:", err);
         grid.innerHTML = `<p style="opacity:.7">Impossible de charger les équipes pour le moment.</p>`;
     }
+    
 })();

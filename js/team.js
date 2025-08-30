@@ -208,6 +208,62 @@ function updateBonusButtonsUI(phase, raceId, allowedMap, bonusUsageMap, doublesL
     });
 }
 
+// ---- Reveal (RTDB) ----
+function subReveal(cb) {
+    return onValue(ref(dbRealtime, "context/reveal"), snap => {
+        const v = snap.val() || {};
+        cb(!!v.enabled);
+    });
+}
+
+// ---- Fetch pilotes MKW mappés par secretTeamName (pour REVEAL) ----
+async function loadSecretMkwPilotsForTeam(teamName) {
+    if (!teamName) return [];
+    const q = query(
+        collection(dbFirestore, "pilots"),
+        where("secretTeamName", "==", teamName),
+        where("game", "==", "MKW")
+    );
+    const snap = await getDocs(q);
+    return sortByOrderSafe(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+}
+
+// ---- Rendu centre selon phase + reveal (évite d’alourdir subContext) ----
+function renderCenterForPhase(team, pilotsDefault, phase, allowed, finalized, ranks, revealEnabled) {
+    // MK8 → inchangé
+    if (phase === "mk8" || !revealEnabled) {
+        renderActivePilots(team, pilotsDefault, phase, allowed, finalized, ranks);
+        applyPilotGridColumns(phase, /* reveal */ false);
+        return;
+    }
+    // MKW + reveal → 3 pilotes issus de secretTeamName
+    loadSecretMkwPilotsForTeam(team.name).then((mkwSecretPilots) => {
+        const pool = Array.isArray(mkwSecretPilots) ? mkwSecretPilots : [];
+        renderActivePilots(team, pool, "mkw", allowed, finalized, ranks);
+        applyPilotGridColumns("mkw", /* reveal */ true);
+    }).catch(() => {
+        // fallback (sécurité)
+        renderActivePilots(team, pilotsDefault, "mkw", allowed, finalized, ranks);
+        applyPilotGridColumns("mkw", /* reveal */ false);
+    });
+}
+
+// ---- Fetch pilotes MK8 mappés par secretTeamName (pour REVEAL, colonne gauche) ----
+async function loadSecretMk8PilotsForTeam(teamName) {
+    if (!teamName) return [];
+    const q = query(
+        collection(dbFirestore, "pilots"),
+        where("secretTeamName", "==", teamName),
+        where("game", "==", "MK8")
+    );
+    const snap = await getDocs(q);
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    // tri par 'order' si dispo
+    return typeof sortByOrderSafe === "function"
+        ? sortByOrderSafe(rows)
+        : rows.sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
+}
+
 /* ============================================================
    Firestore: load team + pilots
    ============================================================ */
@@ -261,30 +317,62 @@ function setHeaderTeamTitle(team) {
 /* ============================================================
    Colonne gauche — mini-cards (6 visibles sans scroll)
    ============================================================ */
-function renderLeftColumn(team, pilots, phase = null) {
+async function renderLeftColumn(team, pilots, phase = null, revealOn = false) {
     const col = $("#team-pilots");
     if (!col) return;
     col.innerHTML = "";
 
-    // Couleurs d’équipe pour la colonne (CSS vars)
+    // Couleurs d’équipe (CSS vars sur la colonne)
     if (team?.color1) col.style.setProperty("--team-c1", team.color1);
     if (team?.color2) col.style.setProperty("--team-c2", team.color2);
 
     const { mk8, mkw } = splitPilotsByGame(pilots);
 
-    // Par défaut (avant départ) : tous les 6 (ou moins).
-    // Quand une phase est active : colonne = pilotes de l'autre jeu.
+    // Par défaut : liste d’origine
     let list = pilots;
-    if (phase === "mk8") list = mkw;
-    else if (phase === "mkw") list = mk8;
 
+    if (phase === "mk8") {
+        // En phase MK8, on affiche les MKW (comportement historique)
+        list = mkw;
+    } else if (phase === "mkw") {
+        // En phase MKW, on affiche les MK8
+        if (revealOn) {
+            // REVEAL : on ajoute les MK8 dont secretTeamName === team.name (agents double)
+            let base = mk8.slice();
+            try {
+                const extras = await loadSecretMk8PilotsForTeam(team.name); // helper déjà ajouté
+                if (Array.isArray(extras) && extras.length) {
+                    const seen = new Set(base.map(p => p.id));
+                    for (const p of extras) {
+                        if (!seen.has(p.id)) {
+                            base.push(p);
+                            seen.add(p.id);
+                        }
+                    }
+                    // tri final par order (cohérent avec ta helper)
+                    base = sortByOrderSafe(base);
+                }
+            } catch {
+                // fallback: on garde base
+            }
+            list = base;
+        } else {
+            // Pas de reveal : MK8 de l’équipe par teamName (ton comportement d’origine)
+            list = mk8;
+        }
+    } else {
+        // Pas de phase (avant départ) : tous
+        list = pilots;
+    }
+
+    // Rendu mini-cards (inchangé)
     list.forEach(p => {
         const card = h("article", { class: "pilot-card", "data-pilot": p.id },
-            // Photo à gauche (pleine hauteur)
+            // Photo (en haut)
             h("div", { class: "pilot-card__photo" },
                 h("img", { src: resolveAssetUrl(p.urlPhoto || ""), alt: p.name || "Pilote" })
             ),
-            // Infos à droite : ligne 1 = num + tag, ligne 2 = nom
+            // Infos (en bas)
             h("div", { class: "pilot-card__info" },
                 h("div", { class: "pilot-meta" },
                     h("span", { class: "pilot-num" }, (p.num ?? "").toString().padStart(2, "0")),
@@ -293,6 +381,10 @@ function renderLeftColumn(team, pilots, phase = null) {
                 h("div", { class: "pilot-name" }, p.name || "—")
             )
         );
+        // Watermark "Agent double" si nécessaire
+        if (String(p.traitorMode || "").toLowerCase() === "double") {
+            card.appendChild(h("div", { class: "pilot-badge pilot-badge--double" }, "Agent double"));
+        }
         col.appendChild(card);
     });
 
@@ -622,6 +714,7 @@ function subBonusUsage(phase, cb) {
         let doublesLocked = true;      // fenêtre fermée par défaut
         let doubles = {};              // { pilotId: true }
         let bonusUsage = {};           // { pilotId: raceId }
+        let revealEnabled = false;
         // Gel d'UI : fige la colonne centrale en "fin de phase" jusqu'au changement de phase
         let freezeCenter = false;
         let finalRanksByPilot = {};   // { pilotId: 1..N }
@@ -720,6 +813,17 @@ function subBonusUsage(phase, cb) {
                 updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
             });
 
+            // Reveal (global) → influe uniquement sur le centre en MKW
+            subReveal((en) => {
+                revealEnabled = !!en;
+                // adapte le nombre de colonnes au cas où
+                applyPilotGridColumns(phase || "mk8", revealEnabled && phase === "mkw");
+                // re-rendre le centre si une phase est active
+                if (phase) {
+                    renderCenterForPhase(team, pilots, phase, allowed, finalized, ranks, revealEnabled);
+                }
+            });
+
             // ⬇️ NOUVEAU : agrégation des points de phase -> rangs finaux
             unTotals = onValue(ref(dbRealtime, `live/points/${phase}/byRace`), (snap) => {
                 const root = snap.val() || {};
@@ -759,7 +863,7 @@ function subBonusUsage(phase, cb) {
                 initFreezeKnown = true;
                 phase = null; raceId = null;
 
-                renderLeftColumn(team, pilots, null);
+                renderLeftColumn(team, pilots, null, /* revealOn */ false);
                 syncActivePilotCardHeight();
                 $("#active-pilots").innerHTML = "";
                 applyPilotGridColumns("mk8", /* reveal */ false);
@@ -795,7 +899,7 @@ function subBonusUsage(phase, cb) {
 
             // Rendu différé après lecture one-shot de "live/races/{phase}"
             const doRender = () => {
-                renderLeftColumn(team, pilots, phase);
+                renderLeftColumn(team, pilots, phase, /* revealOn */ (phase === "mkw" && revealEnabled));
                 syncActivePilotCardHeight();
                 applyPilotGridColumns(phase, /* reveal */ false);
 
@@ -803,7 +907,7 @@ function subBonusUsage(phase, cb) {
                     renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
                     updateInfoBanner(null, null, true);
                 } else {
-                    renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
+                    renderCenterForPhase(team, pilots, phase, allowed, finalized, ranks, revealEnabled);
                     wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
                     updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
                     updateInfoBanner(phase, raceId, doublesLocked);

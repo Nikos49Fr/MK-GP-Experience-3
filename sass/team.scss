@@ -304,6 +304,7 @@ body {
     border: 1px solid var(--border);
     border-radius: 10px;
     position: relative;
+    isolation: isolate;
 
     &__photo {
         width: 100px;
@@ -411,6 +412,47 @@ body {
         /* hérité de l’ancienne structure, désormais masqué */
         .pilot-tags { display: none !important; }
     }
+    /* Overlay neutre (non bloquant) */
+    .pilot-badge {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        user-select: none;
+        z-index: 0; /* passe derrière les badges .pilot-meta ci-dessous */
+        transform: rotate(-10deg);
+        text-transform: uppercase;
+        letter-spacing: .08em;
+
+        /* Couleurs liées à l’équipe si dispo */
+        color: color-mix(in srgb, var(--team-c1, #ffd43b) 35%, #ffffff);
+        text-shadow:
+            0 1px 0 rgba(0,0,0,.35),
+            0 0 10px color-mix(in srgb, var(--team-c2, #00b4d8) 35%, transparent);
+
+        /* Taille/poids par défaut (cartes ~200px) */
+        font-family: 'MarioKartF2', $font-subtitle;
+        font-weight: 900;
+        font-size: clamp(14px, 5vw, 26px);
+        opacity: .12;  /* très léger */
+    }
+
+    /* Variante "Agent double" (libellé + petit cadre discret) */
+    .pilot-badge--double {
+        padding: 4px 10px;
+        border: 1px dashed rgba(255,255,255,.15);
+        border-radius: 10px;
+        background: transparent;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+    }
+
+    /* Assure que les éléments utiles restent au-dessus du watermark */
+    .pilot-card__photo,
+    .pilot-card__info { position: relative; z-index: 1; }
+
+    .pilot-meta { z-index: 5; } // conserve le position:absolute défini plus haut
 }
 
 /* ==========================================================================

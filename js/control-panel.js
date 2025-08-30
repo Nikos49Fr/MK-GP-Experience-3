@@ -122,9 +122,104 @@ function mountDevFillButton() {
 }
 
 /* ============================================================
+   Bouton "Reveal" — MKW only (toggle en RTDB)
+   ============================================================ */
+function mountRevealToggle() {
+    // Où monter le bouton ? À droite du header (même zone que Start)
+    const headerRight = document.querySelector('.cp-header-right') || document.querySelector('.cp-header-center') || document.body;
+    if (!headerRight) return;
+
+    // Eviter doublons si re-montage
+    let btn = document.getElementById('cp-reveal-toggle');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'cp-reveal-toggle';
+        btn.type = 'button';
+        btn.className = 'cp-switch cp-switch--reveal'; // même base que Start, variante rouge via SCSS existant
+        btn.setAttribute('aria-pressed', 'false');
+        btn.textContent = 'reveal';
+        headerRight.appendChild(btn);
+    }
+
+    // États locaux
+    let ctx = null;
+    let revealEnabled = false;
+
+    // Rend visuel
+    const paint = () => {
+        // Actif visuellement si ON
+        btn.classList.toggle('is-on', revealEnabled);
+        btn.setAttribute('aria-pressed', revealEnabled ? 'true' : 'false');
+
+        // Règle d’activation : on laisse le clic partout (tests), mais on *préviendra* si hors MKW
+        // -> Si tu veux *vraiment* bloquer hors MKW, remplace par: btn.disabled = !isPhaseMkw(ctx);
+        btn.disabled = false;
+        // Tooltip contextuel
+        if (!isPhaseMkw(ctx)) {
+            btn.title = 'Reveal conseillé en MKW (confirmation demandée)';
+        } else {
+            btn.title = '';
+        }
+    };
+
+    // Click handler → toggle
+    btn.onclick = async () => {
+        try {
+            // Confirmation si on active hors MKW
+            if (!revealEnabled && !isPhaseMkw(ctx)) {
+                const ok = window.confirm(
+                    "Activer le reveal hors phase MKW ?\n\n" +
+                    "Conseillé: déclencher en MKW (vers la course 13)."
+                );
+                if (!ok) return;
+            }
+            // Confirmation générique à l’activation (même en MKW)
+            if (!revealEnabled) {
+                const ok2 = window.confirm(
+                    "Confirmer le REVEAL des équipes secrètes ?\n\n" +
+                    "Effets attendus :\n" +
+                    "• Accueil: 6→8 équipes / rosters mis à jour\n" +
+                    "• Pages équipe: centre en 3 colonnes MKW, watermark agents doubles\n" +
+                    "• Classements équipe: logos/affectations mis à jour"
+                );
+                if (!ok2) return;
+            }
+
+            const next = !revealEnabled;
+            const payload = next
+                ? { enabled: true, at: Date.now(), by: (window.localStorage?.getItem('mk_user_email') || '') }
+                : { enabled: false };
+
+            await update(ref(dbRealtime, PATH_REVEAL), payload);
+            // le listener "on value" ci-dessous repeindra l’UI
+        } catch (e) {
+            console.error('[cp] reveal toggle error:', e);
+            alert("Impossible de modifier l'état du reveal pour le moment.");
+        }
+    };
+
+    // Sync contexte (phase/race) → influe la disable/tooltip
+    onValue(ref(dbRealtime, PATH_CONTEXT), (snap) => {
+        ctx = snap.val() || null;
+        paint();
+    });
+
+    // Sync reveal (état global)
+    onValue(ref(dbRealtime, PATH_REVEAL), (snap) => {
+        const v = snap.val() || {};
+        revealEnabled = !!v.enabled;
+        paint();
+    });
+}
+
+/* ============================================================
    État global (phase active, vue locale, caches)
    ============================================================ */
 const PATH_CONTEXT = 'context/current';
+const PATH_REVEAL  = 'context/reveal';
+
+/* Utilitaire phase */
+const isPhaseMkw = (ctx) => String(ctx?.phase || '').toLowerCase() === 'mkw';
 
 let activeTournamentPhase = 'mk8'; // phase réelle du tournoi (global)
 let activeRaceId = '1';            // "1".."12" | "S" | "SF"
@@ -158,6 +253,20 @@ let bonusTimer = {
     expiresAt: 0,        // timestamp ms
     intervalId: null     // setInterval handle
 };
+
+// --- Reveal (état global lisible partout) ---
+let revealState = { enabled: false };
+
+function attachRevealListener() {
+    const r = ref(dbRealtime, PATH_REVEAL);
+    onValue(r, (snap) => {
+        revealState = snap.val() || { enabled: false };
+        // Si le panneau pilotes est déjà monté, on recalcule la liste
+        if (typeof window.__reloadPilotsForView === 'function') {
+            window.__reloadPilotsForView();
+        }
+    });
+}
 
 /* ============================================================
    Constantes utilitaires
@@ -626,10 +735,11 @@ function mountPhaseSwitch() {
         updateBonusToggleUI();
     });
 
+    mountDevFillButton();
     updatePhaseSwitchUI();
     updateStartSwitchUI();
-    mountDevFillButton();
     updateBonusToggleUI();
+    mountRevealToggle();
 }
 
 function setViewPhase(phase) {
@@ -703,13 +813,21 @@ async function fetchPilotsByGameOrdered(gameLabel /* 'MK8' | 'MKW' */) {
         .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
     return list;
 }
-function groupPilotsByTeam(teams, pilots) {
+function groupPilotsByTeam(teams, pilots, opts = {}) {
+    const useSecret = !!opts.useSecret; // true => on groupe par secretTeamName
+    const key = useSecret ? 'secretTeamName' : 'teamName';
+
+    // Prépare les buckets dans l'ordre des teams Firestore (respecte t.order)
     const byTeam = new Map(teams.map(t => [t.name, { team: t, pilots: [] }]));
+
     pilots.forEach(p => {
-        const bucket = byTeam.get(p.teamName);
+        const teamName = String(p[key] || p.teamName || '').trim();
+        const bucket = byTeam.get(teamName);
         if (bucket) bucket.pilots.push(p);
     });
-    return teams.map(t => byTeam.get(t.name));
+
+    // On renvoie la liste dans l’ordre des teams
+    return teams.map(t => byTeam.get(t.name)).filter(g => g && g.pilots && g.pilots.length > 0);
 }
 function renderPilotsPanel(groups) {
     const host = $('#cp-pilots-panel');
@@ -787,7 +905,9 @@ function mountPilotsPanelSection() {
             fetchTeamsOrdered(),
             fetchPilotsByGameOrdered(gameLabel)
         ]);
-        const groups = groupPilotsByTeam(teams, pilots);
+        // Reveal : en phase de vue MKW + reveal.enabled => on groupe par secretTeamName
+        const useSecret = (phaseView === 'mkw') && !!revealState.enabled;
+        const groups = groupPilotsByTeam(teams, pilots, { useSecret });
         renderPilotsPanel(groups);
         window.__cpRaceStrip?.api?.()?.setPhaseView?.(phaseView);
 
@@ -1026,6 +1146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     mountPhaseSwitch();
     mountPilotsPanelSection();
     attachContextListener();
+    attachRevealListener();
 });
 
 /* ============================================================

@@ -481,8 +481,35 @@ body {
   gap: 8px;
   min-width: 0;
   grid-auto-rows: max-content;
+  /* Ajustement léger en petits écrans */
   /* Bonus */
   /* Mosaïque : spacing local (le cœur visuel est dans les CSS du module) */
+}
+.active-pilot-card .phase-result {
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  text-align: center;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 900;
+  font-size: 24px;
+  letter-spacing: 0.2px;
+  /* Couleur du texte = couleur 1 de l'équipe */
+  color: var(--team-c1);
+  /* Liseré et fond très discrets, teintés équipe */
+  border: 1px solid color-mix(in srgb, var(--team-c1) 35%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--team-c1) 12%, transparent), color-mix(in srgb, var(--team-c2) 10%, transparent));
+  /* Glow subtil : un léger halo proche + un plus large, très faible */
+  text-shadow: 0 0 4px color-mix(in srgb, var(--team-c1) 30%, transparent), 0 0 10px color-mix(in srgb, var(--team-c2) 22%, transparent);
+  /* Finesse de relief (quasi imperceptible) */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--team-c1) 12%, transparent) inset, 0 2px 6px rgba(0, 0, 0, 0.1);
+  /* Accessibilité : pas d’effet au survol, ni de transition agressive */
+  transition: none;
+}
+@media (max-width: 480px) {
+  .active-pilot-card .phase-result {
+    font-size: 20px;
+  }
 }
 .active-pilot-card .pilot-card {
   height: var(--pilot-card-h, 127px);

@@ -426,8 +426,8 @@ $classement-presets: (
     .bonus-icon {
         display: inline-block;
         vertical-align: middle;
-        width: 20px;
-        height: 20px;
+        width: 16px;
+        height: 16px;
 
         pointer-events: none;     /* pas d’interaction */
         user-select: none;
@@ -438,8 +438,8 @@ $classement-presets: (
         background-size: contain;
     }
 
-    .bonus--used        { background-image: url("../assets/icons/bonus-used.png"); }
-    .bonus--armed       { background-image: url("../assets/icons/bonus-armed.png"); }
+    .bonus--used        { background-image: url("../assets/icons/bonus-used.png"); opacity: 0.5;}
+    .bonus--armed       { background-image: url("../assets/icons/bonus-armed.png"); width: 20px; height: 20px;}
     .bonus--unavailable { background-image: url("../assets/icons/bonus-locked.png"); }
     .bonus--available   { background-image: url("../assets/icons/bonus-available.png"); }
 

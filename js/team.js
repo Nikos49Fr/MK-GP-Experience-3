@@ -24,7 +24,7 @@ import {
     collection, getDocs, query, where, limit
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 import {
-    ref, onValue, set, update
+    ref, onValue, set, get
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Race-strip (viewer)
@@ -36,19 +36,15 @@ import "./ui/classement.js";
 /* ============================================================
    Helpers
    ============================================================ */
-
-async function ensureAnonymousAuth() {
-    try {
-        if (!auth.currentUser) {
-            await signInAnonymously(auth);
-        }
-    } catch (err) {
-        console.warn("[team] signInAnonymously failed:", err?.code || err);
-    }
+function applyTeamThemeVars(team) {
+    const root = document.documentElement;
+    const c1 = team?.color1 || "#ffd166";
+    const c2 = team?.color2 || "#06d6a0";
+    root.style.setProperty("--team-c1", c1);
+    root.style.setProperty("--team-c2", c2);
 }
 
 const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function h(tag, attrs = {}, ...children) {
     const el = document.createElement(tag);
@@ -84,7 +80,6 @@ function splitPilotsByGame(pilots = []) {
 }
 
 function phaseGridSize(phase) { return phase === "mkw" ? 24 : 12; }
-function activeCountForPhase(phase) { return phase === "mkw" ? 4 : 2; }
 
 /**
  * Résolution d'assets (pour GitHub Pages ou paths BDD "./assets/...").
@@ -151,28 +146,24 @@ function syncActivePilotCardHeight() {
 }
 
 // -- Bonus helpers (fenêtre + UI) -------------------------------------------
-function ensureInfoBanner() {
-    const body = document.querySelector("#panel-center .panel__body");
-    if (!body) return null;
-    let banner = body.querySelector(".panel__info");
-    if (!banner) {
-        banner = h("div", { class: "panel__info", id: "info-banner", "aria-live": "polite" });
-        body.insertBefore(banner, body.firstChild);
-    }
-    return banner;
-}
-
 function updateInfoBanner(phase, raceId, doublesLocked) {
-    const banner = ensureInfoBanner();
-    if (!banner) return;
-    const isSurvival = isSurvivalRace(raceId);
-    const isOpen = !doublesLocked && !isSurvival && !!phase && !!raceId;
-    banner.hidden = !isOpen;
-    if (isOpen) {
-        banner.textContent = `Fenêtre bonus ouverte — Course ${raceId}. Active ton bonus avant la fin de la course.`;
-    } else {
-        banner.textContent = "";
+    const el = document.getElementById("info-banner");
+    if (!el) return;
+
+    // Si pas de phase → masquer
+    if (!phase) {
+        el.hidden = true;
+        el.textContent = "";
+        el.classList.remove("is-open", "is-locked");
+        return;
     }
+
+    // Affiche seulement quand la fenêtre bonus est ouverte
+    const open = (doublesLocked === false);
+    el.hidden = !open;
+    el.textContent = open ? "Fenêtre bonus ouverte : vous pouvez armer votre bonus pour la course en cours." : "";
+    el.classList.toggle("is-open", open);
+    el.classList.toggle("is-locked", !open);
 }
 
 // Applique les états visuels du bouton Bonus pour chaque pilote
@@ -396,6 +387,44 @@ function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
     return root;
 }
 
+function renderActivePilotsEnded(team, pilots, phase, allowed, finalRanks) {
+    const host = $("#active-pilots");
+    if (!host) return;
+    host.innerHTML = "";
+
+    const getById = new Map(pilots.map(x => [x.id, x]));
+    const allowedList = Object.keys(allowed || {})
+        .filter(id => allowed[id])
+        .map(id => getById.get(id))
+        .filter(Boolean);
+
+    let list = allowedList;
+    if (list.length === 0) {
+        const { mk8, mkw } = splitPilotsByGame(pilots);
+        list = (phase === "mk8") ? mk8.slice(0, 2) : mkw.slice(0, 4);
+    }
+
+    list.forEach((p) => {
+        const $col = h("div", { class: "active-pilot-card", "data-pilot": p.id });
+
+        // 1) Card pilote (identique au panel gauche)
+        const $pilotCard = buildPilotCard(team, p);
+        $col.appendChild($pilotCard);
+
+        // 2) Rang final de phase (agrégé)
+        const pos = (finalRanks && finalRanks[p.id]) || null;
+        const label = (pos === 1) ? "1st"
+                   : (pos === 2) ? "2nd"
+                   : (pos === 3) ? "3rd"
+                   : (Number.isFinite(pos) ? `${pos}th` : "—");
+
+        const res = h("div", { class: "phase-result" }, label);
+        $col.appendChild(res);
+
+        host.appendChild($col);
+    });
+}
+
 /* ============================================================
    Mise à jour mosaïques
    ============================================================ */
@@ -464,31 +493,6 @@ function updateTilesState(phase, currentRanks = {}, allowedMap = {}, finalized =
    ============================================================ */
 function isSurvivalRace(raceId) { return raceId === "S" || raceId === "SF"; }
 
-async function wireBonusButtonsInitial(team, phase, activePilots) {
-    // Si des points existent déjà (bonus déjà utilisé), on reflète l'état visuel
-    const ctxSnap = await new Promise(res =>
-        onValue(ref(dbRealtime, "context/current"), s => res(s.val()), { onlyOnce: true })
-    );
-    const raceId = ctxSnap?.raceId;
-    if (!phase || !raceId) return;
-
-    activePilots.forEach(async (p) => {
-        const path = `live/points/${phase}/byRace/${raceId}/${p.id}`;
-        onValue(ref(dbRealtime, path), (snap) => {
-            const val = snap.val() || {};
-            const btn = $(`.bonus-btn[data-pilot="${p.id}"]`);
-            if (!btn) return;
-            if (val.doubled) {
-                btn.classList.add("is-used");
-                btn.disabled = true;
-            } else {
-                btn.classList.remove("is-used");
-                btn.disabled = isSurvivalRace(raceId); // interdit en S/SF
-            }
-        });
-    });
-}
-
 function wireBonusButtons(phase, raceId, allowedMap, doublesLocked, doublesMap) {
     $("#active-pilots")?.querySelectorAll(".bonus-btn").forEach(btn => {
         const pid = btn.dataset.pilot;
@@ -499,7 +503,7 @@ function wireBonusButtons(phase, raceId, allowedMap, doublesLocked, doublesMap) 
 
             // toggle armement : /live/results/{phase}/byRace/{raceId}/doubles/{pilotId}
             const path = `live/results/${phase}/byRace/${raceId}/doubles/${pid}`;
-            const isArmedNow = btn.classList.contains("is-armed") || !!doublesMap?.[pid];
+            const isArmedNow = btn.classList.contains("is-armed");
             try {
                 if (isArmedNow) {
                     await set(ref(dbRealtime, path), null);   // désarmer = delete
@@ -591,6 +595,7 @@ function subBonusUsage(phase, cb) {
             return;
         }
         const pilots = await loadPilotsForTeam(team.name);
+        applyTeamThemeVars(team);
         setHeaderTeamTitle(team);
         renderLeftColumn(team, pilots, null);
 
@@ -605,6 +610,20 @@ function subBonusUsage(phase, cb) {
         let doublesLocked = true;      // fenêtre fermée par défaut
         let doubles = {};              // { pilotId: true }
         let bonusUsage = {};           // { pilotId: raceId }
+        // Gel d'UI : fige la colonne centrale en "fin de phase" jusqu'au changement de phase
+        let freezeCenter = false;
+        let finalRanksByPilot = {};   // { pilotId: 1..N }
+        let unTotals = null;          // unsub listener des totaux de la phase
+        let initFreezeKnown = true;   // au boot: true (sera remis à false lors d’un changement de phase/course)
+        function isLastRaceOfPhase(p, rid) {
+            const ph = String(p || '').toLowerCase();
+            const r  = String(rid || '').toUpperCase();
+            return (ph === 'mk8' && r === '8') || (ph === 'mkw' && r === 'SF');
+        }
+        function lastRaceKeyOfPhase(p) {
+            const ph = String(p || '').toLowerCase();
+            return (ph === 'mk8') ? '8' : 'SF';
+        }
 
         // Unsubs
         let unAllowed = null, unCurrent = null, unFinalized = null, unByRace = null, unUsage = null;
@@ -614,18 +633,31 @@ function subBonusUsage(phase, cb) {
             if (typeof unFinalized === "function") unFinalized(); unFinalized = null;
             if (typeof unByRace === "function") unByRace(); unByRace = null;
             if (typeof unUsage === "function") unUsage(); unUsage = null;
+            if (typeof unTotals === "function")   unTotals();   unTotals = null;
 
             if (!phase) return;
 
             unAllowed = subAllowed(phase, (v) => {
                 allowed = v || {};
-                updateTilesState(phase, ranks, allowed, finalized);
-                updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
-                // ⬇️ Re-render des pilotes actifs dès que la whitelist change pour la phase courante
+
+                // Tant que l’on ne sait pas si on doit geler, ne pas rendre.
+                if (!initFreezeKnown) return;
+                // Si la phase est terminée, on ne re-rend rien au centre
+                if (freezeCenter) {
+                    renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
+                    updateInfoBanner(null, null, true);
+                    return;
+                }
+
+                // 1) (Re)crée les colonnes actives AVANT d'appliquer les états
                 renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
                 applyPilotGridColumns(phase, /* reveal */ false);
                 wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
                 syncActivePilotCardHeight();
+
+                // 2) Puis applique les états (tiles + bonus) sur le DOM fraîchement recréé
+                updateTilesState(phase, ranks, allowed, finalized);
+                updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
             });
 
             unCurrent = subCurrent(phase, (v) => {
@@ -637,13 +669,35 @@ function subBonusUsage(phase, cb) {
             if (raceId) {
                 unFinalized = subFinalized(phase, raceId, (v) => {
                     finalized = !!v;
+
+                    // Mises à jour visuelles de base (n’affectent pas la structure centrale)
                     updateTilesState(phase, ranks, allowed, finalized);
                     updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+
+                    // Si dernière course finalisée → geler l'UI
+                    if (finalized && isLastRaceOfPhase(phase, raceId)) {
+                        freezeCenter = true;
+                        renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
+                        updateInfoBanner(null, null, true); // bandeau masqué
+                    } else {
+                        // NE PAS dé-geler ici : le dégèle se fait uniquement au changement de phase
+                        updateInfoBanner(phase, raceId, doublesLocked);
+                    }
                 });
 
                 unByRace = subByRace(phase, raceId, (v) => {
-                    doublesLocked = !!v?.doublesLocked;     // undefined => false ? on choisit "fermé" par défaut
+                    doublesLocked = !!v?.doublesLocked;
                     doubles = v?.doubles || {};
+
+                    if (freezeCenter) {
+                        // Fin de phase : on maintient le rendu final et masque le bandeau
+                        updateInfoBanner(null, null, true);
+                        return;
+                    }
+                    
+                    // Si on n’a pas encore décidé du gel (boot), on ne rend rien
+                    if (!initFreezeKnown) return;
+
                     updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
                     updateInfoBanner(phase, raceId, doublesLocked);
                 });
@@ -653,12 +707,46 @@ function subBonusUsage(phase, cb) {
                 bonusUsage = v || {};
                 updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
             });
+
+            // ⬇️ NOUVEAU : agrégation des points de phase -> rangs finaux
+            unTotals = onValue(ref(dbRealtime, `live/points/${phase}/byRace`), (snap) => {
+                const root = snap.val() || {};
+
+                // Somme des points "final" par pilote
+                const totals = new Map(); // pilotId -> total points
+                for (const perRace of Object.values(root)) {
+                    if (!perRace || typeof perRace !== "object") continue;
+                    for (const [pid, obj] of Object.entries(perRace)) {
+                        const pts = Number(obj?.final ?? 0);
+                        if (!Number.isFinite(pts)) continue;
+                        totals.set(pid, (totals.get(pid) || 0) + pts);
+                    }
+                }
+
+                // Classement global (desc par points, tie-break simple par id)
+                const sorted = Array.from(totals.entries())
+                    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
+
+                const rankMap = {};
+                let pos = 1;
+                for (const [pid] of sorted) rankMap[pid] = pos++;
+                finalRanksByPilot = rankMap;
+
+                // Si on est dans l'état gelé (fin de phase), on re-rend la vue finale avec les bons rangs
+                if (freezeCenter) {
+                    renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
+                }
+            });
         };
 
         // Contexte global
         subContext((ctx) => {
+            // Aucun contexte actif → reset complet
             if (!ctx || !ctx.phase) {
+                freezeCenter = false;
+                initFreezeKnown = true;
                 phase = null; raceId = null;
+
                 renderLeftColumn(team, pilots, null);
                 syncActivePilotCardHeight();
                 $("#active-pilots").innerHTML = "";
@@ -669,27 +757,63 @@ function subBonusUsage(phase, cb) {
                 return;
             }
 
-            const nextPhase = (String(ctx.phase).toLowerCase() === "mkw") ? "mkw" : "mk8";
+            // Phase / course courantes issues du contexte
+            const nextPhase  = (String(ctx.phase).toLowerCase() === "mkw") ? "mkw" : "mk8";
             const nextRaceId = String(ctx.raceId ?? "1");
-            const phaseChanged = phase !== nextPhase;
-            const raceChanged = raceId !== nextRaceId;
-            phase = nextPhase; raceId = nextRaceId;
-            // ⬇️ On purge les caches locaux pour éviter d'utiliser les valeurs MK8 en MKW
+
+            const phaseChanged = (phase !== nextPhase);
+            const raceChanged  = (raceId !== nextRaceId);
+
+            // Applique la nouvelle phase/course
+            phase  = nextPhase;
+            raceId = nextRaceId;
+
+            // Changement de phase → dé-gel & reset caches
             if (phaseChanged) {
+                freezeCenter = false;
                 allowed = {};
-                ranks = {};
+                ranks   = {};
             }
 
-            renderLeftColumn(team, pilots, phase);
-            syncActivePilotCardHeight();
-            renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
-            applyPilotGridColumns(nextPhase, /* reveal */ false);
-            wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
-            updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
-            updateInfoBanner(phase, raceId, doublesLocked);
-            updateTilesState(phase, ranks, allowed, finalized);
+            // Bloque le rendu central tant qu’on ne sait pas si la dernière course de la phase est finalisée
+            initFreezeKnown = false;
 
+            // (Ré)abonnements : leurs callbacks sont inoffensifs tant que initFreezeKnown === false
             if (phaseChanged || raceChanged) resubPhaseDeps();
+
+            // Rendu différé après lecture one-shot de "live/races/{phase}"
+            const doRender = () => {
+                renderLeftColumn(team, pilots, phase);
+                syncActivePilotCardHeight();
+                applyPilotGridColumns(phase, /* reveal */ false);
+
+                if (freezeCenter) {
+                    renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
+                    updateInfoBanner(null, null, true);
+                } else {
+                    renderActivePilots(team, pilots, phase, allowed, finalized, ranks);
+                    wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
+                    updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+                    updateInfoBanner(phase, raceId, doublesLocked);
+                    updateTilesState(phase, ranks, allowed, finalized);
+                }
+            };
+
+            (async () => {
+                try {
+                    // ⬇️ On ne dépend plus de context.raceId ici.
+                    const snap = await get(ref(dbRealtime, `live/races/${phase}`));
+                    const racesObj = snap.val() || {};
+                    const lastKey = lastRaceKeyOfPhase(phase);
+                    const fin = !!(racesObj?.[lastKey]?.finalized);
+                    freezeCenter = fin;
+                } catch {
+                    // en cas d’erreur réseau, on laisse freezeCenter tel quel (probablement false)
+                } finally {
+                    initFreezeKnown = true;
+                    doRender();
+                }
+            })();
         });
 
         // Ajustement "six cartes sans scroll" au resize

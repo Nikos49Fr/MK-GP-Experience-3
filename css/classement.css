@@ -458,8 +458,8 @@
 .cw-row .bonus-icon {
   display: inline-block;
   vertical-align: middle;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   pointer-events: none; /* pas d’interaction */
   user-select: none;
   -webkit-user-drag: none;
@@ -469,9 +469,12 @@
 }
 .cw-row .bonus--used {
   background-image: url("../assets/icons/bonus-used.png");
+  opacity: 0.5;
 }
 .cw-row .bonus--armed {
   background-image: url("../assets/icons/bonus-armed.png");
+  width: 20px;
+  height: 20px;
 }
 .cw-row .bonus--unavailable {
   background-image: url("../assets/icons/bonus-locked.png");

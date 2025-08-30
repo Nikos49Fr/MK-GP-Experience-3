@@ -1,3 +1,4 @@
+@charset "UTF-8";
 /* sass/_fonts.scss */
 @font-face {
   font-family: "MarioKartF2";
@@ -342,6 +343,7 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
+  /* Icône bonus : taille/centrage, hover désactivé */
 }
 .cw-row .col-rank {
   background: rgba(12, 6, 22, 0.95);
@@ -443,7 +445,51 @@
   align-items: center;
 }
 .cw-row .col-bonus {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  text-align: center;
+  /* largeur fixe pour éviter les sauts lors des updates */
+  min-width: 36px;
+  width: 36px;
+  flex: 0 0 36px; /* si la ligne est en flex */
+  padding-inline: 4px;
+}
+.cw-row .bonus-icon {
+  display: inline-block;
+  vertical-align: middle;
+  width: 20px;
+  height: 20px;
+  pointer-events: none; /* pas d’interaction */
+  user-select: none;
+  -webkit-user-drag: none;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+.cw-row .bonus--used {
+  background-image: url("../assets/icons/bonus-used.png");
+}
+.cw-row .bonus--armed {
+  background-image: url("../assets/icons/bonus-armed.png");
+}
+.cw-row .bonus--unavailable {
+  background-image: url("../assets/icons/bonus-locked.png");
+}
+.cw-row .bonus--available {
+  background-image: url("../assets/icons/bonus-available.png");
+}
+@media (max-width: 1200px) {
+  .cw-row .bonus-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+@media (max-width: 800px) {
+  .cw-row .bonus-icon {
+    width: 16px;
+    height: 16px;
+  }
 }
 .cw-row .col-points {
   padding: 0 6px;

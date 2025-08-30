@@ -410,9 +410,46 @@ $classement-presets: (
     }
 
     .col-bonus {
+        display: flex;
+        align-items: center;
         justify-content: center;
+        text-align: center;
+
+        /* largeur fixe pour éviter les sauts lors des updates */
+        min-width: 36px;
+        width: 36px;
+        flex: 0 0 36px; /* si la ligne est en flex */
+        padding-inline: 4px;
     }
 
+    /* Icône bonus : taille/centrage, hover désactivé */
+    .bonus-icon {
+        display: inline-block;
+        vertical-align: middle;
+        width: 20px;
+        height: 20px;
+
+        pointer-events: none;     /* pas d’interaction */
+        user-select: none;
+        -webkit-user-drag: none;
+
+        background-repeat: no-repeat;
+        background-position: center;
+        background-size: contain;
+    }
+
+    .bonus--used        { background-image: url("../assets/icons/bonus-used.png"); }
+    .bonus--armed       { background-image: url("../assets/icons/bonus-armed.png"); }
+    .bonus--unavailable { background-image: url("../assets/icons/bonus-locked.png"); }
+    .bonus--available   { background-image: url("../assets/icons/bonus-available.png"); }
+
+    @media (max-width: 1200px) {
+        .bonus-icon { width: 18px; height: 18px; }
+    }
+    @media (max-width: 800px) {
+        .bonus-icon { width: 16px; height: 16px; }
+    }
+    
     .col-points {
         padding: 0 6px;
         justify-content: flex-end;

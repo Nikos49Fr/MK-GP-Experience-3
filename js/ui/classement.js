@@ -117,6 +117,11 @@ function simpleRaceLabel({ phase, raceId }) {
     return `${up} — Course ${raceId}`;
 }
 
+function isSurvivalRaceId(rid) {
+    const s = String(rid || '').toUpperCase();
+    return s === 'S' || s === 'SF';
+}
+
 function isNumericRaceId(rid) {
     return typeof rid === 'string' && /^[0-9]+$/.test(rid);
 }
@@ -178,6 +183,81 @@ function measureIntrinsicWidth(el) {
     const w = Math.max(clone.scrollWidth, clone.getBoundingClientRect().width);
     document.body.removeChild(clone);
     return Math.ceil(w);
+}
+
+let __renderQueued = false;
+function requestRender() {
+    if (__renderQueued) return;
+    __renderQueued = true;
+    requestAnimationFrame(() => {
+        __renderQueued = false;
+        renderList();
+    });
+}
+
+// Met à jour uniquement les icônes de bonus dans la liste, sans rerender complet
+let __bonusRafQueued = false;
+function updateBonusCellsOnly() {
+    if (__bonusRafQueued) return;
+    __bonusRafQueued = true;
+    requestAnimationFrame(() => {
+        __bonusRafQueued = false;
+
+        const $list = document.getElementById('cw-list');
+        if (!$list) return;
+
+        const rid = state.raceId;
+        const isSurv = (() => {
+            const s = String(rid || '').toUpperCase();
+            return s === 'S' || s === 'SF';
+        })();
+
+        const usedSet    = state.bonusUsed || new Set();
+        const doublesSet = state.doublesSet || new Set();
+
+        const rows = $list.children;
+        for (let i = 0; i < rows.length; i++) {
+            const $row = rows[i];
+            if (!$row || $row.classList.contains('is-empty')) continue;
+
+            const pid = $row.dataset.pilotId;
+            if (!pid) continue;
+
+            // Priorité: used > armed > unavailable > available
+            const isUsed  = usedSet.has(pid);
+            const isArmed = !isUsed && !isSurv && doublesSet.has(pid);
+            const isUnav  = !isUsed && isSurv;
+
+            let bonusKey = 'available';
+            let bonusAlt = 'Bonus disponible';
+            if (isUsed)            { bonusKey = 'used';        bonusAlt = 'Bonus utilisé'; }
+            else if (isArmed)      { bonusKey = 'armed';       bonusAlt = 'Bonus armé'; }
+            else if (isUnav)       { bonusKey = 'unavailable'; bonusAlt = 'Indisponible (Survie)'; }
+
+            // Trouver/Créer le conteneur .bonus-icon
+            let $cell = $row.querySelector('.col-bonus');
+            if (!$cell) continue;
+
+            let $icon = $cell.querySelector('.bonus-icon');
+            if (!$icon) {
+                $icon = document.createElement('span');
+                $icon.className = 'bonus-icon';
+                $icon.setAttribute('role', 'img');
+                $cell.innerHTML = ''; // on contrôle le contenu
+                $cell.appendChild($icon);
+            }
+
+            // Si l’état est inchangé, ne rien faire
+            const prevKey = $icon.getAttribute('data-bonus');
+            if (prevKey === bonusKey) continue;
+
+            // Sinon, toggler proprement les classes & attributs
+            $icon.classList.remove('bonus--used', 'bonus--armed', 'bonus--unavailable', 'bonus--available');
+            $icon.classList.add(`bonus--${bonusKey}`);
+            $icon.setAttribute('data-bonus', bonusKey);
+            $icon.setAttribute('aria-label', bonusAlt);
+        }
+    });
 }
 
 // ----------------------
@@ -473,7 +553,15 @@ const state = {
 
     // --- race-state render guard (dédup + coalescing)
     raceStateLastText: null,
-    raceStateRaf: null
+    raceStateRaf: null,
+
+        // --- bonus (RTDB: live/results/...)
+    unsubResultsBonus: null,     // unsubscribe byRace/{raceId}
+    unsubBonusUsage: null,       // unsubscribe bonusUsage
+    doublesLocked: false,        // fenêtre bonus fermée ?
+    doublesSet: new Set(),       // Set<pilotId> armés sur la course courante
+    bonusUsed: new Set(),        // Set<pilotId> bonus déjà consommé (définitif)
+
 };
 
 // ----------------------
@@ -516,6 +604,15 @@ function subscribeContext() {
 
         updateRaceStateDisplay();
         chooseAndApplyMode();
+
+        // (re)brancher les flux bonus quand phase ou course change
+        if (phaseChanged || raceId !== state.raceId) {
+            // Note: state.raceId vient d'être mise à jour juste au-dessus
+            resubscribeBonusChannels();
+        } else {
+            // si seul raceId a changé (cas peu probable ici), on force quand même
+            resubscribeBonusChannels();
+        }
 
         if (phaseChanged) {
             // reset snapshot pour éviter triangles à la 1ʳᵉ course
@@ -605,6 +702,51 @@ function resubscribeTotals() {
     });
 
     state.unsubTotals = unsubscribe;
+}
+
+function resubscribeBonusChannels() {
+    // Couper anciens
+    if (state.unsubResultsBonus) { try { state.unsubResultsBonus(); } catch(_) {} state.unsubResultsBonus = null; }
+    if (state.unsubBonusUsage)   { try { state.unsubBonusUsage(); }   catch(_) {} state.unsubBonusUsage   = null; }
+
+    const phase = state.phase;
+    const raceId = state.raceId;
+    if (!phase) return;
+
+    // 1) Usage définitif (par phase)
+    {
+        const usageRef = ref(dbRealtime, `live/results/${phase}/bonusUsage`);
+        const unsub = onValue(usageRef, (snap) => {
+            const obj = snap.val() || {};
+            const used = new Set();
+            Object.keys(obj).forEach(pid => used.add(pid));
+            state.bonusUsed = used;
+            updateBonusCellsOnly();
+        });
+        state.unsubBonusUsage = unsub;
+    }
+
+    // 2) État "fenêtre + armements" pour la course courante
+    if (raceId) {
+        const byRaceRef = ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`);
+        const unsub = onValue(byRaceRef, (snap) => {
+            const data = snap.val() || {};
+            state.doublesLocked = !!data.doublesLocked;
+            const doubles = data.doubles || {};
+            const set = new Set();
+            Object.keys(doubles).forEach(pid => {
+                if (doubles[pid] === true) set.add(pid);
+            });
+            state.doublesSet = set;
+            updateBonusCellsOnly();
+        });
+        state.unsubResultsBonus = unsub;
+    } else {
+        // reset visuel si pas de course
+        state.doublesLocked = false;
+        state.doublesSet = new Set();
+        updateBonusCellsOnly();
+    }
 }
 
 function subscribeByRace() {
@@ -961,11 +1103,35 @@ function renderList() {
             variation = 0;
         }
 
+        // --- BONUS: décider de l'état (priorité: used > armed > unavailable > available)
+        const rid = state.raceId;
+        const isSurv = (() => {
+            const s = String(rid || '').toUpperCase();
+            return s === 'S' || s === 'SF';
+        })();
+
+        const usedSet    = state.bonusUsed || new Set();
+        const doublesSet = state.doublesSet || new Set();
+
+        const isUsed  = usedSet.has(entry.pilotId);
+        const isArmed = !isUsed && !isSurv && doublesSet.has(entry.pilotId); // jamais "armed" en S/SF
+        const isUnav  = !isUsed && isSurv;                                   // S/SF → indisponible
+        // Priorité: used > armed > unavailable > available
+        let bonusKey = 'available';
+        let bonusAlt = 'Bonus disponible';
+        if (isUsed)            { bonusKey = 'used';        bonusAlt = 'Bonus utilisé'; }
+        else if (isArmed)      { bonusKey = 'armed';       bonusAlt = 'Bonus armé'; }
+        else if (isUnav)       { bonusKey = 'unavailable'; bonusAlt = 'Indisponible (Survie)'; }
+
+        // Rendu par classes (pas d’<img>)
+        const bonusContent =
+            `<span class="bonus-icon bonus--${bonusKey}" data-bonus="${bonusKey}" role="img" aria-label="${bonusAlt}"></span>`;
+
         setRow($row, {
             position: i + 1,
             logo: entry.logo,
             tag: entry.tag,
-            bonusContent: '',
+            bonusContent,
             pointsText: formatPoints(entry.points),
             variation
         });
@@ -974,10 +1140,10 @@ function renderList() {
     // snapshot
     state.lastOrderKey = currentOrderKey;
     state.lastRanksSnapshot = currentRanks;
-    
+
     // planifier un sweep pour la fin du TTL la plus proche
     scheduleIndicatorSweep();
-    
+
     restartSwapCycle();
 }
 
@@ -1310,7 +1476,8 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     subscribeContext();
     subscribeFinals();
     resubscribeTotals();
-
+    // Flux bonus (usage + état byRace) dépend du contexte → initialisation
+    resubscribeBonusChannels();
     // Premier choix
     chooseAndApplyMode();
 })();

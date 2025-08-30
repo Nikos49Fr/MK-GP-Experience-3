@@ -537,7 +537,7 @@ body {
 .active-pilot-card .bonus-btn.is-armed.is-locked {
   background: var(--bonus-bg-armed);
   color: #0c0616;
-  opacity: 0.85; /* léger voile */
+  opacity: 0.8; /* léger voile */
   filter: grayscale(0.05) saturate(0.9) brightness(0.98);
   border-color: rgba(255, 209, 102, 0.35);
   box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.18) inset;

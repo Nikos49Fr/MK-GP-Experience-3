@@ -546,7 +546,7 @@ body {
         &.is-armed.is-locked {
             background: var(--bonus-bg-armed);
             color: #0c0616;
-            opacity: .85; /* léger voile */
+            opacity: .80; /* léger voile */
             filter: grayscale(.05) saturate(.9) brightness(.98);
             border-color: rgba(255,209,102,0.35);
             box-shadow: 0 0 0 2px rgba(255,209,102,0.18) inset;

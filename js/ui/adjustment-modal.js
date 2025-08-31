@@ -253,11 +253,11 @@ function renderHeaderRow() {
 }
 
 function buttonGroup(kind /*"plus"|"minus"*/, size = "sm") {
-    // Trois boutons: ±1 ±5 ±10
+    // Trois boutons: 1 5 10 — la *couleur* (vert/rouge) vient de am-btns--plus / am-btns--minus
     const wrap = el("div", { class: `am-btns am-btns--${kind} am-btns--${size}` },
-        el("button", { type: "button", class: "am-btn", "data-delta": (kind === "plus" ? "1" : "-1") }, (kind === "plus" ? "+1" : "-1")),
-        el("button", { type: "button", class: "am-btn", "data-delta": (kind === "plus" ? "5" : "-5") }, (kind === "plus" ? "+5" : "-5")),
-        el("button", { type: "button", class: "am-btn", "data-delta": (kind === "plus" ? "10" : "-10") }, (kind === "plus" ? "+10" : "-10"))
+        el("button", { type: "button", class: "am-btn",  "data-delta": (kind === "plus" ? "1"   : "-1")  }, "1"),
+        el("button", { type: "button", class: "am-btn",  "data-delta": (kind === "plus" ? "5"   : "-5")  }, "5"),
+        el("button", { type: "button", class: "am-btn",  "data-delta": (kind === "plus" ? "10"  : "-10") }, "10")
     );
     return wrap;
 }
@@ -418,10 +418,18 @@ export async function openAdjustmentsModal() {
 
     // Listeners délégués (individuels)
     tbody.addEventListener("click", async (ev) => {
+        // bouton cliqué ?
         const btn = ev.target.closest(".am-btn");
         if (!btn) return;
-        const tr = ev.target.closest("tr.am-row");
+
+        // si le bouton est dans la colonne des contrôles d'équipe, on sort :
+        const cell = btn.closest("td");
+        if (cell && cell.classList.contains("am-td--teamctrls")) return;
+
+        // ligne pilote concernée
+        const tr = btn.closest("tr.am-row");
         if (!tr) return;
+
         const pilotId = tr.dataset.pilotId;
         if (!pilotId) return;
 
@@ -498,6 +506,7 @@ export async function openAdjustmentsModal() {
 
     // Listeners délégués (équipe)
     tbody.addEventListener("click", async (ev) => {
+        ev.stopPropagation(); // évite que le handler individuel capte aussi le clic
         const row = ev.target.closest("td.am-td--teamctrls");
         if (!row) return;
 

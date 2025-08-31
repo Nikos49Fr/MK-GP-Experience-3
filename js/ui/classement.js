@@ -86,7 +86,7 @@ const CFG = {
     totalsDebounceMs: 200,
 
     // NEW: mode strict — n'activer les triangles que lorsqu'une course passe finalized=true
-    indicatorsOnFinalizeOnly: false
+    indicatorsOnFinalizeOnly: false,
 };
 
 // ----------------------
@@ -103,6 +103,80 @@ const MODES = {
     'msg-mk8-noscores':  { rows: 0, className: 'classement-widget--msg-mk8-noscores', type: 'message' },
     'msg-mkw-noscores':  { rows: 0, className: 'classement-widget--msg-mkw-noscores', type: 'message' }
 };
+
+// ----------------------
+// State global
+// ----------------------
+const state = {
+    // contexte course
+    phase: 'mk8',
+    raceId: null,
+
+    // données
+    pilotsById: new Map(), // { id -> { tag, teamName, game, name, num, urlPhoto } }
+    teamsByName: new Map(),
+    totals: new Map(),
+    unsubTotals: null,
+
+    // finals
+    mk8LastFinalized: false,
+    mkwFinalFinalized: false,
+
+    // sets d'ids de courses finalisées par phase
+    mk8FinalizedRaceIds: new Set(),
+    mkwFinalizedRaceIds: new Set(),
+
+    // mode courant calculé ou forcé
+    modeKey: 'mkw-24',
+
+    // overrides (Direction de course)
+    viewModeOverride: null,   // 'auto' | explicit
+    viewScope: 'pilot',       // 'pilot' | 'team'
+
+    // suivi des ordres/rangs pour afficher les triangles
+    lastOrderKey: null,               // string | null (ex: "p1,p7,p4,...")
+    lastRanksSnapshot: new Map(),     // Map<pilotId, rankNumber)
+
+    // TTL par pilote (pilotId → timestamp ms jusqu'à quand afficher l’icône)
+    indicatorUntil: new Map(),
+
+    // mémorise la direction du dernier delta pendant le TTL (pilotId → -1 | +1)
+    lastDeltaDir: new Map(),
+
+    // --- snapshots tie-breaks
+    byRaceSnapshot: {},
+    posCounts: new Map(),       // Map<pilotId, Map<rank, count>>
+    bonusDoubles: new Map(),    // Map<pilotId, number>
+
+    // --- NEW: timer pour balayer les TTL et forcer un re-render à expiration
+    indicatorSweepTimer: null,
+
+    // --- race-state render guard (dédup + coalescing)
+    raceStateLastText: null,
+    raceStateRaf: null,
+
+        // --- bonus (RTDB: live/results/...)
+    unsubResultsBonus: null,     // unsubscribe byRace/{raceId}
+    unsubBonusUsage: null,       // unsubscribe bonusUsage
+    doublesLocked: false,        // fenêtre bonus fermée ?
+    doublesSet: new Set(),       // Set<pilotId> armés sur la course courante
+    bonusUsed: new Set(),        // Set<pilotId> bonus déjà consommé (définitif)
+
+    adjustTotals: new Map(),      // Map<pilotId, number> — somme des ajustements (bonus/malus)
+    unsubAdjustments: null,       // unsubscribe live/adjustments/... listener
+};
+// ---- Reveal ----
+const PATH_REVEAL = 'context/reveal';
+state.revealEnabled = false;
+
+function subReveal(onChange) {
+    const r = ref(dbRealtime, PATH_REVEAL);
+    return onValue(r, (snap) => {
+        const v = snap.val() || {};
+        state.revealEnabled = !!v.enabled;
+        if (typeof onChange === 'function') onChange(state.revealEnabled);
+    });
+}
 
 // ----------------------
 // Helpers
@@ -160,10 +234,20 @@ function isNumericRaceId(rid) {
     return typeof rid === 'string' && /^[0-9]+$/.test(rid);
 }
 
-function totalsAllZeroOrEmpty(map) {
-    if (!map || map.size === 0) return true;
-    for (const [, v] of map) {
-        if ((Number(v) || 0) > 0) return false;
+function totalsWithAdjAllZeroOrEmpty() {
+    // Si aucun total + aucun ajustement → vide
+    if ((!state.totals || state.totals.size === 0) && (!state.adjustTotals || state.adjustTotals.size === 0)) {
+        return true;
+    }
+    // Union des pilotes présents dans totals OU dans adjustments
+    const unionIds = new Set();
+    if (state.totals)       state.totals.forEach((_, pid) => unionIds.add(pid));
+    if (state.adjustTotals) state.adjustTotals.forEach((_, pid) => unionIds.add(pid));
+
+    for (const pid of unionIds) {
+        const base = Number(state.totals?.get(pid) || 0);
+        const adj  = Number(state.adjustTotals?.get?.(pid) || 0);
+        if (base + adj > 0) return false;
     }
     return true;
 }
@@ -290,6 +374,14 @@ function effectiveTeamName(pilot) {
         return pilot.secretTeamName || pilot.teamName || '';
     }
     return pilot.teamName || '';
+}
+
+function sumNumbersDeep(node) {
+    if (typeof node === 'number' && Number.isFinite(node)) return node;
+    if (!node || typeof node !== 'object') return 0;
+    let t = 0;
+    for (const v of Object.values(node)) t += sumNumbersDeep(v);
+    return t;
 }
 
 // ----------------------
@@ -537,78 +629,6 @@ function renderMessageBlock(htmlString) {
 }
 
 // ----------------------
-// State global
-// ----------------------
-const state = {
-    // contexte course
-    phase: 'mk8',
-    raceId: null,
-
-    // données
-    pilotsById: new Map(), // { id -> { tag, teamName, game, name, num, urlPhoto } }
-    teamsByName: new Map(),
-    totals: new Map(),
-    unsubTotals: null,
-
-    // finals
-    mk8LastFinalized: false,
-    mkwFinalFinalized: false,
-
-    // sets d'ids de courses finalisées par phase
-    mk8FinalizedRaceIds: new Set(),
-    mkwFinalizedRaceIds: new Set(),
-
-    // mode courant calculé ou forcé
-    modeKey: 'mkw-24',
-
-    // overrides (Direction de course)
-    viewModeOverride: null,   // 'auto' | explicit
-    viewScope: 'pilot',       // 'pilot' | 'team'
-
-    // suivi des ordres/rangs pour afficher les triangles
-    lastOrderKey: null,               // string | null (ex: "p1,p7,p4,...")
-    lastRanksSnapshot: new Map(),     // Map<pilotId, rankNumber)
-
-    // TTL par pilote (pilotId → timestamp ms jusqu'à quand afficher l’icône)
-    indicatorUntil: new Map(),
-
-    // mémorise la direction du dernier delta pendant le TTL (pilotId → -1 | +1)
-    lastDeltaDir: new Map(),
-
-    // --- snapshots tie-breaks
-    byRaceSnapshot: {},
-    posCounts: new Map(),       // Map<pilotId, Map<rank, count>>
-    bonusDoubles: new Map(),    // Map<pilotId, number>
-
-    // --- NEW: timer pour balayer les TTL et forcer un re-render à expiration
-    indicatorSweepTimer: null,
-
-    // --- race-state render guard (dédup + coalescing)
-    raceStateLastText: null,
-    raceStateRaf: null,
-
-        // --- bonus (RTDB: live/results/...)
-    unsubResultsBonus: null,     // unsubscribe byRace/{raceId}
-    unsubBonusUsage: null,       // unsubscribe bonusUsage
-    doublesLocked: false,        // fenêtre bonus fermée ?
-    doublesSet: new Set(),       // Set<pilotId> armés sur la course courante
-    bonusUsed: new Set(),        // Set<pilotId> bonus déjà consommé (définitif)
-
-};
-// ---- Reveal ----
-const PATH_REVEAL = 'context/reveal';
-state.revealEnabled = false;
-
-function subReveal(onChange) {
-    const r = ref(dbRealtime, PATH_REVEAL);
-    return onValue(r, (snap) => {
-        const v = snap.val() || {};
-        state.revealEnabled = !!v.enabled;
-        if (typeof onChange === 'function') onChange(state.revealEnabled);
-    });
-}
-
-// ----------------------
 // Firestore preload
 // ----------------------
 async function preloadFirestore() {
@@ -644,36 +664,37 @@ function subscribeContext() {
         const phase = (v.phase || 'mk8').toString().toLowerCase();
         const raceId = v.raceId || null;
 
-        const phaseChanged = phase !== state.phase;
+        const prevPhase = state.phase;
+        const phaseChanged = phase !== prevPhase;
+
         state.phase = phase;
         state.raceId = raceId;
 
+        // UI racestate + mode
         updateRaceStateDisplay();
         chooseAndApplyMode();
 
-        // (re)brancher les flux bonus quand phase ou course change
-        if (phaseChanged || raceId !== state.raceId) {
-            // Note: state.raceId vient d'être mise à jour juste au-dessus
-            resubscribeBonusChannels();
-        } else {
-            // si seul raceId a changé (cas peu probable ici), on force quand même
-            resubscribeBonusChannels();
-        }
+        // Flux bonus (usage + armements) — dépend de phase/race → relancé à chaque tick
+        resubscribeBonusChannels();
 
+        // Si la phase change → reset + rebrancher totals
         if (phaseChanged) {
-            // reset snapshot pour éviter triangles à la 1ʳᵉ course
             state.lastOrderKey = null;
             state.lastRanksSnapshot.clear();
             state.indicatorUntil.clear();
             state.lastDeltaDir.clear();
-
-            // NEW: annuler sweep TTL en cours
             if (state.indicatorSweepTimer) {
                 clearTimeout(state.indicatorSweepTimer);
                 state.indicatorSweepTimer = null;
             }
-
             resubscribeTotals();
+        }
+
+        // ⚠️ IMPORTANT : ajustements (cosplay/jury/manu)
+        // - au premier chargement (si pas encore branché)
+        // - ou à chaque changement de phase
+        if (phaseChanged || !state.unsubAdjustments) {
+            resubscribeAdjustments();
         }
     });
 
@@ -828,6 +849,61 @@ function recomputeTieBreaks() {
     }
 }
 
+// --- render throttle (unique point d'entrée pour rafraîchir l'affichage)
+let __renderQueued = false;
+function requestRender() {
+  if (__renderQueued) return;
+  __renderQueued = true;
+
+  const schedule = (window.requestAnimationFrame || window.setTimeout);
+  schedule(() => {
+    __renderQueued = false;
+    try {
+      renderList();
+    } catch (e) {
+      console.error(e);
+    }
+  });
+}
+
+function resubscribeAdjustments() {
+    // Couper ancien listener si besoin
+    if (state.unsubAdjustments) {
+        try { state.unsubAdjustments(); } catch(_) {}
+        state.unsubAdjustments = null;
+    }
+
+    const phase = state.phase;
+    if (!phase) {
+        state.adjustTotals.clear();
+        requestRender();
+        return;
+    }
+
+    // On lit UNIQUEMENT le total cumulé par pilote :
+    // /live/adjustments/{phase}/pilot/{pilotId}/total
+    const adjRef = ref(dbRealtime, `live/adjustments/${phase}/pilot`);
+    const unsub = onValue(adjRef, (snap) => {
+        const obj = snap.val() || {};
+        state.adjustTotals.clear();
+
+        for (const [pid, v] of Object.entries(obj)) {
+            if (!v || typeof v !== 'object') continue;
+            const t = (v.total != null) ? Number(v.total) : 0;
+            if (t !== 0 && Number.isFinite(t)) {
+                state.adjustTotals.set(pid, t);
+            }
+        }
+
+        // (log debug non bloquant)
+        clDebug('adjustments totals updated → size:', state.adjustTotals.size);
+
+        requestRender();
+    });
+
+    state.unsubAdjustments = unsub;
+}
+
 // ----------------------
 // Texte d’état
 // ----------------------
@@ -902,7 +978,7 @@ function computeModeKeyAuto() {
         if (!rid) {
             return state.mk8LastFinalized ? 'mk8-12' : 'msg-prestart';
         }
-        if (totalsAllZeroOrEmpty(state.totals)) {
+        if (totalsWithAdjAllZeroOrEmpty()) {
             return 'msg-mk8-noscores';
         }
         return 'mk8-12';
@@ -913,7 +989,7 @@ function computeModeKeyAuto() {
         if (!rid) {
             return state.mkwFinalFinalized ? 'mkw-24' : 'msg-mkw-noscores';
         }
-        if (totalsAllZeroOrEmpty(state.totals)) {
+        if (totalsWithAdjAllZeroOrEmpty()) {
             return 'msg-mkw-noscores';
         }
         return 'mkw-24';
@@ -1046,7 +1122,7 @@ function renderList() {
 
     // Construire la liste des items
     const items = [];
-    state.totals.forEach((points, pilotId) => {
+    state.totals.forEach((basePoints, pilotId) => {
         const p = state.pilotsById.get(pilotId);
         if (!p) return;
 
@@ -1054,17 +1130,22 @@ function renderList() {
         if (state.modeKey === 'mk8-12' && gameNorm !== 'mk8') return;
         if (state.modeKey === 'mkw-24' && gameNorm !== 'mkw') return;
 
-        // NEW: équipe affichée selon reveal
+        // Équipe affichée (reveal)
         const teamNameShown = effectiveTeamName(p);
         const team = state.teamsByName.get(teamNameShown) || {};
         const logo = team.urlLogo ? resolveAssetPath(team.urlLogo) : '';
 
+        // ✅ Points ajustés = base + ajustements
+        const base = Number(basePoints) || 0;                        // total RTDB des points (byRace → totals)
+        const adj  = Number(state.adjustTotals.get(pilotId) || 0); // total des ajustements (déjà cumulé)
+        const effective = base + adj;
+
         items.push({
             pilotId,
             tag: p.tag || '',
-            teamName: teamNameShown, // <-- on stocke ce qui est effectivement affiché
+            teamName: p.teamName || '',
             logo,
-            points: Number(points) || 0,
+            points: effective,                  // <-- on affiche base + ajustements
             name: p.name || '',
             num: p.num || '',
             urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : '',
@@ -1072,7 +1153,7 @@ function renderList() {
         });
     });
 
-    // --- Tri avancé
+    // Tri avancé (utilise items[].points déjà ajustés)
     items.sort(sortPilotsAdvanced);
 
     const rows = $list.children;
@@ -1129,18 +1210,16 @@ function renderList() {
             (state.phase === 'mk8' && state.mk8FinalizedRaceIds?.has(state.raceId)) ||
             (state.phase === 'mkw' && state.mkwFinalizedRaceIds?.has(state.raceId));
 
-        // Nouveau changement d'ordre ?
         if (strictOk && state.lastOrderKey && state.lastOrderKey !== currentOrderKey) {
             if (prevRank != null) {
                 const delta = prevRank - (i + 1);
                 if (delta !== 0) {
                     state.indicatorUntil.set(entry.pilotId, now + CFG.changeIndicatorMs);
-                    state.lastDeltaDir.set(entry.pilotId, Math.sign(delta)); // -1 ou +1
+                    state.lastDeltaDir.set(entry.pilotId, Math.sign(delta));
                 }
             }
         }
 
-        // Vérifier TTL en cours
         const ttl = state.indicatorUntil.get(entry.pilotId) || 0;
         if (ttl > now) {
             const dir = state.lastDeltaDir.get(entry.pilotId) || 0;
@@ -1151,7 +1230,7 @@ function renderList() {
             variation = 0;
         }
 
-        // --- BONUS: décider de l'état (priorité: used > armed > unavailable > available)
+        // --- BONUS: état visuel du bonus (inchangé)
         const rid = state.raceId;
         const isSurv = (() => {
             const s = String(rid || '').toUpperCase();
@@ -1162,16 +1241,15 @@ function renderList() {
         const doublesSet = state.doublesSet || new Set();
 
         const isUsed  = usedSet.has(entry.pilotId);
-        const isArmed = !isUsed && !isSurv && doublesSet.has(entry.pilotId); // jamais "armed" en S/SF
-        const isUnav  = !isUsed && isSurv;                                   // S/SF → indisponible
-        // Priorité: used > armed > unavailable > available
+        const isArmed = !isUsed && !isSurv && doublesSet.has(entry.pilotId);
+        const isUnav  = !isUsed && isSurv;
+
         let bonusKey = 'available';
         let bonusAlt = 'Bonus disponible';
         if (isUsed)            { bonusKey = 'used';        bonusAlt = 'Bonus utilisé'; }
         else if (isArmed)      { bonusKey = 'armed';       bonusAlt = 'Bonus armé'; }
         else if (isUnav)       { bonusKey = 'unavailable'; bonusAlt = 'Indisponible (Survie)'; }
 
-        // Rendu par classes (pas d’<img>)
         const bonusContent =
             `<span class="bonus-icon bonus--${bonusKey}" data-bonus="${bonusKey}" role="img" aria-label="${bonusAlt}"></span>`;
 
@@ -1180,18 +1258,15 @@ function renderList() {
             logo: entry.logo,
             tag: entry.tag,
             bonusContent,
-            pointsText: formatPoints(entry.points),
+            pointsText: formatPoints(entry.points),  // <-- affiche les points ajustés
             variation
         });
     }
 
-    // snapshot
     state.lastOrderKey = currentOrderKey;
     state.lastRanksSnapshot = currentRanks;
 
-    // planifier un sweep pour la fin du TTL la plus proche
     scheduleIndicatorSweep();
-
     restartSwapCycle();
 }
 
@@ -1528,6 +1603,7 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     subscribeFinals();
     resubscribeTotals();
     // Flux bonus (usage + état byRace) dépend du contexte → initialisation
+    resubscribeAdjustments();
     resubscribeBonusChannels();
     // (re)brancher le reveal → re-render immédiat
     if (state.unsubReveal) { try { state.unsubReveal(); } catch(_) {} state.unsubReveal = null; }

@@ -10,7 +10,7 @@
  *   • l’intégration du composant race-strip (montage + sync inspection → pilotes).
  */
 
-import { dbRealtime, dbFirestore } from './firebase-config.js';
+import { dbRealtime, dbFirestore, ensureAuthPrefersExisting, traceAuthState  } from './firebase-config.js';
 import {
     ref, onValue, off, get, set, update, remove
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
@@ -1168,6 +1168,18 @@ function openRankModal(phase, pilotId, anchorEl) {
    Montage global
    ============================================================ */
 document.addEventListener('DOMContentLoaded', async () => {
+    try {
+        // Trace optionnel pour suivre les (re)connexions sur cette page
+        if (typeof traceAuthState === 'function') {
+            traceAuthState('control-panel');
+        }
+        // Préserver une session Google si elle existe ; sinon, basculer en anonyme
+        await ensureAuthPrefersExisting({ debug: true });
+    } catch (_) {
+        // En cas d'échec d'auth anonyme, on continue (lecture seule possible suivant règles)
+    }
+
+    // Boot UI après auth rétablie
     mountPhaseSwitch();
     mountPilotsPanelSection();
     attachContextListener();

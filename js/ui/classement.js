@@ -17,6 +17,44 @@ import {
     onValue
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
+// ---- DEBUG overlay classement ----
+const __CL_DEBUG = true;
+function clDebug(...args) { if (__CL_DEBUG) console.log('[classement]', ...args); }
+
+// ---- Auth (lecture RTDB sans éjecter un Google user) ----
+import { app } from "../firebase-config.js";
+
+const _authReady = (async () => {
+    try {
+        const { getAuth, onAuthStateChanged, signInAnonymously } =
+            await import("https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js");
+
+        const auth = getAuth(app);
+
+        // 1) Attendre *le tout premier* état (inclut la restauration éventuelle d'une session Google)
+        const firstUser = await new Promise((resolve) => {
+            const unsub = onAuthStateChanged(auth, (user) => {
+                unsub();
+                resolve(user);
+            });
+        });
+
+        if (firstUser) {
+            clDebug('auth OK (restored) →', firstUser.isAnonymous ? 'anonymous' : (firstUser.email || 'google'));
+        } else {
+            clDebug('no user after initial restore → signing in anonymously…');
+            await signInAnonymously(auth);
+            clDebug('anonymous sign-in done');
+        }
+
+        // 2) Logs de suivi pour les changements *après* la restauration / l’anonymous
+        onAuthStateChanged(auth, (user) => {
+            clDebug('auth change →', user ? (user.isAnonymous ? 'anonymous' : (user.email || 'google')) : 'null');
+        });
+    } catch (e) {
+        console.warn('[classement] auth bootstrap failed:', e);
+    }
+})();
 
 // ----------------------
 // Config timings (ajustables)
@@ -1482,6 +1520,9 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     } catch (err) {
         console.error('[classement] Erreur Firestore:', err);
     }
+    
+    // ✅ S’assurer que l’auth (Google restauré *ou* anonyme) est prête avant les reads RTDB
+    await _authReady;
 
     subscribeContext();
     subscribeFinals();
@@ -1505,6 +1546,11 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
 // - options.forceMode: 'mk8-12' | 'mkw-24' | 'teams-6' | 'teams-8' | 'msg-prestart' | 'msg-mk8-noscores' | 'msg-mkw-noscores'
 // ----------------------------------------------------
 export function initClassement(container, options = {}) {
+    // au tout début d'initClassement(...)
+    if (typeof _authReady?.then === 'function') {
+        _authReady.then(() => clDebug('auth ready → safe to subscribe'));
+    }
+
     const host = _resolveClassementHost(container);
     if (!host) {
         console.warn('[classement] initClassement: conteneur introuvable', container);

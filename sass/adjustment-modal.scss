@@ -1,0 +1,228 @@
+@use 'variables' as *;
+@use 'fonts';
+
+/* ============================================================
+   Modale Bonus/Malus (overlay compact) — namespace .am-modal
+   ============================================================ */
+.am-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10040;
+    display: grid;
+    place-items: center;
+    pointer-events: auto;
+
+    &-open {
+        overflow: hidden;
+    }
+    &__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(6, 8, 14, 0.62);
+        backdrop-filter: blur(2px);
+        z-index: 0;
+    }
+
+    &__dialog {
+        position: relative;
+        max-width: min(1100px, 96vw);
+        max-height: min(86vh, 900px);
+        width: max(640px, 60vw);
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow:
+            0 10px 30px rgba(0, 0, 0, 0.35),
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+        overflow: auto;
+        z-index: 1;
+    }
+
+    &__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--border);
+
+        .am-modal__title {
+            margin: 0;
+            font-family: $font-subtitle;
+            font-weight: 900;
+            font-size: 16px;
+            letter-spacing: .2px;
+        }
+
+        .am-modal__close {
+            appearance: none;
+            border: 1px solid var(--border);
+            background: rgba(255,255,255,0.06);
+            border-radius: 10px;
+            width: 34px;
+            height: 34px;
+            line-height: 32px;
+            font-weight: 900;
+            text-align: center;
+            cursor: pointer;
+            transition: transform .12s ease, filter .12s ease;
+            &:hover { transform: translateY(-1px); filter: brightness(1.05); }
+            &:active { transform: translateY(0); }
+        }
+    }
+
+    &__body {
+        padding: 12px 14px;
+        overflow: auto;
+        max-height: min(78vh, 900px);
+    }
+}
+
+/* ============================================================
+   Tableau des ajustements
+   Colonnes : Pilote | Cosplay | Jury | Bonus | Total | Malus | (Logo + TeamCtrls)
+   ============================================================ */
+.am-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    table-layout: fixed;
+
+    thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(255,255,255,0.06);
+        border-bottom: 1px solid var(--border);
+        padding: 4px 5px;
+        text-align: center;
+        font-family: $font-subtitle;
+        font-weight: 800;
+        font-size: 12px;
+        letter-spacing: .3px;
+        text-transform: uppercase;
+    }
+
+    tbody td {
+        padding: 4px 5px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: middle;
+        text-align: center;
+    }
+
+    /* Colonnes spécifiques */
+    .am-col--pilot, .am-td--pilot { text-align: left; }
+    .am-td--total { font-weight: 900; }
+
+    /* Totaux colorés */
+    .am-td--total.is-zero { color: rgba(255,255,255,0.85); }
+    .am-td--total.is-pos  { color: #2ecc71; }
+    .am-td--total.is-neg  { color: #e74c3c; }
+
+    /* Logo équipe + contrôles fusionnés (rowspan) */
+    .am-td--teamlogo,
+    .am-td--teamctrls {
+        background: rgba(255,255,255,0.03);
+        border-left: 1px solid var(--border);
+    }
+    .am-td--teamctrls { border-right: 1px solid var(--border); }
+
+    .am-teamlogo {
+        display: grid;
+        place-items: center;
+        min-width: 76px;
+        padding: 4px 0;
+
+        img {
+            display: block;
+            max-height: 28px;
+            max-width: 60px;
+            object-fit: contain;
+            filter: drop-shadow(0 1px 0 rgba(0,0,0,.25));
+        }
+        &--placeholder {
+            font-family: $font-subtitle;
+            font-weight: 900;
+            font-size: 12px;
+            opacity: .9;
+        }
+    }
+
+    .am-teamctrls {
+        display: grid;
+        gap: 8px;
+        align-items: center;
+        justify-items: center;
+
+        .am-teamctrls-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    }
+
+    /* Check / Radio compacts */
+    .am-check, .am-radio {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+
+        input[type="checkbox"], input[type="radio"] {
+            width: 16px; height: 16px;
+            accent-color: #ffd166;
+            cursor: pointer;
+        }
+        .am-check__label, .am-radio__label {
+            font-weight: 800;
+            font-size: 12px;
+            opacity: .95;
+        }
+    }
+}
+
+/* ============================================================
+   Boutons pastilles Bonus/Malus
+   ============================================================ */
+.am-btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    &--lg .am-btn { width: 35px; height: 35px; font-size: 13px; }
+    &--sm .am-btn { width: 25px; height: 25px; font-size: 11px; }
+
+    &--plus .am-btn {
+        background: #2ecc71;
+        color: #0b2f1a;
+        border: 1px solid rgba(255,255,255,0.12);
+        box-shadow: 0 2px 0 rgba(0,0,0,0.25);
+    }
+    &--minus .am-btn {
+        background: #e74c3c;
+        color: #2b0a08;
+        border: 1px solid rgba(255,255,255,0.12);
+        box-shadow: 0 2px 0 rgba(0,0,0,0.25);
+    }
+}
+
+.am-btn {
+    appearance: none;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    font-family: $font-subtitle;
+    font-weight: 900;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+
+    &:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    &:active { transform: translateY(0); box-shadow: 0 1px 0 rgba(0,0,0,0.25) inset; }
+}
+
+/* Spacing responsive léger */
+@media (max-width: 920px) {
+    .am-modal__dialog { width: min(92vw, 720px); }
+    .am-table thead th, .am-table tbody td { padding: 6px 8px; }
+    .am-teamlogo { min-width: 64px; }
+}

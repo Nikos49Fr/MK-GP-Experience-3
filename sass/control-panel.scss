@@ -1,6 +1,9 @@
 /* ==========================================================================
    0) Variables globales
    ========================================================================== */
+@use 'variables' as *; // import globales (couleurs, polices, etc.)
+@use 'fonts';          // import des polices locales
+@use 'adjustment-modal';
 
 :root {
     /* Layout */
@@ -340,6 +343,33 @@ body.cp-body {
             0 1px 0 rgba(0, 0, 0, 0.25),
             0 0 0 1px rgba(255, 120, 120, 0.15) inset !important;
     }
+}
+
+/* ============================================================
+   Bouton "Bonus/Malus" dans la barre d’actions
+   ============================================================ */
+.cp-adjust-toggle-wrap {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 8px;
+}
+
+.cp-adjust-open {
+    appearance: none;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 6px 12px;
+    line-height: 1;
+    font-weight: 800;
+    letter-spacing: .3px;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02));
+    box-shadow: 0 1px 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.06);
+    transition: transform .12s ease, filter .12s ease;
+
+    &:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    &:active { transform: translateY(0); }
 }
 
 /* ==========================================================================

@@ -117,11 +117,6 @@ function simpleRaceLabel({ phase, raceId }) {
     return `${up} — Course ${raceId}`;
 }
 
-function isSurvivalRaceId(rid) {
-    const s = String(rid || '').toUpperCase();
-    return s === 'S' || s === 'SF';
-}
-
 function isNumericRaceId(rid) {
     return typeof rid === 'string' && /^[0-9]+$/.test(rid);
 }
@@ -183,16 +178,6 @@ function measureIntrinsicWidth(el) {
     const w = Math.max(clone.scrollWidth, clone.getBoundingClientRect().width);
     document.body.removeChild(clone);
     return Math.ceil(w);
-}
-
-let __renderQueued = false;
-function requestRender() {
-    if (__renderQueued) return;
-    __renderQueued = true;
-    requestAnimationFrame(() => {
-        __renderQueued = false;
-        renderList();
-    });
 }
 
 // Met à jour uniquement les icônes de bonus dans la liste, sans rerender complet
@@ -258,6 +243,14 @@ function updateBonusCellsOnly() {
             $icon.setAttribute('aria-label', bonusAlt);
         }
     });
+}
+
+function effectiveTeamName(pilot) {
+    // En MKW, si reveal actif → on bascule sur secretTeamName (si présent)
+    if (state.phase === 'mkw' && state.revealEnabled) {
+        return pilot.secretTeamName || pilot.teamName || '';
+    }
+    return pilot.teamName || '';
 }
 
 // ----------------------
@@ -563,6 +556,18 @@ const state = {
     bonusUsed: new Set(),        // Set<pilotId> bonus déjà consommé (définitif)
 
 };
+// ---- Reveal ----
+const PATH_REVEAL = 'context/reveal';
+state.revealEnabled = false;
+
+function subReveal(onChange) {
+    const r = ref(dbRealtime, PATH_REVEAL);
+    return onValue(r, (snap) => {
+        const v = snap.val() || {};
+        state.revealEnabled = !!v.enabled;
+        if (typeof onChange === 'function') onChange(state.revealEnabled);
+    });
+}
 
 // ----------------------
 // Firestore preload
@@ -580,7 +585,9 @@ async function preloadFirestore() {
         state.pilotsById.set(docSnap.id, {
             tag: data.tag || '',
             teamName: data.teamName || '',
-            game: (data.game || '').toString(), // "MK8" | "MKW"
+            secretTeamName: data.secretTeamName || '',
+            traitorMode: (data.traitorMode ?? null),     // "double" | "transfer" | null
+            game: (data.game || '').toString(),          // "MK8" | "MKW"
             name: data.name || '',
             num: data.num || '',
             urlPhoto: data.urlPhoto || ''
@@ -1008,19 +1015,21 @@ function renderList() {
         if (state.modeKey === 'mk8-12' && gameNorm !== 'mk8') return;
         if (state.modeKey === 'mkw-24' && gameNorm !== 'mkw') return;
 
-        const team = state.teamsByName.get(p.teamName) || {};
+        // NEW: équipe affichée selon reveal
+        const teamNameShown = effectiveTeamName(p);
+        const team = state.teamsByName.get(teamNameShown) || {};
         const logo = team.urlLogo ? resolveAssetPath(team.urlLogo) : '';
 
         items.push({
             pilotId,
             tag: p.tag || '',
-            teamName: p.teamName || '',
+            teamName: teamNameShown, // <-- on stocke ce qui est effectivement affiché
             logo,
             points: Number(points) || 0,
             name: p.name || '',
             num: p.num || '',
             urlPhoto: p.urlPhoto ? resolveAssetPath(p.urlPhoto) : '',
-            bonuses: 0 // (autres bonus à venir)
+            bonuses: 0
         });
     });
 
@@ -1478,6 +1487,12 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     resubscribeTotals();
     // Flux bonus (usage + état byRace) dépend du contexte → initialisation
     resubscribeBonusChannels();
+    // (re)brancher le reveal → re-render immédiat
+    if (state.unsubReveal) { try { state.unsubReveal(); } catch(_) {} state.unsubReveal = null; }
+    state.unsubReveal = subReveal(() => {
+        try { chooseAndApplyMode(); } catch(_) {}
+        try { renderList(); } catch(_) {}
+    });
     // Premier choix
     chooseAndApplyMode();
 })();

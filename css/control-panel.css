@@ -2,6 +2,274 @@
 /* ==========================================================================
    0) Variables globales
    ========================================================================== */
+/* sass/_fonts.scss */
+@font-face {
+  font-family: "MarioKartF2";
+  src: url("../assets/fonts/mario_kart_f2.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1 Wide";
+  src: url("../assets/fonts/Formula1-Wide.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+/* ==========================================================================
+   0) Variables globales
+   ========================================================================== */
+/* ============================================================
+   Modale Bonus/Malus (overlay compact) — namespace .am-modal
+   ============================================================ */
+.am-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 15000;
+  display: grid;
+  place-items: center;
+}
+.am-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  z-index: 0;
+}
+.am-modal__dialog {
+  position: relative;
+  max-width: 920px;
+  width: max(640px, 60vw);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  z-index: 1;
+}
+.am-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.am-modal__header .am-modal__title {
+  margin: 0;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: 0.2px;
+}
+.am-modal__header .am-modal__close {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  line-height: 32px;
+  font-weight: 900;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.am-modal__header .am-modal__close:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.am-modal__header .am-modal__close:active {
+  transform: translateY(0);
+}
+.am-modal__body {
+  padding: 12px 14px;
+  overflow: auto;
+  max-height: min(78vh, 900px);
+}
+
+/* ============================================================
+   Tableau des ajustements
+   Colonnes : Pilote | Cosplay | Jury | Bonus | Total | Malus | (Logo + TeamCtrls)
+   ============================================================ */
+.am-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  /* Colonnes spécifiques */
+  /* Totaux colorés */
+  /* Logo équipe + contrôles fusionnés (rowspan) */
+  /* Check / Radio compacts */
+}
+.am-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  text-align: center;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.am-table tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  text-align: center;
+}
+.am-table .am-col--pilot, .am-table .am-td--pilot {
+  text-align: left;
+}
+.am-table .am-td--total {
+  font-weight: 900;
+}
+.am-table .am-td--total.is-zero {
+  color: rgba(255, 255, 255, 0.85);
+}
+.am-table .am-td--total.is-pos {
+  color: #2ecc71;
+}
+.am-table .am-td--total.is-neg {
+  color: #e74c3c;
+}
+.am-table .am-td--teamlogo,
+.am-table .am-td--teamctrls {
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 1px solid var(--border);
+}
+.am-table .am-td--teamctrls {
+  border-right: 1px solid var(--border);
+}
+.am-table .am-teamlogo {
+  display: grid;
+  place-items: center;
+  min-width: 76px;
+  padding: 4px 0;
+}
+.am-table .am-teamlogo img {
+  display: block;
+  max-height: 28px;
+  max-width: 60px;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25));
+}
+.am-table .am-teamlogo--placeholder {
+  font-family: "Orbitron", sans-serif;
+  font-weight: 900;
+  font-size: 12px;
+  opacity: 0.9;
+}
+.am-table .am-teamctrls {
+  display: grid;
+  gap: 8px;
+  align-items: center;
+  justify-items: center;
+}
+.am-table .am-teamctrls .am-teamctrls-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.am-table .am-check, .am-table .am-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.am-table .am-check input[type=checkbox], .am-table .am-check input[type=radio], .am-table .am-radio input[type=checkbox], .am-table .am-radio input[type=radio] {
+  width: 16px;
+  height: 16px;
+  accent-color: #ffd166;
+  cursor: pointer;
+}
+.am-table .am-check .am-check__label, .am-table .am-check .am-radio__label, .am-table .am-radio .am-check__label, .am-table .am-radio .am-radio__label {
+  font-weight: 800;
+  font-size: 12px;
+  opacity: 0.95;
+}
+
+/* ============================================================
+   Boutons pastilles Bonus/Malus
+   ============================================================ */
+.am-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.am-btns--lg .am-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 13px;
+}
+.am-btns--sm .am-btn {
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+.am-btns--plus .am-btn {
+  background: #2ecc71;
+  color: #0b2f1a;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+.am-btns--minus .am-btn {
+  background: #e74c3c;
+  color: #2b0a08;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.am-btn {
+  appearance: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  font-family: "Orbitron", sans-serif;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+}
+.am-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.am-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset;
+}
+
+/* Spacing responsive léger */
+@media (max-width: 920px) {
+  .am-modal__dialog {
+    width: min(92vw, 720px);
+  }
+  .am-table thead th, .am-table tbody td {
+    padding: 6px 8px;
+  }
+  .am-teamlogo {
+    min-width: 64px;
+  }
+}
 :root {
   /* Layout */
   --header-h: 50px;
@@ -341,6 +609,37 @@ body.cp-body {
   cursor: not-allowed;
   filter: grayscale(0.1);
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 120, 120, 0.15) inset !important;
+}
+
+/* ============================================================
+   Bouton "Bonus/Malus" dans la barre d’actions
+   ============================================================ */
+.cp-adjust-toggle-wrap {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+}
+
+.cp-adjust-open {
+  appearance: none;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+.cp-adjust-open:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.cp-adjust-open:active {
+  transform: translateY(0);
 }
 
 /* ==========================================================================

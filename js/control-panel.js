@@ -679,7 +679,7 @@ function mountPhaseSwitch() {
         el('label', { for: 'cp-start-input', class: 'cp-start-label' }, 'Start')
     );
 
-    // Toggle "Fenêtre Bonus" (doré) + timer
+    // Toggle "Fenêtre Bonus" + timer
     const bonusWrap = el('div', { class: 'cp-bonus-toggle-wrap' },
         el('button', {
             id: 'cp-bonus-toggle',
@@ -691,13 +691,26 @@ function mountPhaseSwitch() {
         el('span', { id: 'cp-bonus-timer', class: 'cp-bonus-timer', 'aria-live': 'polite' }, '')
     );
 
-    center.replaceChildren(group, startWrap, bonusWrap);
+    // Bouton "Bonus/Malus" (ouvre la modale)
+    const adjustWrap = el('div', { class: 'am-adjust-toggle-wrap' },
+        el('button', {
+            id: 'am-adjust-open',
+            class: 'am-adjust-open',
+            type: 'button',
+            'aria-haspopup': 'dialog'
+        }, 'Bonus/Malus')
+    );
 
+    // Injecte les contrôles dans l’ordre: phase switch, Start, Bonus window, Bonus/Malus
+    center.replaceChildren(group, startWrap, bonusWrap, adjustWrap);
+
+    // — Listeners (une seule fois) —
     $('#cp-btn-mk8', group).addEventListener('click', () => setViewPhase('mk8'));
     $('#cp-btn-mkw', group).addEventListener('click', () => setViewPhase('mkw'));
 
     const startInput = $('#cp-start-input', startWrap);
     startInput.addEventListener('change', async (e) => {
+        // Interdit le OFF (uniquement ON)
         if (e.target.checked === false) {
             e.preventDefault();
             updateStartSwitchUI();
@@ -717,7 +730,7 @@ function mountPhaseSwitch() {
         updateStartSwitchUI();
     });
 
-    // Toggle clic
+    // Fenêtre Bonus: toggle lock/unlock
     $('#cp-bonus-toggle', bonusWrap).addEventListener('click', async () => {
         if (!activeTournamentPhase || !activeRaceId) return;
         if (isSurvivalRaceId(activeRaceId)) return;
@@ -735,6 +748,18 @@ function mountPhaseSwitch() {
         updateBonusToggleUI();
     });
 
+    // Ouvre la modale Bonus/Malus
+    $('#am-adjust-open', adjustWrap).addEventListener('click', async () => {
+        try {
+            const mod = await import('./ui/adjustment-modal.js');
+            mod.openAdjustmentsModal();
+        } catch (e) {
+            console.error('[CP] lazy-load adjustment-modal failed:', e);
+            window.openAdjustmentsModal?.();
+        }
+    });
+
+    // Init UI
     mountDevFillButton();
     updatePhaseSwitchUI();
     updateStartSwitchUI();

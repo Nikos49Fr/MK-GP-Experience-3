@@ -3,7 +3,7 @@ import { dbFirestore, dbRealtime } from "./firebase-config.js";
 import {
     collection, getDocs, query, orderBy
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
-import { ref, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+import { ref, onValue, get, goOnline, goOffline } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 /* --------- helpers --------- */
 const grid = document.getElementById("teams-grid");
@@ -122,6 +122,104 @@ function buildTeamNav(teams) {
             target.scrollIntoView({ behavior: "smooth", block: "start" });
         });
     });
+}
+
+/* ============================================================
+   Résilience RTDB (reco/refresh) + logs horodatés
+   ============================================================ */
+const RES = {
+    lastEventAt: Date.now(),
+    unsubConnected: null,
+    watchdogId: null
+};
+
+function nowHHMMSS() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function markEvent() { RES.lastEventAt = Date.now(); }
+
+// Relit le contexte/reveal (et peut recharger Firestore si 'forceFs' = true)
+async function syncNow(reason = "manual", forceFs = false) {
+    try {
+        // RTDB — contexte + reveal
+        const sCtx = await get(ref(dbRealtime, "context/current"));
+        const ctx = sCtx.val() || {};
+        _phase = ctx?.phase || null;
+
+        const sRev = await get(ref(dbRealtime, "context/reveal"));
+        const rv = sRev.val() || {};
+        _reveal = !!rv.enabled;
+
+        // Firestore — si demandé (recharge ponctuelle) ou au premier boot
+        if (forceFs || !_allTeams.length || !_allPilots.length) {
+            const { teams, pilots } = await loadData();
+            _allTeams = teams;
+            _allPilots = pilots;
+        }
+
+        renderGridConditional();
+        console.log(`[home] resync done (${reason}) @ ${nowHHMMSS()}`);
+    } catch (e) {
+        console.warn("[home] syncNow error:", e);
+    }
+}
+
+function setupResilience() {
+    // .info/connected → logs + resync à la reconnexion (avec reload Firestore)
+    try {
+        const infoRef = ref(dbRealtime, ".info/connected");
+        RES.unsubConnected = onValue(infoRef, (snap) => {
+            const isConn = !!snap.val();
+            if (isConn) {
+                console.log(`[home] RTDB connected @ ${nowHHMMSS()}`);
+                markEvent();
+                syncNow("connected", /*forceFs*/ true);
+            } else {
+                console.log(`[home] RTDB disconnected @ ${nowHHMMSS()}`);
+            }
+        });
+    } catch (e) {
+        console.warn("[home] setupResilience .info/connected:", e);
+    }
+
+    // Visibilité → resync léger
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            console.log(`[home] tab visible → resync @ ${nowHHMMSS()}`);
+            syncNow("visible", /*forceFs*/ false);
+        }
+    });
+
+    // Réseau navigateur
+    window.addEventListener("online", () => {
+        console.log(`[home] navigator online → goOnline+resync @ ${nowHHMMSS()}`);
+        try { goOnline(dbRealtime); } catch {}
+        // Quand on revient online, on recharge aussi Firestore une fois
+        syncNow("online", /*forceFs*/ true);
+    });
+    window.addEventListener("offline", () => {
+        console.log(`[home] navigator offline @ ${nowHHMMSS()}`);
+    });
+
+    // Watchdog anti-sommeil (1 min) : si >2 min sans event & onglet visible → cycle connexion + resync léger
+    if (RES.watchdogId) { clearInterval(RES.watchdogId); RES.watchdogId = null; }
+    RES.watchdogId = setInterval(() => {
+        const idleMs = Date.now() - RES.lastEventAt;
+        if (document.visibilityState === "visible" && idleMs > 120000) {
+            console.log(`[home] watchdog: stale ${Math.round(idleMs/1000)}s → cycle conn @ ${nowHHMMSS()}`);
+            try {
+                goOffline(dbRealtime);
+                setTimeout(() => {
+                    try { goOnline(dbRealtime); } catch {}
+                    syncNow("watchdog", /*forceFs*/ false);
+                }, 250);
+            } catch (e) {
+                console.warn("[home] watchdog error:", e);
+            }
+        }
+    }, 60000);
 }
 
 /* --------- state (reveal) --------- */
@@ -264,11 +362,13 @@ function renderGridConditional() {
 
 function subscribeRevealAndPhase() {
     onValue(ref(dbRealtime, "context/current"), (snap) => {
+        markEvent();
         const ctx = snap.val() || {};
         _phase = (ctx.phase || null);
         renderGridConditional();
     });
     onValue(ref(dbRealtime, "context/reveal"), (snap) => {
+        markEvent();
         const v = snap.val() || {};
         _reveal = !!v.enabled;
         renderGridConditional();
@@ -294,6 +394,8 @@ function subscribeRevealAndPhase() {
 
         // écoutes reveal/phase → re-render auto
         subscribeRevealAndPhase();
+        // résilience (détection déco/reco, resync actif, watchdog)
+        setupResilience();
     } catch (err) {
         console.error("[home] Erreur chargement équipes/pilotes:", err);
         grid.innerHTML = `<p style="opacity:.7">Impossible de charger les équipes pour le moment.</p>`;

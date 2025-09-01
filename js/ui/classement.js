@@ -79,8 +79,8 @@ const CFG = {
 
     // 👉 alias pour le moteur de scroll des cellules (pilote/équipe)
     //    (avant on utilisait CFG.gutterPx / CFG.edgePadPx sans les définir)
-    gutterPx: 12,
-    edgePadPx: 12,
+    gutterPx: 2,    // 12
+    edgePadPx: 2,   // 12
 
     // STATE (texte défilant)
     stateStartDelayMs: 3000,

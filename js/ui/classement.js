@@ -168,6 +168,9 @@ const state = {
 
     adjustTotals: new Map(),      // Map<pilotId, number> — somme des ajustements (bonus/malus)
     unsubAdjustments: null,       // unsubscribe live/adjustments/... listener
+
+    hasRemoteViewScope: false,  // true si 'context/classementMode/mode' nous pilote
+
 };
 // ---- Reveal ----
 const PATH_REVEAL = 'context/reveal';
@@ -756,10 +759,16 @@ function subscribeContext() {
     onValue(clModeRef, (snap) => {
         const raw = snap.val();
         const mode = (typeof raw === 'string' ? raw.toLowerCase() : 'indiv');
+
+        // 👇 ce flag indique qu’un contrôleur distant (control-panel, etc.) pilote la vue
+        state.hasRemoteViewScope = true;
+
         // Map : 'indiv' → 'pilot' | 'team' → 'team'
         state.viewScope = (mode === 'team') ? 'team' : 'pilot';
+
         // On ne force plus un mode clé (on laisse l’auto décider messages / 6/8 / 12/24)
         state.viewModeOverride = null;
+
         chooseAndApplyMode();
     });
 }
@@ -1148,6 +1157,19 @@ function collapseBonusColumn(enable) {
             $c.style.margin = '';
         }
     });
+}
+
+function onRevealChanged(enabled) {
+    // subReveal met déjà à jour state.revealEnabled côté callback
+    // Si AUCUN contrôleur distant ne pilote la vue, on auto-bascule :
+    //  - reveal ON  → vue équipe
+    //  - reveal OFF → vue individuel
+    if (!state.hasRemoteViewScope) {
+        state.viewScope = enabled ? 'team' : 'pilot';
+    }
+
+    // Recalcule et rend le bon mode (teams-6/8 vs mk8-12/mkw-24, messages, etc.)
+    chooseAndApplyMode();
 }
 
 // Debug helpers
@@ -1882,9 +1904,8 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     resubscribeBonusChannels();
     // (re)brancher le reveal → re-render immédiat
     if (state.unsubReveal) { try { state.unsubReveal(); } catch(_) {} state.unsubReveal = null; }
-    state.unsubReveal = subReveal(() => {
-        try { chooseAndApplyMode(); } catch(_) {}
-        try { renderList(); } catch(_) {}
+    state.unsubReveal = subReveal((isOn) => {
+        try { onRevealChanged(!!isOn); } catch(_) {}
     });
     // Premier choix
     chooseAndApplyMode();
@@ -1934,9 +1955,8 @@ export function initClassement(container, options = {}) {
             // Brancher aussi le reveal si on boote via la factory
             try { if (state.unsubReveal) { state.unsubReveal(); } } catch (_) {}
             try {
-                state.unsubReveal = subReveal(() => {
-                    try { chooseAndApplyMode(); } catch (_) {}
-                    try { renderList(); } catch (_) {}
+                state.unsubReveal = subReveal((isOn) => {
+                    try { onRevealChanged(!!isOn); } catch(_) {}
                 });
             } catch (err) {
                 console.error('[classement] subReveal (factory):', err);

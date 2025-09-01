@@ -386,8 +386,8 @@ async function renderLeftColumn(team, pilots, phase = null, revealOn = false) {
                 h("span", { class: "pilot-tag" }, p.tag || "")
             )
         );
-        // Watermark agent double (inchangé)
-        if (String(p.traitorMode || "").toLowerCase() === "double") {
+        // ⚠️ Filigrane "Agent double" UNIQUEMENT pendant le reveal
+        if (revealOn && String(p.traitorMode || "").toLowerCase() === "double") {
             card.appendChild(h("div", { class: "pilot-badge pilot-badge--double" }, "Agent double"));
         }
         col.appendChild(card);

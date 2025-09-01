@@ -332,6 +332,7 @@ function renderPilotRow(pilot, adj, juryWinnerId) {
    Ouverture modale
    ============================================================================================ */
 let unsubscribeLive = null;
+let currentJuryWinnerId = null;
 
 export async function openAdjustmentsModal() {
     // Nettoie ancienne modale si ouverte
@@ -350,6 +351,7 @@ export async function openAdjustmentsModal() {
 
     // Ajustements courants
     const { byPilot, juryWinner } = await readAdjustments(phase);
+    currentJuryWinnerId = juryWinner || null;
 
     // Overlay
     const overlay = el("div", { class: "am-modal", role: "dialog", "aria-modal": "true" },
@@ -416,7 +418,60 @@ export async function openAdjustmentsModal() {
         });
     }
 
+    // --- Toggle OFF: re-clic sur le même bouton radio "Jury" désélectionne ---
+    // On mémorise si la radio était cochée au moment du pointerdown…
+    tbody.addEventListener("pointerdown", (ev) => {
+        const rb = ev.target.closest(".am-rb-jury");
+        if (!rb) return;
+        // flag temporaire pour savoir si elle était déjà cochée
+        rb.dataset.wasChecked = rb.checked ? "1" : "";
+    });
+
+    // …et sur click, si elle l’était, on empêche le comportement natif et on nettoie.
+    tbody.addEventListener("click", async (ev) => {
+        const rb = ev.target.closest(".am-rb-jury");
+        if (!rb || rb.dataset.wasChecked !== "1") return;
+
+        ev.preventDefault();
+        ev.stopImmediatePropagation(); // évite que le handler "change" parte aussi
+        rb.dataset.wasChecked = "";
+
+        // Visuel: décocher toutes les radios jury
+        tbody.querySelectorAll(".am-rb-jury").forEach(r => { r.checked = false; });
+
+        try {
+            // RTDB: retirer le vainqueur (juryWinner = null)
+            await setJuryWinner(phase, null);
+
+            // Repeindre le total de l'ancien vainqueur (–5)
+            const prevId = currentJuryWinnerId;
+            currentJuryWinnerId = null;
+            if (prevId) {
+                const trPrev = tbody.querySelector(`tr.am-row[data-pilot-id="${prevId}"]`);
+                if (trPrev) {
+                    const snap = await get(ref(dbRealtime, `live/adjustments/${phase}/pilot/${prevId}`));
+                    const cur = snap.val() || { bonus: 0, malus: 0, cosplay: false, jury: false };
+                    cur.jury = false;
+                    cur.total = computeTotal(cur);
+
+                    const tdTotal = trPrev.querySelector(".am-td--total .am-total");
+                    if (tdTotal) {
+                        const v = Number(cur.total || 0);
+                        tdTotal.textContent = v === 0 ? "0" : (v > 0 ? `+${v}` : `${v}`);
+                        const td = tdTotal.closest(".am-td--total");
+                        td.classList.toggle("is-zero", v === 0);
+                        td.classList.toggle("is-pos", v > 0);
+                        td.classList.toggle("is-neg", v < 0);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("[am] unsetJuryWinner error", e);
+        }
+    });
+
     // Listeners délégués (individuels)
+
     tbody.addEventListener("click", async (ev) => {
         // bouton cliqué ?
         const btn = ev.target.closest(".am-btn");
@@ -482,6 +537,7 @@ export async function openAdjustmentsModal() {
                 // Décocher les autres radios dans le tbody (visuel immédiat)
                 tbody.querySelectorAll(".am-rb-jury").forEach(r => { if (r !== ev.target) r.checked = false; });
                 await setJuryWinner(phase, pilotId);
+                currentJuryWinnerId = pilotId;
                 // La MAJ du total se fera via prochaine lecture ou on pourrait relire pilot pour recalculer
                 // (optionnel) On force un +5 visuel immédiat en lisant la cellule total et en ajustant
                 // Pour simplicité : relire l'item et mettre à jour

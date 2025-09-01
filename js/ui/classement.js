@@ -256,31 +256,51 @@ function totalsWithAdjAllZeroOrEmpty() {
 function renderTagTextInto($tagCell, tag) {
     $tagCell.classList.remove('mode-pilot');
     $tagCell.innerHTML = '';
-    $tagCell.textContent = tag || '';
+    const span = document.createElement('span');
+    span.textContent = tag || '';
+    // teinte par équipe (injectée sur la ligne via --team-c1)
+    span.style.color = 'var(--team-c1)';
+    $tagCell.appendChild(span);
 }
 
-// Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
-function renderPilotNameInto($tagCell, { num, name }) {
-    const safeNum = (num || '').toString();
-    const safeName = (name || '')
-        .toString()
-        .toUpperCase()
-        .replace(/\s+/g, ''); // <-- tous les espaces supprimés
+function renderTeamNameInto($tagCell, teamName) {
+    const safeName = (teamName || '').toString().toUpperCase();
 
-    $tagCell.classList.add('mode-pilot');
-    // Important : le scroller doit être “intrinsèque” et non contraint
+    $tagCell.classList.remove('mode-pilot'); // on s’assure d’un état propre
     $tagCell.innerHTML = `
         <div class="tagcard-scroller" style="
             display:inline-flex;align-items:center;gap:6px;
             will-change: transform;
             transform: translateX(${CFG.gutterPx}px);
             transition: none;
-            flex: 0 0 auto;          /* NE PAS shrinker */
-            width: max-content;       /* largeur intrinsèque */
-            max-width: none;          /* pas de contrainte */
+            flex: 0 0 auto;
+            width: max-content;
+            max-width: none;
+            color: var(--team-c1);
         ">
-            ${safeNum ? `<span class="tagcard-num" style="font-weight:700;">${safeNum}.</span>` : ''}
             <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+        </div>
+    `;
+}
+
+// Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
+function renderPilotNameInto($tagCell, { num, name }) {
+    const safeNum = (num || '').toString();
+    const safeName = (name || '').toString().toUpperCase().replace(/\s+/g, '');
+
+    $tagCell.classList.add('mode-pilot');
+    $tagCell.innerHTML = `
+        <div class="tagcard-scroller" style="
+            display:inline-flex;align-items:center;gap:6px;
+            will-change: transform;
+            transform: translateX(${CFG.gutterPx}px);
+            transition: none;
+            flex: 0 0 auto;
+            width: max-content;
+            max-width: none;
+        ">
+            ${safeNum ? `<span class="tagcard-num" style="font-weight:700;color: var(--team-c1);">${safeNum}.</span>` : ''}
+            <span class="tagcard-name" style="white-space:nowrap;display:inline-block;color: var(--team-c1);">${safeName}</span>
         </div>
     `;
 }
@@ -376,12 +396,33 @@ function effectiveTeamName(pilot) {
     return pilot.teamName || '';
 }
 
-function sumNumbersDeep(node) {
-    if (typeof node === 'number' && Number.isFinite(node)) return node;
-    if (!node || typeof node !== 'object') return 0;
-    let t = 0;
-    for (const v of Object.values(node)) t += sumNumbersDeep(v);
-    return t;
+function teamKeysForPilot(p) {
+    const game = (p.game || '').toLowerCase();
+    const phase = state.phase;
+
+    // Phase MK8 → on crédite toujours l’équipe "classique"
+    if (phase === 'mk8') {
+        return [p.teamName || ''];
+    }
+
+    // Phase MKW
+    if (!state.revealEnabled) {
+        // avant reveal → on crédite l’équipe "classique"
+        return [p.teamName || ''];
+    }
+
+    // Après reveal (MKW)
+    // - Les pilotes MKW → secretTeamName
+    // - Les pilotes MK8 "double" → 2 équipes (teamName + secretTeamName)
+    // - Les pilotes MK8 non double → teamName uniquement
+    if (game === 'mkw') {
+        return [p.secretTeamName || p.teamName || ''];
+    }
+
+    // game === 'mk8'
+    const isDouble = (p.traitorMode === 'double') && p.secretTeamName && p.secretTeamName !== p.teamName;
+    if (isDouble) return [p.teamName || '', p.secretTeamName || ''];
+    return [p.teamName || ''];
 }
 
 // ----------------------
@@ -635,7 +676,14 @@ async function preloadFirestore() {
     const teamsSnap = await getDocs(collection(dbFirestore, 'teams'));
     teamsSnap.forEach(docSnap => {
         const data = docSnap.data() || {};
-        state.teamsByName.set(data.name, { urlLogo: data.urlLogo || '' });
+        state.teamsByName.set(data.name, {
+            urlLogo: data.urlLogo || '',
+            // couleurs si dispo (fallbacks doux)
+            c1: data.color1 || data.c1 || '#ffd43b',
+            c2: data.color2 || data.c2 || '#00b4d8',
+            // tag court si dispo, sinon dérive du nom
+            tag: (data.tag || data.shortTag || (data.name || '').slice(0,3)).toString().toUpperCase()
+        });
     });
 
     const pilotsSnap = await getDocs(collection(dbFirestore, 'pilots'));
@@ -674,7 +722,7 @@ function subscribeContext() {
         updateRaceStateDisplay();
         chooseAndApplyMode();
 
-        // Flux bonus (usage + armements) — dépend de phase/race → relancé à chaque tick
+        // Flux bonus (usage + armements) — dépend de phase/race
         resubscribeBonusChannels();
 
         // Si la phase change → reset + rebrancher totals
@@ -690,25 +738,21 @@ function subscribeContext() {
             resubscribeTotals();
         }
 
-        // ⚠️ IMPORTANT : ajustements (cosplay/jury/manu)
-        // - au premier chargement (si pas encore branché)
-        // - ou à chaque changement de phase
+        // Ajustements (cosplay/jury/manu) — au premier boot ou changement de phase
         if (phaseChanged || !state.unsubAdjustments) {
             resubscribeAdjustments();
         }
     });
 
-    const viewModeRef = ref(dbRealtime, 'context/viewMode');
-    onValue(viewModeRef, (snap) => {
-        const val = snap.val();
-        state.viewModeOverride = val || null;
-        chooseAndApplyMode();
-    });
-
-    const viewScopeRef = ref(dbRealtime, 'context/viewScope');
-    onValue(viewScopeRef, (snap) => {
-        const val = snap.val();
-        state.viewScope = (val === 'team') ? 'team' : 'pilot';
+    // 👇 NOUVEAU : source unique du mode d’affichage (2 valeurs seulement)
+    const clModeRef = ref(dbRealtime, 'context/classementMode/mode');
+    onValue(clModeRef, (snap) => {
+        const raw = snap.val();
+        const mode = (typeof raw === 'string' ? raw.toLowerCase() : 'indiv');
+        // Map : 'indiv' → 'pilot' | 'team' → 'team'
+        state.viewScope = (mode === 'team') ? 'team' : 'pilot';
+        // On ne force plus un mode clé (on laisse l’auto décider messages / 6/8 / 12/24)
+        state.viewModeOverride = null;
         chooseAndApplyMode();
     });
 }
@@ -969,42 +1013,33 @@ function updateRaceStateDisplay() {
 // Sélection du mode
 // ----------------------
 function computeModeKeyAuto() {
+    // 1) État "pas de phase active"
+    if (!state.raceId) {
+        // Quel que soit le mode (indiv/team), pas de course → message "pré tournoi"
+        return 'msg-prestart';
+    }
+
+    // 2) Pas de scores agrégés (totaux + ajustements == 0 partout)
+    if (totalsWithAdjAllZeroOrEmpty()) {
+        return (state.phase === 'mk8') ? 'msg-mk8-noscores' : 'msg-mkw-noscores';
+    }
+
+    // 3) Il y a des scores → on rend selon le scope
     if (state.viewScope === 'team') {
-        return (state.phase === 'mk8') ? 'teams-6' : 'teams-8';
+        if (state.phase === 'mk8') {
+            return 'teams-6';
+        }
+        // MKW → 6 avant reveal, 8 après reveal
+        return state.revealEnabled ? 'teams-8' : 'teams-6';
     }
 
-    if (state.phase === 'mk8') {
-        const rid = state.raceId;
-        if (!rid) {
-            return state.mk8LastFinalized ? 'mk8-12' : 'msg-prestart';
-        }
-        if (totalsWithAdjAllZeroOrEmpty()) {
-            return 'msg-mk8-noscores';
-        }
-        return 'mk8-12';
-    }
-
-    if (state.phase === 'mkw') {
-        const rid = state.raceId;
-        if (!rid) {
-            return state.mkwFinalFinalized ? 'mkw-24' : 'msg-mkw-noscores';
-        }
-        if (totalsWithAdjAllZeroOrEmpty()) {
-            return 'msg-mkw-noscores';
-        }
-        return 'mkw-24';
-    }
-
-    return 'mkw-24';
+    // 4) Scope "pilot"
+    return (state.phase === 'mk8') ? 'mk8-12' : 'mkw-24';
 }
 
 function computeModeKey() {
     if (window.__CL_FORCE_MODE && MODES[window.__CL_FORCE_MODE]) {
         return window.__CL_FORCE_MODE;
-    }
-    const ov = state.viewModeOverride;
-    if (ov && ov !== 'auto' && MODES[ov]) {
-        return ov;
     }
     return computeModeKeyAuto();
 }
@@ -1070,7 +1105,11 @@ function applyMode(modeKey) {
 
     // Sinon: lignes
     renderRowsSkeleton(m.rows);
-    renderList();
+    if (m.type === 'team') {
+        renderTeamList();
+    } else {
+        renderList();
+    }
 }
 
 // Debug helpers
@@ -1118,6 +1157,10 @@ function renderList() {
     if (!$list) return;
 
     const m = MODES[state.modeKey] || MODES['mkw-24'];
+    if (m.type === 'team') {
+        // on délègue au renderer "équipe"
+        return renderTeamList();
+    }
     if (m.type === 'message') return;
 
     // Construire la liste des items
@@ -1186,7 +1229,11 @@ function renderList() {
         }
 
         $row.classList.remove('is-empty');
-
+        // Couleurs d’équipe sur la ligne (pour styliser le nom défilant)
+        const teamShown = effectiveTeamName(state.pilotsById.get(entry.pilotId) || {});
+        const teamConf  = state.teamsByName.get(teamShown) || {};
+        $row.style.setProperty('--team-c1', teamConf.c1 || '#ffd43b');
+        $row.style.setProperty('--team-c2', teamConf.c2 || '#00b4d8');
         $row.dataset.pilotId    = entry.pilotId;
         $row.dataset.pilotName  = entry.name;
         $row.dataset.pilotNum   = entry.num;
@@ -1268,6 +1315,134 @@ function renderList() {
 
     scheduleIndicatorSweep();
     restartSwapCycle();
+}
+
+function renderTeamList() {
+    const $list = document.getElementById('cw-list');
+    if (!$list) return;
+
+    // 1) Aggrégat par équipe à partir des totaux (base + ajustements)
+    const teamAgg = new Map(); // teamName => { name, tag, logo, c1, c2, points }
+
+    state.totals.forEach((basePoints, pilotId) => {
+        const p = state.pilotsById.get(pilotId);
+        if (!p) return;
+
+        // Filtre MK8/MKW selon le mode actif (6 ou 8 équipes → toujours toutes équipes)
+        // On agrège tous les pilotes de la phase (MK8 & MKW) — logique définie par teamKeysForPilot
+        const base = Number(basePoints) || 0;
+        const adj  = Number(state.adjustTotals.get(pilotId) || 0);
+        const eff  = base + adj;
+        if (eff <= 0) return; // optionnel : ignorer 0
+
+        const keys = teamKeysForPilot(p);
+        keys.forEach((teamName) => {
+            if (!teamName) return;
+            if (!teamAgg.has(teamName)) {
+                const t = state.teamsByName.get(teamName) || {};
+                teamAgg.set(teamName, {
+                    name: teamName,
+                    tag: t.tag || teamName.slice(0,3).toUpperCase(),
+                    logo: t.urlLogo ? resolveAssetPath(t.urlLogo) : '',
+                    c1: t.c1 || '#ffd43b',
+                    c2: t.c2 || '#00b4d8',
+                    points: 0
+                });
+            }
+            const obj = teamAgg.get(teamName);
+            obj.points += eff;
+        });
+    });
+
+    // 2) Liste triée
+    const items = Array.from(teamAgg.values());
+    items.sort((a, b) => b.points - a.points);
+
+    // 3) Rendu dans les lignes existantes
+    const rows = $list.children;
+    const rowCount = rows.length;
+
+    for (let i = 0; i < rowCount; i++) {
+        const $row = rows[i];
+        if (!$row) continue;
+
+        const entry = items[i];
+        if (!entry) {
+            $row.classList.add('is-empty');
+            setTeamRow($row, {
+                position: i + 1,
+                logo: '',
+                tag: '',
+                name: '',
+                pointsText: ''
+            });
+            continue;
+        }
+
+        $row.classList.remove('is-empty');
+
+        // Couleurs d’équipe dispo sur la ligne
+        $row.style.setProperty('--team-c1', entry.c1);
+        $row.style.setProperty('--team-c2', entry.c2);
+
+        setTeamRow($row, {
+            position: i + 1,
+            logo: entry.logo,
+            tag: entry.tag,
+            name: entry.name,
+            pointsText: formatPoints(entry.points)
+        });
+    }
+
+    // (ré)initialise le cycle de swap "équipe"
+    restartSwapCycle();
+}
+
+function setTeamRow($row, { position, logo, tag, name, pointsText }) {
+    const $rank  = $row.querySelector('.col-rank');
+    const $team  = $row.querySelector('.col-team .team-logo');
+    const $tagEl = $row.querySelector('.col-tag');
+    const $bonus = $row.querySelector('.col-bonus');
+    const $pts   = $row.querySelector('.col-points');
+
+    if ($rank) {
+        $rank.innerHTML = '';
+        const $num = document.createElement('span');
+        $num.textContent = String(position);
+        $rank.appendChild($num);
+    }
+
+    // Logo d’équipe
+    if ($team) {
+        if (logo) {
+            $team.src = logo;
+            $team.alt = 'Logo équipe';
+            $team.style.visibility = 'visible';
+        } else {
+            $team.removeAttribute('src');
+            $team.alt = '';
+            $team.style.visibility = 'hidden';
+        }
+    }
+
+    // Phase TAG (par défaut) → col-tag = tag ; col-bonus = nom (statique)
+    if ($tagEl) {
+        renderTagTextInto($tagEl, (tag || '').toString().toUpperCase());
+    }
+    if ($bonus) {
+        $bonus.innerHTML = ''; // reset
+        if (name) {
+            const span = document.createElement('span');
+            span.className = 'team-full-name';
+            span.textContent = name;
+            // teinte légère par c1
+            span.style.color = 'var(--team-c1)';
+            $bonus.appendChild(span);
+        }
+    }
+
+    if ($pts) $pts.textContent = pointsText || '';
+    $row.dataset.teamTag = (tag || '').toString().toUpperCase();
 }
 
 function scheduleIndicatorSweep() {
@@ -1368,14 +1543,20 @@ function stopSwapCycle() {
 
 function restartSwapCycle() {
     stopSwapCycle();
-    // Si mode "message", on ne schedule rien
+
     const m = MODES[state.modeKey] || MODES['mkw-24'];
     if (m.type === 'message') return;
-    // Si aucune ligne, on ne schedule pas
+
     const $list = document.getElementById('cw-list');
     if (!$list || !$list.querySelector('.cw-row')) return;
 
-    // Démarre un cycle : attendre TAG puis passer à la fiche pour tout le monde
+    // MODE ÉQUIPE → on alterne TAG ↔ NOM (dans col-tag) + nom statique en col-bonus en phase TAG
+    if (m.type === 'team') {
+        swapCtrl.tNextPilotStart = setTimeout(startTeamNamePhaseAll, CFG.tagStandbyMs);
+        return;
+    }
+
+    // MODE PILOTE (existant)
     swapCtrl.tNextPilotStart = setTimeout(startPilotPhaseAll, CFG.tagStandbyMs);
 }
 
@@ -1540,6 +1721,81 @@ function getActiveRows() {
     return rows;
 }
 
+function startTeamNamePhaseAll() {
+    const rows = getActiveRows();
+    if (rows.length === 0) {
+        restartSwapCycle();
+        return;
+    }
+
+    // 1) col-tag → NOM (scroller), col-bonus → vide
+    rows.forEach(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        const $bnCell  = $row.querySelector('.col-bonus');
+        const name = $bnCell?.querySelector('.team-full-name')?.textContent || '';
+        if ($tagCell) renderTeamNameInto($tagCell, name);
+        if ($bnCell)  $bnCell.innerHTML = '';
+    });
+
+    // 2) mesures d’overflow + lancement synchro (réutilise le moteur existant)
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell);
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    setTimeout(() => {
+        rows.forEach(($row, idx) => {
+            const $tagCell = $row.querySelector('.col-tag');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+        });
+    }, CFG.pilotStartDelayMs);
+
+    // 3) planifier le retour à TAG (avec nom statique en col-bonus)
+    swapCtrl.tStartBackPhase = setTimeout(
+        backToTeamTagAll,
+        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
+    );
+}
+
+function backToTeamTagAll() {
+    swapCtrl.tStartBackPhase = null;
+
+    const rows = getActiveRows();
+    rows.forEach(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        const $bnCell  = $row.querySelector('.col-bonus');
+        const name     = $row.querySelector('.team-full-name')?.textContent || '';
+
+        // col-tag → TAG
+        if ($tagCell) {
+            $tagCell.classList.remove('mode-pilot');
+            // On relit le tag depuis setTeamRow → on le remets via dataset si besoin
+            // (plus simple : on le retrouve dans la cellule rank? Non. Donc on le stocke ci-dessous, voir patch minimal plus bas)
+        }
+
+        // On n’a pas stocké le TAG en dataset, donc on va le reposer depuis la ligne:
+        // → on va stocker le tag lors du setTeamRow (patch ci-dessous)
+        const tag = $row.dataset.teamTag || '';
+        if ($tagCell) $tagCell.textContent = tag;
+
+        // col-bonus → NOM (statique)
+        if ($bnCell) {
+            $bnCell.innerHTML = '';
+            if (name) {
+                const span = document.createElement('span');
+                span.className = 'team-full-name';
+                span.textContent = name;
+                span.style.color = 'var(--team-c1)';
+                $bnCell.appendChild(span);
+            }
+        }
+    });
+
+    // redémarrer un cycle: attendre TAG puis repasser NOM
+    restartSwapCycle();
+}
+
 /**
  * Fait défiler le scroller à gauche (aller) en durée fixe; s’il n’y a pas d’overflow
  * on ne bouge pas mais on attend la même durée (synchro globale).
@@ -1622,7 +1878,6 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
 // - options.forceMode: 'mk8-12' | 'mkw-24' | 'teams-6' | 'teams-8' | 'msg-prestart' | 'msg-mk8-noscores' | 'msg-mkw-noscores'
 // ----------------------------------------------------
 export function initClassement(container, options = {}) {
-    // au tout début d'initClassement(...)
     if (typeof _authReady?.then === 'function') {
         _authReady.then(() => clDebug('auth ready → safe to subscribe'));
     }
@@ -1657,6 +1912,16 @@ export function initClassement(container, options = {}) {
             try { subscribeContext(); } catch (err) { console.error('[classement] subscribeContext:', err); }
             try { subscribeFinals(); } catch (err) { console.error('[classement] subscribeFinals:', err); }
             try { resubscribeTotals(); } catch (err) { console.error('[classement] resubscribeTotals:', err); }
+            // Brancher aussi le reveal si on boote via la factory
+            try { if (state.unsubReveal) { state.unsubReveal(); } } catch (_) {}
+            try {
+                state.unsubReveal = subReveal(() => {
+                    try { chooseAndApplyMode(); } catch (_) {}
+                    try { renderList(); } catch (_) {}
+                });
+            } catch (err) {
+                console.error('[classement] subReveal (factory):', err);
+            }
         }
 
         // 1er rendu

@@ -372,6 +372,34 @@ body.cp-body {
     &:active { transform: translateY(0); }
 }
 
+/* Sélecteur vue Classement */
+.cp-cl-view {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: 12px; // léger espacement après le toggle Bonus
+
+  .cp-switch-btn {
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04);
+    font-weight: 800;
+    letter-spacing: .2px;
+    cursor: pointer;
+    transition: transform .12s ease, filter .12s ease, background .12s ease;
+
+    &:hover { transform: translateY(-1px); filter: brightness(1.05); }
+    &:active { transform: translateY(0); }
+
+    &.is-active {
+      background: rgba(255,255,255,0.14);
+      border-color: rgba(255,255,255,0.25);
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.10) inset;
+    }
+  }
+}
+
 /* ==========================================================================
    3) Main (3 colonnes) : gauche (pilotes) | centre (races) | droite (classement)
    ========================================================================== */

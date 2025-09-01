@@ -217,6 +217,7 @@ function mountRevealToggle() {
    ============================================================ */
 const PATH_CONTEXT = 'context/current';
 const PATH_REVEAL  = 'context/reveal';
+const PATH_CL_MODE = 'context/classementMode'; // 'auto' | 'individual' | 'team'
 
 /* Utilitaire phase */
 const isPhaseMkw = (ctx) => String(ctx?.phase || '').toLowerCase() === 'mkw';
@@ -691,7 +692,27 @@ function mountPhaseSwitch() {
         el('span', { id: 'cp-bonus-timer', class: 'cp-bonus-timer', 'aria-live': 'polite' }, '')
     );
 
-    // Bouton "Bonus/Malus" (ouvre la modale)
+    // === Sélecteur de vue Classement (2 modes : indiv | team)
+    const clGroup = el(
+        'div',
+        { class: 'cp-cl-view', role: 'group', 'aria-label': 'Vue Classement' },
+        el('button', {
+            id: 'cp-cl-ind',
+            class: 'cp-switch-btn',
+            type: 'button',
+            'data-mode': 'indiv',
+            'aria-pressed': 'false'
+        }, 'Indiv'),
+        el('button', {
+            id: 'cp-cl-team',
+            class: 'cp-switch-btn',
+            type: 'button',
+            'data-mode': 'team',
+            'aria-pressed': 'false'
+        }, 'Team')
+    );
+
+    // Bouton "Bonus/Malus" (modale)
     const adjustWrap = el('div', { class: 'am-adjust-toggle-wrap' },
         el('button', {
             id: 'am-adjust-open',
@@ -701,8 +722,8 @@ function mountPhaseSwitch() {
         }, 'Bonus/Malus')
     );
 
-    // Injecte les contrôles dans l’ordre: phase switch, Start, Bonus window, Bonus/Malus
-    center.replaceChildren(group, startWrap, bonusWrap, adjustWrap);
+    // Injecte les contrôles dans l’ordre
+    center.replaceChildren(group, startWrap, bonusWrap, clGroup, adjustWrap);
 
     // — Listeners (une seule fois) —
     $('#cp-btn-mk8', group).addEventListener('click', () => setViewPhase('mk8'));
@@ -710,7 +731,6 @@ function mountPhaseSwitch() {
 
     const startInput = $('#cp-start-input', startWrap);
     startInput.addEventListener('change', async (e) => {
-        // Interdit le OFF (uniquement ON)
         if (e.target.checked === false) {
             e.preventDefault();
             updateStartSwitchUI();
@@ -757,6 +777,45 @@ function mountPhaseSwitch() {
             console.error('[CP] lazy-load adjustment-modal failed:', e);
             window.openAdjustmentsModal?.();
         }
+    });
+
+    // === Wiring RTDB pour le sélecteur de vue Classement ===
+    const paintClMode = (mode) => {
+        const norm = (mode === 'team') ? 'team' : 'indiv';
+        const map = {
+            indiv: document.getElementById('cp-cl-ind'),
+            team:  document.getElementById('cp-cl-team')
+        };
+        Object.entries(map).forEach(([key, btn]) => {
+            if (!btn) return;
+            const active = (key === norm);
+            btn.classList.toggle('is-active', active);
+            btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        });
+    };
+
+    // clics => enregistre le mode dans RTDB (2 valeurs : 'indiv' | 'team')
+    clGroup.addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-mode]');
+        if (!btn) return;
+        const raw = String(btn.dataset.mode || '');
+        const mode = (raw === 'team') ? 'team' : 'indiv';
+        try {
+            await update(ref(dbRealtime, PATH_CL_MODE), { mode });
+        } catch (err) {
+            console.error('[CP] set classement mode failed:', err);
+        }
+    });
+
+    // observe RTDB pour refléter l’état et remonter le widget à chaud
+    onValue(ref(dbRealtime, PATH_CL_MODE), (snap) => {
+        const v = snap.val() || {};
+        const mode = (v.mode === 'team') ? 'team' : 'indiv';
+        paintClMode(mode);
+        // Remonter le widget (pas indispensable, mais on garde la mécanique existante)
+        try {
+            window.__cpClassement?.remountWithMode?.(mode);
+        } catch {}
     });
 
     // Init UI
@@ -1192,6 +1251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 (function integrateClassementIntoControlPanel() {
     const HOST_ID = 'cp-classement-host';
     let api = null;
+    let currentMode = 'indiv'; // 'indiv' | 'team'
 
     function ensureHostInAside() {
         const aside = document.getElementById('cp-leaderboard');
@@ -1206,14 +1266,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         return host;
     }
 
-    async function mountClassementOnce() {
+    async function mountClassementWithMode(mode) {
         const host = ensureHostInAside();
-        if (!host || host.__classementMounted) return;
+        if (!host) return;
+
+        try { api?.destroy?.(); } catch {}
 
         window.__CL_FACTORY_MODE = true;
         const { initClassement } = await import('./ui/classement.js');
-
-        api = initClassement(host, { forceMode: 'auto' });
+        api = initClassement(host); // 👈 aucun forceMode ici
         if (api?.ready) { try { await api.ready; } catch {} }
         host.__classementMounted = true;
     }
@@ -1232,14 +1293,39 @@ document.addEventListener('DOMContentLoaded', async () => {
         tick();
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => whenAsideReady(mountClassementOnce), { once: true });
-    } else {
-        whenAsideReady(mountClassementOnce);
+    async function bootOnce() {
+        // 1) Lire le mode courant puis monter
+        try {
+            const snap = await get(ref(dbRealtime, PATH_CL_MODE));
+            const v = snap.val() || {};
+            currentMode = (v.mode === 'team') ? 'team' : 'indiv';
+        } catch {}
+        await mountClassementWithMode(currentMode);
+
+        // 2) Écouter les changements de mode pour remonter à chaud
+        onValue(ref(dbRealtime, PATH_CL_MODE), async (s) => {
+            const v = s.val() || {};
+            const next = v.mode || 'auto';
+            if (next !== currentMode) {
+                currentMode = next;
+                await mountClassementWithMode(currentMode);
+            }
+        });
     }
 
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => whenAsideReady(bootOnce), { once: true });
+    } else {
+        whenAsideReady(bootOnce);
+    }
+
+    // Expose utilitaires
     window.__cpClassement = {
-        remount: () => { const h = document.getElementById(HOST_ID); if (h) h.__classementMounted = false; return mountClassementOnce(); },
+        remountWithMode: async (mode) => {
+            if (!mode || mode === currentMode) return;
+            currentMode = mode;
+            await mountClassementWithMode(currentMode);
+        },
         destroy: () => { try { api?.destroy?.(); } catch {} }
     };
 })();

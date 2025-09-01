@@ -14,7 +14,7 @@ const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
 // Whitelist des comptes autorisés (ajoute le ou les casters ici)
-const ALLOWED_EMAILS = ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail"];
+const ALLOWED_EMAILS = ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail.com"];
 
 // ---- UI refs ----
 const loginBtn = document.getElementById("login-btn");

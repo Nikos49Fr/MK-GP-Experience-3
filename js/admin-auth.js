@@ -5,7 +5,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
 
 // Ajoute ici les e-mails autorisés à accéder à l'admin
-const ALLOWED_EMAILS = ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail"];
+const ALLOWED_EMAILS = ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail.com"];
 
 const auth = getAuth(app);
 

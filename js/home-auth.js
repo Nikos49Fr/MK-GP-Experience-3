@@ -13,16 +13,34 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
-// Whitelist des comptes autorisés (ajoute le ou les casters ici)
-const ALLOWED_EMAILS = ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail.com"];
+// Whitelist (emails normalisés)
+const ALLOWED_EMAILS = new Set(
+    ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail.com"].map(e => e.trim().toLowerCase())
+);
 
-// ---- UI refs ----
+function isAllowedEmail(email) {
+    if (!email) return false;
+    return ALLOWED_EMAILS.has(String(email).trim().toLowerCase());
+}
+
+// ---- Sélecteurs UI ----
+// Compat : on accepte soit des IDs (#admin-link / #direction-link), soit des data-roles
+function $allAdminLinks() {
+    return [
+        ...document.querySelectorAll('#admin-link, [data-role="link-admin"]'),
+        ...document.querySelectorAll('a[href*="admin.html"][data-nav="admin"]')
+    ];
+}
+function $allDirectionLinks() {
+    return [
+        ...document.querySelectorAll('#direction-link, [data-role="link-control"]'),
+        ...document.querySelectorAll('a[href*="control-panel.html"][data-nav="control"]')
+    ];
+}
 const loginBtn = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
-const adminLink = document.getElementById("admin-link");
-const directionLink = document.getElementById("direction-link");
 
-// Libellés
+// Libellés (fallback)
 if (loginBtn) loginBtn.textContent = "Login";
 if (logoutBtn) logoutBtn.textContent = "Logout";
 
@@ -34,20 +52,26 @@ let signing = false;
 
 // ---- Helpers ----
 async function ensureAnonymousAuth() {
-    // Si personne n'est connecté, on ouvre une session anonyme (zéro UI)
     try {
         if (!auth.currentUser) {
             await signInAnonymously(auth);
+            console.info("[home-auth] opened anonymous session");
         }
     } catch (err) {
-        // Si l'anonymous n'est pas activé, on se contente de ne rien faire.
-        // (Tu l'as activé, donc on ne devrait pas passer ici.)
-        console.warn("[auth] signInAnonymously failed:", err?.code || err);
+        console.warn("[home-auth] signInAnonymously failed:", err?.code || err);
     }
 }
 
 function isAdminOrCaster(user) {
-    return !!user && !!user.email && ALLOWED_EMAILS.includes(user.email);
+    return !!user && !!user.email && isAllowedEmail(user.email);
+}
+
+function setHidden(el, hidden) {
+    if (!el) return;
+    // Attribut HTML
+    el.hidden = !!hidden;
+    // Classe CSS (au cas où le style repose dessus)
+    el.classList.toggle("hidden", !!hidden);
 }
 
 // ---- Actions ----
@@ -55,11 +79,9 @@ async function doLogin() {
     if (signing) return;
     signing = true;
     try {
-        // Essaye en pop-up d’abord
         await signInWithPopup(auth, provider);
         // onAuthStateChanged mettra l'UI à jour
     } catch (e) {
-        // Fallback en redirect si la popup échoue/bloquée
         try {
             await signInWithRedirect(auth, provider);
         } catch {
@@ -74,8 +96,6 @@ async function doLogout() {
         await signOut(auth);
     } finally {
         toggleUiForUser(null);
-        // Après un logout (y compris depuis un compte Google), on rétablit
-        // automatiquement une session anonyme pour garder l'accès en lecture.
         ensureAnonymousAuth();
     }
 }
@@ -87,14 +107,13 @@ getRedirectResult(auth).catch(() => { /* noop */ });
 if (loginBtn) loginBtn.addEventListener("click", doLogin);
 if (logoutBtn) logoutBtn.addEventListener("click", doLogout);
 
-// ---- Réagit aux changements d'état ----
+// ---- Réagit aux changements d'état (source unique de vérité UI) ----
 onAuthStateChanged(auth, (user) => {
     signing = false; // réarme le bouton login
 
-    // Si aucun user -> on bascule en anonyme immédiatement
     if (!user) {
+        // Si aucun user → ouvrir/ancrer une session anonyme (lecture publique)
         ensureAnonymousAuth();
-        // toggle UI quand même (état "non connecté" transitoire)
         toggleUiForUser(null);
         return;
     }
@@ -105,25 +124,31 @@ onAuthStateChanged(auth, (user) => {
 // ---- Mise à jour de l’interface ----
 function toggleUiForUser(user) {
     const isAnon = !!user && user.isAnonymous === true;
+    const email = (user && user.email) ? String(user.email).trim() : null;
     const allowed = isAdminOrCaster(user);
 
-    // Boutons
-    // - Login : visible si non connecté OU si anonyme (pour upgrade Google)
-    // - Logout : visible si connecté avec compte "non anonyme" (ex. Google)
-    if (loginBtn)  loginBtn.hidden = !!user && !isAnon;
-    if (logoutBtn) logoutBtn.hidden = !user || isAnon;
+    console.log("[home-auth] state:",
+        { email, isAnon, allowed, uid: user?.uid || null }
+    );
 
-    // Liens Admin / Direction (seulement pour emails autorisés)
-    if (adminLink)     adminLink.hidden = !allowed;
-    if (directionLink) directionLink.hidden = !allowed;
+    // Boutons
+    if (loginBtn)  setHidden(loginBtn, !!user && !isAnon);
+    if (logoutBtn) setHidden(logoutBtn, !user || isAnon);
+
+    // Liens Admin / Direction (emails autorisés uniquement)
+    const adminLinks = $allAdminLinks();
+    const controlLinks = $allDirectionLinks();
+    adminLinks.forEach(el => setHidden(el, !allowed));
+    controlLinks.forEach(el => setHidden(el, !allowed));
 
     // Persist email (si présent)
     try {
-        if (user && user.email) localStorage.setItem("mk_user_email", user.email);
+        if (email) localStorage.setItem("mk_user_email", email);
         else localStorage.removeItem("mk_user_email");
     } catch {}
 
-    // Classes root (conservées pour compat CSS éventuel)
-    document.documentElement.classList.toggle("is-logged-in", !!user);
+    // Classes root (compat CSS éventuel)
+    document.documentElement.classList.toggle("is-logged-in", !!user && !isAnon);
+    document.documentElement.classList.toggle("is-anon", isAnon);
     document.documentElement.classList.toggle("is-admin", allowed);
 }

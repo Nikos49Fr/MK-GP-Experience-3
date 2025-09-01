@@ -57,8 +57,8 @@
   --track-h: 18px;
   --race-gap: 10px;
   /* Couleurs par défaut (ajuste si besoin) */
-  --bonus-bg: #00b4d8; /* prêt (bleu)     */
-  --bonus-fg: #ffffff;
+  --bonus-bg: #139b49; /* prêt (bleu)     */
+  --bonus-fg: #000000;
   --bonus-bg-armed: #ffd166; /* armé (doré)     */
   --bonus-bg-locked: #6c757d; /* verrouillé (gris) */
   --bonus-bg-used: #7a1f1f; /* utilisé (rouge foncé permanent) */
@@ -71,8 +71,8 @@
    Ajuste librement ces couleurs selon ton thème
    ========================================================================== */
 /* Tuiles */
-/* bleu (moi) */
-/* vert (autres) */
+/* bleu (moi)  00b4d8 */
+/* vert (autres) 4fd65acc */
 /* rouge (conflit me concernant) */
 /* jaune (conflit des autres) */
 /* Conteneur mosaïque */
@@ -641,10 +641,10 @@ body {
   /* Footer réservé pour alerte conflit (placeholder) */
 }
 .active-pilot-card .race-tiles.tiles--all-filled.tiles--ok {
-  background: linear-gradient(180deg, color-mix(in srgb, #2ecc71 18%, transparent), transparent 65%); /* ex: gradient bg ↔︎ vert doux */
+  background: radial-gradient(circle, rgba(79, 214, 90, 0.25) 0%, rgba(59, 150, 66, 0.25) 100%); /* ex: gradient bg ↔︎ vert doux */
 }
 .active-pilot-card .race-tiles.tiles--has-conflict {
-  background: linear-gradient(180deg, color-mix(in srgb, #e74c3c 18%, transparent), transparent 65%); /* ex: gradient bg ↔︎ rouge doux */
+  background: radial-gradient(circle, rgba(231, 76, 60, 0.25) 0%, rgba(133, 45, 36, 0.25) 100%); /* ex: gradient bg ↔︎ rouge doux */
 }
 .active-pilot-card .race-tiles::before {
   content: "Ton classement";
@@ -671,7 +671,7 @@ body {
   aspect-ratio: 1/1; /* carré */
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.18);
-  font-weight: 800;
+  font-weight: 700;
   font-size: clamp(14px, 2.4vw, 18px);
   display: inline-flex;
   align-items: center;
@@ -683,26 +683,31 @@ body {
   color: #0a0a0a;
   /* autre pilote (vert) */
   /* conflit d’autres pilotes (jaune) */
+  /* conflit d’autres pilotes (jaune) */
+  /*&.is-conflict-other {
+      background: $tile-conflict-other-bg;
+      color: $tile-conflict-other-fg;
+      font-weight: 400;
+  }*/
   /* moi (bleu) */
   /* moi en conflit (rouge) — priorité max */
   /* état désactivé (finalized / not allowed) */
   /* états de base — garde ta palette si déjà définie ailleurs */
 }
-.active-pilot-card .race-tiles .race-tile.is-other {
-  background: rgba(79, 214, 90, 0.8);
-  color: #073b10;
-}
-.active-pilot-card .race-tiles .race-tile.is-conflict-other {
-  background: #f5c542;
-  color: #0a0a0a;
+.active-pilot-card .race-tiles .race-tile.is-other, .active-pilot-card .race-tiles .race-tile.is-conflict-other {
+  background: #adb5bd;
+  color: #343a40;
+  font-weight: 400;
 }
 .active-pilot-card .race-tiles .race-tile.is-self {
   background: #00b4d8;
-  color: #ffffff;
+  color: #000000;
+  font-weight: 800;
 }
 .active-pilot-card .race-tiles .race-tile.is-conflict-self {
   background: #e74c3c;
   color: #ffffff;
+  font-weight: 800;
 }
 .active-pilot-card .race-tiles .race-tile:disabled {
   cursor: not-allowed;

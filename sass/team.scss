@@ -34,8 +34,8 @@
     --race-gap: 10px;
 
     /* Couleurs par défaut (ajuste si besoin) */
-    --bonus-bg: #00b4d8;        /* prêt (bleu)     */
-    --bonus-fg: #ffffff;
+    --bonus-bg: #139b49;        /* prêt (bleu)     */
+    --bonus-fg: #000000;
     --bonus-bg-armed: #ffd166;  /* armé (doré)     */
     --bonus-bg-locked: #6c757d; /* verrouillé (gris) */
     --bonus-bg-used: #7a1f1f;   /* utilisé (rouge foncé permanent) */
@@ -51,11 +51,11 @@
 $tile-blank-bg: #ffffff;
 $tile-blank-fg: #0a0a0a;
 
-$tile-self-bg: #00b4d8;         /* bleu (moi) */
-$tile-self-fg: #ffffff;
+$tile-self-bg: #00b4d8;         /* bleu (moi)  00b4d8 */
+$tile-self-fg: #000000;
 
-$tile-other-bg: #4fd65acc;        /* vert (autres) */
-$tile-other-fg: #073b10;
+$tile-other-bg: #adb5bd;        /* vert (autres) 4fd65acc */
+$tile-other-fg: #343a40;
 
 $tile-conflict-self-bg: #e74c3c;    /* rouge (conflit me concernant) */
 $tile-conflict-self-fg: #ffffff;
@@ -72,12 +72,16 @@ $tiles-ok-bg: linear-gradient(
     color-mix(in srgb, #2ecc71 18%, transparent),
     transparent 65%
 );
+// gradient ok écrase le précédent
+$tiles-ok-bg: radial-gradient(circle,rgba(79, 214, 90, 0.25) 0%, rgba(59, 150, 66, 0.25) 100%);
 
 $tiles-conflict-bg: linear-gradient(
     180deg,
     color-mix(in srgb, #e74c3c 18%, transparent),
     transparent 65%
 );
+// gradient conflict écrase le précédent
+$tiles-conflict-bg: radial-gradient(circle,rgba(231, 76, 60, 0.25) 0%, rgba(133, 45, 36, 0.25) 100%);
 
 /* ==========================================================================
    1) Reset / Base
@@ -698,7 +702,7 @@ body {
             aspect-ratio: 1 / 1; /* carré */
             border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.18);
-            font-weight: 800;
+            font-weight: 700;
             font-size: clamp(14px, 2.4vw, 18px);
             display: inline-flex;
             align-items: center;
@@ -710,24 +714,30 @@ body {
             background: $tile-blank-bg;
             color: $tile-blank-fg;
             /* autre pilote (vert) */
-            &.is-other {
+            /* conflit d’autres pilotes (jaune) */
+            &.is-other,
+            &.is-conflict-other {
                 background: $tile-other-bg;
                 color: $tile-other-fg;
+                font-weight: 400;
             }
             /* conflit d’autres pilotes (jaune) */
-            &.is-conflict-other {
+            /*&.is-conflict-other {
                 background: $tile-conflict-other-bg;
                 color: $tile-conflict-other-fg;
-            }
+                font-weight: 400;
+            }*/
             /* moi (bleu) */
             &.is-self {
                 background: $tile-self-bg;
                 color: $tile-self-fg;
+                font-weight: 800;
             }
             /* moi en conflit (rouge) — priorité max */
             &.is-conflict-self {
                 background: $tile-conflict-self-bg;
                 color: $tile-conflict-self-fg;
+                font-weight: 800;
             }
             /* état désactivé (finalized / not allowed) */
             &:disabled {

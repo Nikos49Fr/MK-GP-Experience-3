@@ -452,7 +452,7 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
         const $bonus = h("div", { class: "bonus-bar" },
             h("button", { class: "bonus-btn", type: "button", "data-pilot": p.id },
                 h("span", { class: "bonus-label" }, "Bonus"),
-                h("span", { class: "bonus-badge" }, "x2")
+                //h("span", { class: "bonus-badge" }, "")
             )
         );
         $col.appendChild($bonus);
@@ -469,6 +469,9 @@ function renderActivePilots(team, pilots, phase, allowed, finalized, ranks) {
 function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
     const root = h("div", { class: "race-tiles" });
 
+    // Enregistre la mosaïque + rang initial (sera tenu à jour par updateTilesState)
+    activeTiles.set(pilotId, { rootEl: root, gridSize, lastRank: Number.isFinite(myRank) ? myRank : null });
+
     for (let r = 1; r <= gridSize; r++) {
         const btn = h("button", {
             class: "race-tile is-blank",
@@ -477,12 +480,17 @@ function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
             disabled: finalized || !allowed
         }, String(r));
 
-        // Clic = set/unset rank dans RTDB
+        // Clic = set/unset rank dans RTDB (toggle si on reclic la même tuile)
         btn.addEventListener("click", async () => {
             if (btn.disabled) return;
-            const next = (myRank === r) ? null : r;
+
+            // Récupère le rang courant *à jour* depuis le registre
+            const rec = activeTiles.get(pilotId);
+            const current = Number.isFinite(rec?.lastRank) ? rec.lastRank : null;
+            const next = (current === r) ? null : r;
+
             try {
-                await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), { rank: next });
+                await set(ref(dbRealtime, `live/results/${phase}/current/${pilotId}`), (next == null ? { rank: null } : { rank: next }));
             } catch (e) {
                 console.error("[team] set rank error", e);
             }
@@ -491,8 +499,6 @@ function buildTiles(pilotId, phase, gridSize, myRank, allowed, finalized) {
         root.appendChild(btn);
     }
 
-    // Registre pour mise à jour visuelle via updateTilesState
-    activeTiles.set(pilotId, { rootEl: root, gridSize });
     return root;
 }
 
@@ -559,8 +565,12 @@ function updateTilesState(phase, currentRanks = {}, allowedMap = {}, finalized =
     const isCompleteOk = allFilled && noConflict;
 
     // Parcourt seulement les mosaïques présentes à l'écran
-    activeTiles.forEach(({ rootEl }, pilotId) => {
+    activeTiles.forEach((rec, pilotId) => {
+        const { rootEl } = rec;
         const myRank = Number(currentRanks?.[pilotId]?.rank ?? currentRanks?.[pilotId] ?? null);
+
+        // 🔁 Mémorise le dernier rang connu pour ce pilote (utilisé par le handler de clic)
+        rec.lastRank = Number.isFinite(myRank) ? myRank : null;
 
         // État conteneur
         rootEl.classList.toggle("tiles--all-filled", allFilled);

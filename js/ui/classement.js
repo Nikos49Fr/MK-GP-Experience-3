@@ -61,31 +61,35 @@ const _authReady = (async () => {
 // ----------------------
 const CFG = {
     // swap TAG ↔ FICHE
-    tagStandbyMs: 15000,        // 15000
-    pilotScrollMs: 8000,        // 8000
-    pilotPauseEndMs: 3000,      // 5000
-    pilotBackPauseMs: 3000,     // 5000
-    pilotStartDelayMs: 3000,    // 5000
+    tagStandbyMs: 15000,
+    pilotScrollMs: 8000,
+    pilotPauseEndMs: 3000,
+    pilotBackPauseMs: 3000,
+    pilotStartDelayMs: 3000,
 
-    // marges visuelles du swap
-    stateGutterLeftPx: 20,   // départ plus à droite
-    stateGutterRightPx: 20,   // arrêt à droite plus tôt
-    stateGutterPx: 0,   // si les deux clés ci-dessus sont absentes
-    stateEdgePadPx: 12,  // au lieu de edgePadPx
+    // marges visuelles du scroll (STATE header)
+    stateGutterLeftPx: 20,
+    stateGutterRightPx: 20,
+    stateGutterPx: 0,
+    stateEdgePadPx: 12,
+
+    // 👉 alias pour le moteur de scroll des cellules (pilote/équipe)
+    //    (avant on utilisait CFG.gutterPx / CFG.edgePadPx sans les définir)
+    gutterPx: 12,
+    edgePadPx: 12,
 
     // STATE (texte défilant)
     stateStartDelayMs: 3000,
     stateEndDelayMs: 2000,
     stateDurationMs: 5000,
-    
-    // Indicateur de changement de rang (triangle ↑/↓)
-    // Spécification: 6000ms pour la phase de dev (1 min en prod)
+
+    // Indicateur variation de rang
     changeIndicatorMs: 30000,
 
-    // NEW: debounce pour lisser les mises à jour partielles de totals
+    // Lissage des updates
     totalsDebounceMs: 200,
 
-    // NEW: mode strict — n'activer les triangles que lorsqu'une course passe finalized=true
+    // Triangles stricts seulement si finalized
     indicatorsOnFinalizeOnly: false,
 };
 
@@ -1085,7 +1089,7 @@ function applyMode(modeKey) {
                 <h3>Tournoi Mario Kart 8</h3>
                 <span>🔴 8 courses</span>
                 <p>🏁 Course 1 en cours 🏁</p>
-                <span>⚡ En attente des résultats...⚡</span>
+                <span>⚡ En attente des résultats.⚡</span>
               `
             : `
                 <h2>Mario Kart Grand Prix Expérience</h2>
@@ -1097,14 +1101,20 @@ function applyMode(modeKey) {
                 <span>🔴 6 courses</span>
                 <span>🔴 1 survie finale</span>
                 <p>🏁 Course 1 en cours 🏁</p>
-                <span>⚡ En attente des résultats...⚡</span>
+                <span>⚡ En attente des résultats.⚡</span>
               `
         );
+        // S'assure que le header affiche le bon state aussi en mode message
+        updateRaceStateDisplay();
         return;
     }
 
     // Sinon: lignes
     renderRowsSkeleton(m.rows);
+
+    // 🔁 Ré-applique le state maintenant que le DOM est en place
+    updateRaceStateDisplay();
+
     if (m.type === 'team') {
         renderTeamList();
     } else {
@@ -1425,24 +1435,19 @@ function setTeamRow($row, { position, logo, tag, name, pointsText }) {
         }
     }
 
-    // Phase TAG (par défaut) → col-tag = tag ; col-bonus = nom (statique)
+    // Phase TAG (par défaut) → col-tag = tag ; col-bonus = vide (pas de nom au premier rendu)
     if ($tagEl) {
         renderTagTextInto($tagEl, (tag || '').toString().toUpperCase());
     }
     if ($bonus) {
-        $bonus.innerHTML = ''; // reset
-        if (name) {
-            const span = document.createElement('span');
-            span.className = 'team-full-name';
-            span.textContent = name;
-            // teinte légère par c1
-            span.style.color = 'var(--team-c1)';
-            $bonus.appendChild(span);
-        }
+        $bonus.innerHTML = ''; // pas de nom ici au premier cycle
     }
 
     if ($pts) $pts.textContent = pointsText || '';
+
+    // datasets pour les cycles
     $row.dataset.teamTag = (tag || '').toString().toUpperCase();
+    $row.dataset.teamName = (name || '').toString();
 }
 
 function scheduleIndicatorSweep() {
@@ -1732,12 +1737,12 @@ function startTeamNamePhaseAll() {
     rows.forEach(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
         const $bnCell  = $row.querySelector('.col-bonus');
-        const name = $bnCell?.querySelector('.team-full-name')?.textContent || '';
+        const name = $row.dataset.teamName || '';
         if ($tagCell) renderTeamNameInto($tagCell, name);
         if ($bnCell)  $bnCell.innerHTML = '';
     });
 
-    // 2) mesures d’overflow + lancement synchro (réutilise le moteur existant)
+    // 2) mesures d’overflow + lancement synchro
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
         return getOverflowForCell($tagCell);
@@ -1751,7 +1756,7 @@ function startTeamNamePhaseAll() {
         });
     }, CFG.pilotStartDelayMs);
 
-    // 3) planifier le retour à TAG (avec nom statique en col-bonus)
+    // 3) planifier retour à TAG
     swapCtrl.tStartBackPhase = setTimeout(
         backToTeamTagAll,
         CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
@@ -1765,19 +1770,14 @@ function backToTeamTagAll() {
     rows.forEach(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
         const $bnCell  = $row.querySelector('.col-bonus');
-        const name     = $row.querySelector('.team-full-name')?.textContent || '';
+        const tag      = $row.dataset.teamTag || '';
+        const name     = $row.dataset.teamName || '';
 
-        // col-tag → TAG
+        // col-tag → TAG (en conservant la teinte équipe)
         if ($tagCell) {
             $tagCell.classList.remove('mode-pilot');
-            // On relit le tag depuis setTeamRow → on le remets via dataset si besoin
-            // (plus simple : on le retrouve dans la cellule rank? Non. Donc on le stocke ci-dessous, voir patch minimal plus bas)
+            renderTagTextInto($tagCell, tag);
         }
-
-        // On n’a pas stocké le TAG en dataset, donc on va le reposer depuis la ligne:
-        // → on va stocker le tag lors du setTeamRow (patch ci-dessous)
-        const tag = $row.dataset.teamTag || '';
-        if ($tagCell) $tagCell.textContent = tag;
 
         // col-bonus → NOM (statique)
         if ($bnCell) {
@@ -1792,7 +1792,7 @@ function backToTeamTagAll() {
         }
     });
 
-    // redémarrer un cycle: attendre TAG puis repasser NOM
+    // redémarrer un cycle
     restartSwapCycle();
 }
 

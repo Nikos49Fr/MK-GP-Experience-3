@@ -69,7 +69,7 @@ const CFG = {
     pilotScrollMs: 8000,        // 8000
     pilotStartDelayMs: 10000,    // 3000
     pilotPauseEndMs: 10000,      // 3000
-    pilotBackPauseMs: 10000,     // 3000
+    pilotBackPauseMs: 1000,     // 3000
 
     // marges visuelles du scroll (STATE header)
     stateGutterLeftPx: 20,
@@ -81,6 +81,20 @@ const CFG = {
     //    (avant on utilisait CFG.gutterPx / CFG.edgePadPx sans les définir)
     gutterPx: 0,    // 12
     edgePadPx: 20,   // 12
+
+    // 👉 NOUVEAU : réglages séparés CELLS (individuel vs équipe)
+    // Alignement “au cordeau” :
+    // - gLeft = 0 ⇒ le texte qui défile démarre **aligné** avec les textes statiques.
+    // - edgeRight = marge de sécurité côté droit à la fin du scroll (effet “justify-right”).
+    pilotGutterLeftPx: 0,
+    pilotGutterRightPx: -6,
+    pilotEdgeRightPx: 16,     // ajustable (13–24px typiquement)
+    teamGutterLeftPx: 0,
+    teamGutterRightPx: 10,
+    teamEdgeRightPx: 16,
+
+    // (optionnel) durée dédiée au scroll équipe ; sinon on reprend pilotScrollMs
+    teamScrollMs: null,
 
     // STATE (texte défilant)
     stateStartDelayMs: 3000,
@@ -390,6 +404,30 @@ function setupResilience() {
 // ----------------------
 // Helpers
 // ----------------------
+
+function getModeType() {
+    const m = MODES[state.modeKey] || MODES['mkw-24'];
+    return m.type; // 'pilot' | 'team' | 'message'
+}
+
+function getScrollParams(kind) {
+    const k = kind || getModeType();
+    const isTeam = (k === 'team');
+    const gL = isTeam
+        ? (Number.isFinite(CFG.teamGutterLeftPx)  ? CFG.teamGutterLeftPx  : (CFG.gutterPx || 0))
+        : (Number.isFinite(CFG.pilotGutterLeftPx) ? CFG.pilotGutterLeftPx : (CFG.gutterPx || 0));
+    const gR = isTeam
+        ? (Number.isFinite(CFG.teamGutterRightPx) ? CFG.teamGutterRightPx : 0)
+        : (Number.isFinite(CFG.pilotGutterRightPx)? CFG.pilotGutterRightPx: 0);
+    const eR = isTeam
+        ? (Number.isFinite(CFG.teamEdgeRightPx)   ? CFG.teamEdgeRightPx   : (CFG.edgePadPx || 0))
+        : (Number.isFinite(CFG.pilotEdgeRightPx)  ? CFG.pilotEdgeRightPx  : (CFG.edgePadPx || 0));
+    const durMs = (k === 'team' && Number.isFinite(CFG.teamScrollMs) && CFG.teamScrollMs > 0)
+        ? CFG.teamScrollMs
+        : CFG.pilotScrollMs;
+    return { gL, gR, eR, durMs };
+}
+
 function resolveAssetPath(storedPath) {
     if (!storedPath) return '';
     // Laisser passer les URLs absolues
@@ -473,14 +511,15 @@ function renderTagTextInto($tagCell, tag) {
 }
 
 function renderTeamNameInto($tagCell, teamName) {
+    const { gL } = getScrollParams('team');
     const safeName = (teamName || '').toString().toUpperCase();
 
-    $tagCell.classList.remove('mode-pilot'); // on s’assure d’un état propre
+    $tagCell.classList.remove('mode-pilot');
     $tagCell.innerHTML = `
         <div class="tagcard-scroller" style="
             display:inline-flex;align-items:center;gap:6px;
             will-change: transform;
-            transform: translateX(${CFG.gutterPx}px);
+            transform: translateX(${gL}px);
             transition: none;
             flex: 0 0 auto;
             width: max-content;
@@ -492,8 +531,8 @@ function renderTeamNameInto($tagCell, teamName) {
     `;
 }
 
-// Phase PILOT: scroller "num. NOM" (sans photo ici — la photo est dans .col-team)
 function renderPilotNameInto($tagCell, { num, name }) {
+    const { gL } = getScrollParams('pilot');
     const safeNum = (num || '').toString();
     const safeName = (name || '').toString().toUpperCase().replace(/\s+/g, '');
 
@@ -502,7 +541,7 @@ function renderPilotNameInto($tagCell, { num, name }) {
         <div class="tagcard-scroller" style="
             display:inline-flex;align-items:center;gap:6px;
             will-change: transform;
-            transform: translateX(${CFG.gutterPx}px);
+            transform: translateX(${gL}px);
             transition: none;
             flex: 0 0 auto;
             width: max-content;
@@ -1841,15 +1880,15 @@ function startPilotPhaseAll() {
     // mesurer overflow par ligne sur .col-tag
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
-        return getOverflowForCell($tagCell);
+        return getOverflowForCell($tagCell, 'pilot');
     });
     const maxOverflow = Math.max(...overflows, 0);
 
-    // lancer l'aller après délai global
     setTimeout(() => {
         rows.forEach(($row, idx) => {
             const $tagCell = $row.querySelector('.col-tag');
-            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+            const { durMs } = getScrollParams('pilot');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, durMs, 'pilot');
         });
     }, CFG.pilotStartDelayMs);
 
@@ -1872,58 +1911,26 @@ function startPilotBackPhaseAll() {
 
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
-        return getOverflowForCell($tagCell);
+        return getOverflowForCell($tagCell, 'pilot');
     });
     const maxOverflow = Math.max(...overflows, 0);
 
     rows.forEach(($row, idx) => {
         const $tagCell = $row.querySelector('.col-tag');
-        runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+        const { durMs } = getScrollParams('pilot');
+        runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, durMs, 'pilot');
     });
 }
 
-function getOverflowForCell($tagCell) {
+function getOverflowForCell($tagCell, kind) {
     if (!$tagCell) return 0;
     const scroller = $tagCell.querySelector('.tagcard-scroller');
     if (!scroller) return 0;
 
-    // Largeur visible (moins la gouttière visuelle)
-    const visible = Math.max(0, $tagCell.clientWidth - (CFG.gutterPx * 2));
-
-    // Largeur intrinsèque du scroller (hors contraintes de layout)
+    const { gL, gR } = getScrollParams(kind);
+    const visible = Math.max(0, $tagCell.clientWidth - (gL + gR));
     const full = measureIntrinsicWidth(scroller);
-
     return Math.max(0, full - visible);
-}
-
-function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
-    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
-    if (!scroller) return;
-
-    // Garanties contre le shrink/contraintes
-    scroller.style.flex = '0 0 auto';
-    scroller.style.width = 'max-content';
-    scroller.style.maxWidth = 'none';
-
-    if (overflow <= 0 || maxOverflow <= 0) {
-        scroller.style.transition = 'none';
-        scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
-        return;
-    }
-
-    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
-    const startX = - (overflow - CFG.edgePadPx);
-    const targetX = CFG.gutterPx;
-
-    scroller.style.transition = 'none';
-    scroller.style.transform = `translateX(${startX}px)`;
-
-    void scroller.getBoundingClientRect();
-
-    requestAnimationFrame(() => {
-        scroller.style.transition = `transform ${durationMs}ms linear`;
-        scroller.style.transform = `translateX(${targetX}px)`;
-    });
 }
 
 function backToTagAll() {
@@ -1988,14 +1995,15 @@ function startTeamNamePhaseAll() {
     // 2) mesures d’overflow + lancement synchro
     const overflows = rows.map(($row) => {
         const $tagCell = $row.querySelector('.col-tag');
-        return getOverflowForCell($tagCell);
+        return getOverflowForCell($tagCell, 'team');
     });
     const maxOverflow = Math.max(...overflows, 0);
 
     setTimeout(() => {
         rows.forEach(($row, idx) => {
             const $tagCell = $row.querySelector('.col-tag');
-            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, CFG.pilotScrollMs);
+            const { durMs } = getScrollParams('team');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, durMs, 'team');
         });
     }, CFG.pilotStartDelayMs);
 
@@ -2034,27 +2042,54 @@ function backToTeamTagAll() {
  * Fait défiler le scroller à gauche (aller) en durée fixe; s’il n’y a pas d’overflow
  * on ne bouge pas mais on attend la même durée (synchro globale).
  */
-function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs) {
+function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs, kind) {
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
 
-    // Garanties contre le shrink/contraintes
+    const { gL, eR } = getScrollParams(kind);
+
     scroller.style.flex = '0 0 auto';
     scroller.style.width = 'max-content';
     scroller.style.maxWidth = 'none';
 
-    // Position de départ (gouttière gauche)
+    // Départ aligné visuellement
     scroller.style.transition = 'none';
-    scroller.style.transform = `translateX(${CFG.gutterPx}px)`;
+    scroller.style.transform = `translateX(${gL}px)`;
+
+    if (overflow <= 0 || maxOverflow <= 0) return;
+
+    const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
+    const targetX = gL - overflow - eR; // ← fin "justify-right"
+
+    void scroller.getBoundingClientRect();
+    requestAnimationFrame(() => {
+        scroller.style.transition = `transform ${durationMs}ms linear`;
+        scroller.style.transform = `translateX(${targetX}px)`;
+    });
+}
+
+function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs, kind) {
+    const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
+    if (!scroller) return;
+
+    const { gL, eR } = getScrollParams(kind);
+
+    scroller.style.flex = '0 0 auto';
+    scroller.style.width = 'max-content';
+    scroller.style.maxWidth = 'none';
 
     if (overflow <= 0 || maxOverflow <= 0) {
+        scroller.style.transition = 'none';
+        scroller.style.transform = `translateX(${gL}px)`;
         return;
     }
 
     const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
-    const targetX = - (overflow + CFG.edgePadPx);
+    const startX  = gL - overflow - eR; // même extrémité que l'aller
+    const targetX = gL;
 
-    // Reflow pour fiabiliser l'animation
+    scroller.style.transition = 'none';
+    scroller.style.transform = `translateX(${startX}px)`;
     void scroller.getBoundingClientRect();
 
     requestAnimationFrame(() => {

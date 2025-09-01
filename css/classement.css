@@ -510,7 +510,7 @@
   }
 }
 .cw-row .col-points {
-  padding: 0 6px;
+  padding: 0 4px 0 6px;
   justify-content: flex-end;
   font-family: "Formula1", "Orbitron", sans-serif;
   font-weight: 400;

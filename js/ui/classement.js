@@ -65,11 +65,11 @@ const _authReady = (async () => {
 // ----------------------
 const CFG = {
     // swap TAG ↔ FICHE
-    tagStandbyMs: 15000,
-    pilotScrollMs: 8000,
-    pilotPauseEndMs: 3000,
-    pilotBackPauseMs: 3000,
-    pilotStartDelayMs: 3000,
+    tagStandbyMs: 1000,        // 15000
+    pilotScrollMs: 8000,        // 8000
+    pilotStartDelayMs: 10000,    // 3000
+    pilotPauseEndMs: 10000,      // 3000
+    pilotBackPauseMs: 10000,     // 3000
 
     // marges visuelles du scroll (STATE header)
     stateGutterLeftPx: 20,
@@ -79,8 +79,8 @@ const CFG = {
 
     // 👉 alias pour le moteur de scroll des cellules (pilote/équipe)
     //    (avant on utilisait CFG.gutterPx / CFG.edgePadPx sans les définir)
-    gutterPx: 2,    // 12
-    edgePadPx: 2,   // 12
+    gutterPx: 0,    // 12
+    edgePadPx: 20,   // 12
 
     // STATE (texte défilant)
     stateStartDelayMs: 3000,
@@ -820,7 +820,7 @@ function ensureScaffold($root) {
     $root.appendChild($list);
 }
 
-function buildRowSkeleton(position) {
+function buildRowSkeleton(position, includeBonus = true) {
     const $row = document.createElement('div');
     $row.className = 'cw-row is-empty';
     $row.setAttribute('role', 'listitem');
@@ -840,9 +840,6 @@ function buildRowSkeleton(position) {
     $colTag.className = 'col-tag';
     $colTag.textContent = '';
 
-    const $colBonus = document.createElement('div');
-    $colBonus.className = 'col-bonus';
-
     const $colPts = document.createElement('div');
     $colPts.className = 'col-points';
     $colPts.textContent = '';
@@ -850,13 +847,20 @@ function buildRowSkeleton(position) {
     $row.appendChild($colRank);
     $row.appendChild($colTeam);
     $row.appendChild($colTag);
-    $row.appendChild($colBonus);
+
+    // 👉 Bonus seulement si demandé (i.e. en mode individuel)
+    if (includeBonus) {
+        const $colBonus = document.createElement('div');
+        $colBonus.className = 'col-bonus';
+        $row.appendChild($colBonus);
+    }
+
     $row.appendChild($colPts);
 
     return $row;
 }
 
-function renderRowsSkeleton(rowCount) {
+function renderRowsSkeleton(rowCount, includeBonus = true) {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
 
@@ -864,7 +868,7 @@ function renderRowsSkeleton(rowCount) {
 
     $list.innerHTML = '';
     for (let i = 0; i < rowCount; i++) {
-        $list.appendChild(buildRowSkeleton(i + 1));
+        $list.appendChild(buildRowSkeleton(i + 1, includeBonus));
     }
 }
 
@@ -1284,9 +1288,12 @@ function applyMode(modeKey) {
 
     // Nettoie anciennes classes
     Object.values(MODES).forEach(m => $host.classList.remove(m.className));
+    // Nettoie les flags de type (pilot/team/message)
+    $host.classList.remove('is-team', 'is-pilot', 'is-message');
 
     const m = MODES[modeKey] || MODES['mkw-24'];
     $host.classList.add(m.className);
+    $host.classList.add(`is-${m.type}`);
     state.modeKey = modeKey;
 
     if (m.type === 'message') {
@@ -1329,44 +1336,20 @@ function applyMode(modeKey) {
               `
         );
         updateRaceStateDisplay();
-        collapseBonusColumn(false); // messages → layout normal
         return;
     }
 
-    // Lignes
-    renderRowsSkeleton(m.rows);
+    // Lignes — ⬅️ includeBonus = false en mode équipe
+    renderRowsSkeleton(m.rows, m.type !== 'team');
 
     // Ré-applique le state dès que le DOM est prêt
     updateRaceStateDisplay();
-
-    // NEW: compacter la colonne bonus en mode Équipe
-    collapseBonusColumn(m.type === 'team');
 
     if (m.type === 'team') {
         renderTeamList();
     } else {
         renderList();
     }
-}
-
-function collapseBonusColumn(enable) {
-    const $host = document.querySelector('.classement-widget');
-    if (!$host) return;
-    const $cells = $host.querySelectorAll('.col-bonus');
-    $cells.forEach(($c) => {
-        if (enable) {
-            $c.style.flex = '0 0 0px';
-            $c.style.width = '0';
-            $c.style.padding = '0';
-            $c.style.margin = '0';
-            $c.textContent = ''; // sécurité: aucun contenu résiduel
-        } else {
-            $c.style.flex = '';
-            $c.style.width = '';
-            $c.style.padding = '';
-            $c.style.margin = '';
-        }
-    });
 }
 
 function onRevealChanged(enabled) {

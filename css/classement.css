@@ -345,6 +345,21 @@
   overflow: hidden;
   /* Icône bonus : taille/centrage, hover désactivé */
 }
+.cw-row > .col-rank {
+  grid-column: 1;
+}
+.cw-row > .col-team {
+  grid-column: 2;
+}
+.cw-row > .col-tag {
+  grid-column: 3;
+}
+.cw-row > .col-bonus {
+  grid-column: 4;
+}
+.cw-row > .col-points {
+  grid-column: 5;
+}
 .cw-row .col-rank {
   background: rgba(12, 6, 22, 0.95);
   height: 100%;
@@ -514,4 +529,29 @@
 .cw-row.is-empty .col-team .team-logo {
   opacity: 0.3;
   filter: grayscale(100%);
+}
+
+/* ============================================================
+   Mode ÉQUIPE : supprimer visuellement la colonne Bonus
+   - La grille reste sur 5 colonnes (points reste en 5)
+   - .col-tag occupe 3 + 4 → récupère la largeur de "bonus"
+   ============================================================ */
+.classement-widget.is-team .cw-row {
+  /* 1) Bonus compressé à 0 → pas de décalage de col-points */
+  grid-template-columns: 36px 30px 1fr 0 60px;
+}
+
+.classement-widget.is-team .cw-row > .col-tag {
+  /* 2) Tag s’étend sur les colonnes 3 et 4 (prend la place de bonus) */
+  grid-column: 3/5;
+}
+
+/* (sécurité) si .col-bonus existe encore dans le DOM, on le cache */
+.classement-widget.is-team .cw-row > .col-bonus {
+  display: none !important;
+}
+
+/* (rappel) points reste bien en 5 */
+.classement-widget.is-team .cw-row > .col-points {
+  grid-column: 5;
 }/*# sourceMappingURL=classement.css.map */

@@ -12,7 +12,8 @@
 
 import { dbRealtime, dbFirestore, ensureAuthPrefersExisting, traceAuthState  } from './firebase-config.js';
 import {
-    ref, onValue, off, get, set, update, remove
+    ref, onValue, off, get, set, update, remove,
+    goOnline, goOffline
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
 import {
@@ -66,6 +67,7 @@ function mountDevFillButton() {
     // Etat actif/inactif en fonction du contexte
     const ctxRef = ref(dbRealtime, PATH_CONTEXT);
     const onCtx = (snap) => {
+        markEvent();
         const ctx = snap.val() || {};
         const hasPhase = !!ctx.phase;
         const hasRace  = !!ctx.raceId;
@@ -200,12 +202,14 @@ function mountRevealToggle() {
 
     // Sync contexte (phase/race) → influe la disable/tooltip
     onValue(ref(dbRealtime, PATH_CONTEXT), (snap) => {
+        markEvent();
         ctx = snap.val() || null;
         paint();
     });
 
     // Sync reveal (état global)
     onValue(ref(dbRealtime, PATH_REVEAL), (snap) => {
+        markEvent();
         const v = snap.val() || {};
         revealEnabled = !!v.enabled;
         paint();
@@ -218,6 +222,113 @@ function mountRevealToggle() {
 const PATH_CONTEXT = 'context/current';
 const PATH_REVEAL  = 'context/reveal';
 const PATH_CL_MODE = 'context/classementMode'; // 'auto' | 'individual' | 'team'
+
+/* ============================================================
+   Résilience RTDB (reco/refresh) + logs horodatés
+   ============================================================ */
+const RES = {
+    lastEventAt: Date.now(),
+    unsubConnected: null,
+    watchdogId: null
+};
+
+function nowHHMMSS() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+function markEvent() {
+    RES.lastEventAt = Date.now();
+}
+
+async function syncNow(reason = 'manual') {
+    try {
+        // 1) Contexte
+        const sCtx = await get(ref(dbRealtime, PATH_CONTEXT));
+        lastContext = sCtx.val() || {};
+        const phase = (lastContext.phase || 'mk8').toLowerCase();
+        const raceId = lastContext.raceId != null && lastContext.raceId !== '' ? String(lastContext.raceId).toUpperCase() : null;
+
+        activeTournamentPhase = phase;
+        activeRaceId = raceId;
+        if (!viewPhase) viewPhase = phase;
+
+        updatePhaseSwitchUI();
+        updateStartSwitchUI();
+        updateBonusToggleUI();
+
+        // 2) Reveal
+        const sRev = await get(ref(dbRealtime, PATH_REVEAL));
+        revealState = sRev.val() || { enabled: false };
+
+        // 3) Rebrancher les écouteurs
+        ensureCurrentResultsListener(activeTournamentPhase);
+        ensurePhaseViewListeners(viewPhase);
+
+        // 4) Rafraîchir UI
+        try { await window.__reloadPilotsForView?.(); } catch {}
+        try { window.__cpRaceStrip?.api?.()?.setPhaseView?.(viewPhase || phase || 'mk8'); } catch {}
+
+        console.log(`[cp] resync done (${reason}) @ ${nowHHMMSS()}`);
+    } catch (e) {
+        console.warn('[cp] syncNow error:', e);
+    }
+}
+
+function setupResilience() {
+    // .info/connected → logs + resync à la reconnexion
+    try {
+        const infoRef = ref(dbRealtime, '.info/connected');
+        RES.unsubConnected = onValue(infoRef, (snap) => {
+            const isConn = !!snap.val();
+            if (isConn) {
+                console.log(`[cp] RTDB connected @ ${nowHHMMSS()}`);
+                markEvent();
+                syncNow('connected');
+            } else {
+                console.log(`[cp] RTDB disconnected @ ${nowHHMMSS()}`);
+            }
+        });
+    } catch (e) {
+        console.warn('[cp] setupResilience .info/connected:', e);
+    }
+
+    // Visibilité → si on revient visible, resync
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            console.log(`[cp] tab visible → resync @ ${nowHHMMSS()}`);
+            syncNow('visible');
+        }
+    });
+
+    // Réseau navigateur
+    window.addEventListener('online', () => {
+        console.log(`[cp] navigator online → goOnline+resync @ ${nowHHMMSS()}`);
+        try { goOnline(dbRealtime); } catch(_) {}
+        syncNow('online');
+    });
+    window.addEventListener('offline', () => {
+        console.log(`[cp] navigator offline @ ${nowHHMMSS()}`);
+    });
+
+    // Watchdog anti-sommeil (1 min) : si >2 min sans event & onglet visible → cycle connexion + resync
+    if (RES.watchdogId) { clearInterval(RES.watchdogId); RES.watchdogId = null; }
+    RES.watchdogId = setInterval(() => {
+        const idleMs = Date.now() - RES.lastEventAt;
+        if (document.visibilityState === 'visible' && idleMs > 120000) {
+            console.log(`[cp] watchdog: stale ${Math.round(idleMs/1000)}s → cycle conn @ ${nowHHMMSS()}`);
+            try {
+                goOffline(dbRealtime);
+                setTimeout(() => {
+                    try { goOnline(dbRealtime); } catch(_) {}
+                    syncNow('watchdog');
+                }, 250);
+            } catch (e) {
+                console.warn('[cp] watchdog error:', e);
+            }
+        }
+    }, 60000);
+}
 
 /* Utilitaire phase */
 const isPhaseMkw = (ctx) => String(ctx?.phase || '').toLowerCase() === 'mkw';
@@ -448,6 +559,7 @@ function attachContextListener() {
 
     const ctxRef = ref(dbRealtime, PATH_CONTEXT);
     const cb = (snap) => {
+        markEvent();
         const ctx = snap.val() || {};
 
         // Mémoriser l'état précédent pour savoir si on doit "suivre" l'avancée
@@ -536,6 +648,7 @@ function ensureCurrentResultsListener(phase) {
     }
     const r = ref(dbRealtime, `live/results/${phase}/current`);
     const cb = (s) => {
+        markEvent();
         currentResultsByPhase[phase] = s.val() || {};
         if (viewPhase === phase) {
             refreshPilotListView();
@@ -559,6 +672,7 @@ function ensurePhaseViewListeners(phase) {
     }
     const racesRef = ref(dbRealtime, `live/races/${phase}`);
     const racesCb = (snap) => {
+        markEvent();
         const raw = snap.val() || {};
         // 🔧 Normalisation stricte en objet { finalized: boolean }
         const normalized = {};
@@ -591,6 +705,7 @@ function ensurePhaseViewListeners(phase) {
     }
     const byRaceRef = ref(dbRealtime, `live/results/${phase}/byRace`);
     const byRaceCb = (snap) => {
+        markEvent();
         byRaceResultsByPhase[phase] = snap.val() || {};
         refreshPilotListView();
         updateStartSwitchUI();
@@ -1000,6 +1115,7 @@ function mountPilotsPanelSection() {
 
     // RTDB context
     onValue(ref(dbRealtime, PATH_CONTEXT), async (snap) => {
+        markEvent();
         try {
             lastContext = snap.val() || {};
             const ctxPhase = lastContext?.phase ? String(lastContext.phase).toLowerCase() : null;
@@ -1243,6 +1359,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     mountPilotsPanelSection();
     attachContextListener();
     attachRevealListener();
+
+    // Noyau de résilience (détection déco/reco, resync actif, watchdog)
+    setupResilience();
 });
 
 /* ============================================================

@@ -24,7 +24,7 @@ import {
     collection, getDocs, query, where, limit
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 import {
-    ref, onValue, set, get
+    ref, onValue, set, get, goOnline, goOffline
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
 
 // Race-strip (viewer)
@@ -725,6 +725,171 @@ function subBonusUsage(phase, cb) {
         let finalRanksByPilot = {};   // { pilotId: 1..N }
         let unTotals = null;          // unsub listener des totaux de la phase
         let initFreezeKnown = true;   // au boot: true (sera remis à false lors d’un changement de phase/course)
+
+        // ============================================================
+        // Résilience RTDB (reco/refresh) + logs horodatés
+        // ============================================================
+        const RES = {
+            lastEventAt: Date.now(),
+            unsubConnected: null,
+            watchdogId: null
+        };
+
+        function nowHHMMSS() {
+            const d = new Date();
+            const pad = (n) => String(n).padStart(2, "0");
+            return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        }
+        function markEvent() { RES.lastEventAt = Date.now(); }
+
+        async function syncNow(reason = "manual") {
+            try {
+                // 1) Contexte
+                const sCtx = await get(ref(dbRealtime, "context/current"));
+                const ctx = sCtx.val() || {};
+                const nextPhase  = (String(ctx.phase || "mk8").toLowerCase() === "mkw") ? "mkw" : "mk8";
+                const nextRaceId = ctx.raceId != null && ctx.raceId !== "" ? String(ctx.raceId).toUpperCase() : null;
+
+                const phaseChanged = (phase !== nextPhase);
+                const raceChanged  = (raceId !== nextRaceId);
+
+                phase  = nextPhase;
+                raceId = nextRaceId;
+
+                // 2) Reveal
+                const sRev = await get(ref(dbRealtime, "context/reveal"));
+                const rv = sRev.val() || {};
+                const revealNow = !!rv.enabled;
+                if (revealEnabled !== revealNow) revealEnabled = revealNow;
+
+                // 3) Déterminer gel fin de phase
+                initFreezeKnown = false;
+                try {
+                    const sR = await get(ref(dbRealtime, `live/races/${phase}`));
+                    const racesObj = sR.val() || {};
+                    const lastKey = (phase === "mk8") ? "8" : "SF";
+                    freezeCenter = !!(racesObj?.[lastKey]?.finalized);
+                } catch {} finally {
+                    initFreezeKnown = true;
+                }
+
+                // 4) Relancer les souscriptions phase-dépendantes si besoin
+                if (phaseChanged || raceChanged) resubPhaseDeps();
+
+                // 5) Snaps clés pour l’état courant (évite d’attendre des events)
+                const [sAllowed, sCurrent, sUsage, sByRace] = await Promise.all([
+                    get(ref(dbRealtime, `meta/pilotsAllowed/${phase}`)),
+                    get(ref(dbRealtime, `live/results/${phase}/current`)),
+                    get(ref(dbRealtime, `live/results/${phase}/bonusUsage`)),
+                    raceId ? get(ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`)) : Promise.resolve({ val:()=>null })
+                ]);
+
+                allowed = sAllowed.val() || {};
+                ranks   = sCurrent.val() || {};
+                bonusUsage = sUsage.val() || {};
+                {
+                    const br = (typeof sByRace.val === "function") ? (sByRace.val() || {}) : {};
+                    doublesLocked = !!br?.doublesLocked;
+                    const dset = new Set();
+                    const doublesObj = br?.doubles || {};
+                    Object.keys(doublesObj).forEach(pid => { if (doublesObj[pid] === true) dset.add(pid); });
+                    doubles = Object.fromEntries(Array.from(dset).map(x => [x, true]));
+                }
+
+                // 6) Rendu (gauche + centre)
+                renderLeftColumn(team, pilots, phase, /* revealOn */ (phase === "mkw" && revealEnabled));
+                syncActivePilotCardHeight();
+                if (freezeCenter) {
+                    // Totaux → rangs finaux
+                    try {
+                        const st = await get(ref(dbRealtime, `live/points/${phase}/byRace`));
+                        const root = st.val() || {};
+                        const totals = new Map();
+                        for (const perRace of Object.values(root)) {
+                            if (!perRace || typeof perRace !== "object") continue;
+                            for (const [pid, obj] of Object.entries(perRace)) {
+                                const pts = Number(obj?.final ?? 0);
+                                if (!Number.isFinite(pts)) continue;
+                                totals.set(pid, (totals.get(pid) || 0) + pts);
+                            }
+                        }
+                        const sorted = Array.from(totals.entries())
+                            .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
+                        const rankMap = {};
+                        let pos = 1; for (const [pid] of sorted) rankMap[pid] = pos++;
+                        finalRanksByPilot = rankMap;
+                    } catch {}
+                    renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
+                    updateInfoBanner(null, null, true);
+                } else {
+                    renderCenterForPhase(team, pilots, phase, allowed, /*finalized*/ false, ranks, revealEnabled);
+                    wireBonusButtons(phase, raceId, allowed, doublesLocked, doubles);
+                    updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
+                    updateInfoBanner(phase, raceId, doublesLocked);
+                    updateTilesState(phase, ranks, allowed, /*finalized*/ false);
+                }
+
+                console.log(`[team] resync done (${reason}) @ ${nowHHMMSS()}`);
+            } catch (e) {
+                console.warn("[team] syncNow error:", e);
+            }
+        }
+
+        function setupResilience() {
+            // .info/connected → logs + resync à la reconnexion
+            try {
+                const infoRef = ref(dbRealtime, ".info/connected");
+                RES.unsubConnected = onValue(infoRef, (snap) => {
+                    const isConn = !!snap.val();
+                    if (isConn) {
+                        console.log(`[team] RTDB connected @ ${nowHHMMSS()}`);
+                        markEvent();
+                        syncNow("connected");
+                    } else {
+                        console.log(`[team] RTDB disconnected @ ${nowHHMMSS()}`);
+                    }
+                });
+            } catch (e) {
+                console.warn("[team] setupResilience .info/connected:", e);
+            }
+
+            // Visibilité → resync au retour visible
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "visible") {
+                    console.log(`[team] tab visible → resync @ ${nowHHMMSS()}`);
+                    syncNow("visible");
+                }
+            });
+
+            // Réseau navigateur
+            window.addEventListener("online", () => {
+                console.log(`[team] navigator online → goOnline+resync @ ${nowHHMMSS()}`);
+                try { goOnline(dbRealtime); } catch {}
+                syncNow("online");
+            });
+            window.addEventListener("offline", () => {
+                console.log(`[team] navigator offline @ ${nowHHMMSS()}`);
+            });
+
+            // Watchdog anti-sommeil (1 min) : si >2 min sans event & onglet visible → cycle connexion + resync
+            if (RES.watchdogId) { clearInterval(RES.watchdogId); RES.watchdogId = null; }
+            RES.watchdogId = setInterval(() => {
+                const idleMs = Date.now() - RES.lastEventAt;
+                if (document.visibilityState === "visible" && idleMs > 120000) {
+                    console.log(`[team] watchdog: stale ${Math.round(idleMs/1000)}s → cycle conn @ ${nowHHMMSS()}`);
+                    try {
+                        goOffline(dbRealtime);
+                        setTimeout(() => {
+                            try { goOnline(dbRealtime); } catch {}
+                            syncNow("watchdog");
+                        }, 250);
+                    } catch (e) {
+                        console.warn("[team] watchdog error:", e);
+                    }
+                }
+            }, 60000);
+        }
+
         function isLastRaceOfPhase(p, rid) {
             const ph = String(p || '').toLowerCase();
             const r  = String(rid || '').toUpperCase();
@@ -748,6 +913,7 @@ function subBonusUsage(phase, cb) {
             if (!phase) return;
 
             unAllowed = subAllowed(phase, (v) => {
+                markEvent();
                 allowed = v || {};
 
                 // Tant que l’on ne sait pas si on doit geler, ne pas rendre.
@@ -771,6 +937,7 @@ function subBonusUsage(phase, cb) {
             });
 
             unCurrent = subCurrent(phase, (v) => {
+                markEvent();
                 // Tolère {pilotId:n} et {pilotId:{rank:n}}
                 ranks = v || {};
                 updateTilesState(phase, ranks, allowed, finalized);
@@ -778,6 +945,7 @@ function subBonusUsage(phase, cb) {
 
             if (raceId) {
                 unFinalized = subFinalized(phase, raceId, (v) => {
+                    markEvent();
                     finalized = !!v;
 
                     // Mises à jour visuelles de base (n’affectent pas la structure centrale)
@@ -796,6 +964,7 @@ function subBonusUsage(phase, cb) {
                 });
 
                 unByRace = subByRace(phase, raceId, (v) => {
+                    markEvent();
                     doublesLocked = !!v?.doublesLocked;
                     doubles = v?.doubles || {};
 
@@ -814,12 +983,14 @@ function subBonusUsage(phase, cb) {
             }
 
             unUsage = subBonusUsage(phase, (v) => {
+                markEvent();
                 bonusUsage = v || {};
                 updateBonusButtonsUI(phase, raceId, allowed, bonusUsage, doublesLocked, doubles);
             });
 
             // Reveal (global) → influe uniquement sur le centre en MKW
             subReveal((en) => {
+                markEvent();
                 revealEnabled = !!en;
                 // adapte le nombre de colonnes au cas où
                 applyPilotGridColumns(phase || "mk8", revealEnabled && phase === "mkw");
@@ -831,6 +1002,7 @@ function subBonusUsage(phase, cb) {
 
             // ⬇️ NOUVEAU : agrégation des points de phase -> rangs finaux
             unTotals = onValue(ref(dbRealtime, `live/points/${phase}/byRace`), (snap) => {
+                markEvent();
                 const root = snap.val() || {};
 
                 // Somme des points "final" par pilote
@@ -862,6 +1034,7 @@ function subBonusUsage(phase, cb) {
 
         // Contexte global
         subContext((ctx) => {
+            markEvent();
             // Aucun contexte actif → reset complet
             if (!ctx || !ctx.phase) {
                 freezeCenter = false;
@@ -942,6 +1115,8 @@ function subBonusUsage(phase, cb) {
             fitLeftColumnForSixCards();
             syncActivePilotCardHeight();
         });
+        // Noyau de résilience (détection déco/reco, resync actif, watchdog)
+        setupResilience();
 
     } catch (err) {
         console.error("[team] init error:", err);

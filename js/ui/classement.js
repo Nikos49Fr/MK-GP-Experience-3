@@ -14,7 +14,11 @@ import {
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js';
 import {
     ref,
-    onValue
+    onValue,
+    get,
+    child,
+    goOnline,
+    goOffline
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
 
 // ---- DEBUG overlay classement ----
@@ -183,6 +187,204 @@ function subReveal(onChange) {
         state.revealEnabled = !!v.enabled;
         if (typeof onChange === 'function') onChange(state.revealEnabled);
     });
+}
+
+// ----------------------
+// Résilience RTDB (reco/refresh) + logs horodatés
+// ----------------------
+const RES = {
+    lastEventAt: Date.now(),
+    unsubConnected: null,
+    watchdogId: null
+};
+
+function nowHHMMSS() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function markEvent() {
+    RES.lastEventAt = Date.now();
+}
+
+async function syncNow(reason = 'manual') {
+    try {
+        // 1) Contexte courant (phase/race)
+        const snapCtx = await get(ref(dbRealtime, 'context/current'));
+        if (snapCtx.exists()) {
+            const v = snapCtx.val() || {};
+            const phase = (v.phase || 'mk8').toString().toLowerCase();
+            const raceId = v.raceId || null;
+            const phaseChanged = phase !== state.phase;
+
+            state.phase = phase;
+            state.raceId = raceId;
+
+            updateRaceStateDisplay();
+
+            // Flux bonus dépend du contexte
+            resubscribeBonusChannels();
+
+            if (phaseChanged) {
+                state.lastOrderKey = null;
+                state.lastRanksSnapshot.clear();
+                state.indicatorUntil.clear();
+                state.lastDeltaDir.clear();
+                if (state.indicatorSweepTimer) { clearTimeout(state.indicatorSweepTimer); state.indicatorSweepTimer = null; }
+                resubscribeTotals();
+                resubscribeAdjustments();
+            }
+            chooseAndApplyMode();
+        }
+
+        // 2) Override INDIV/TEAM
+        const snapMode = await get(ref(dbRealtime, 'context/classementMode/mode'));
+        if (snapMode.exists()) {
+            const raw = snapMode.val();
+            const mode = (typeof raw === 'string' ? raw.toLowerCase() : 'indiv');
+            state.hasRemoteViewScope = true;
+            state.viewScope = (mode === 'team') ? 'team' : 'pilot';
+            state.viewModeOverride = null;
+            chooseAndApplyMode();
+        }
+
+        // 3) Reveal
+        const snapReveal = await get(ref(dbRealtime, 'context/reveal'));
+        const rv = snapReveal.val() || {};
+        const enabled = !!rv.enabled;
+        if (state.revealEnabled !== enabled) {
+            state.revealEnabled = enabled;
+            onRevealChanged(enabled);
+        }
+
+        // 4) Totaux + tie-breaks (phase courante)
+        if (state.phase) {
+            const totalsRef = ref(dbRealtime, `live/points/${state.phase}/totals`);
+            const st = await get(totalsRef);
+            const obj = st.val() || {};
+            state.totals.clear();
+            Object.entries(obj).forEach(([pid, pts]) => state.totals.set(pid, Number(pts) || 0));
+
+            const br = await get(ref(dbRealtime, `live/points/${state.phase}/byRace`));
+            state.byRaceSnapshot = br.val() || {};
+            recomputeTieBreaks();
+        }
+
+        // 5) Finals (mk8/mkw)
+        const f8 = await get(ref(dbRealtime, 'live/races/mk8'));
+        const d8 = f8.val() || {};
+        state.mk8LastFinalized = Boolean(d8['8'] && d8['8'].finalized);
+        state.mk8FinalizedRaceIds = new Set(
+            Object.entries(d8).filter(([rid, v]) => v && v.finalized).map(([rid]) => rid)
+        );
+
+        const fw = await get(ref(dbRealtime, 'live/races/mkw'));
+        const dw = fw.val() || {};
+        state.mkwFinalFinalized = Boolean(dw['SF'] && dw['SF'].finalized);
+        state.mkwFinalizedRaceIds = new Set(
+            Object.entries(dw).filter(([rid, v]) => v && v.finalized).map(([rid]) => rid)
+        );
+
+        // 6) Ajustements
+        if (state.phase) {
+            const adj = await get(ref(dbRealtime, `live/adjustments/${state.phase}/pilot`));
+            const ao = adj.val() || {};
+            state.adjustTotals.clear();
+            for (const [pid, v] of Object.entries(ao)) {
+                if (v && typeof v === 'object') {
+                    const t = (v.total != null) ? Number(v.total) : 0;
+                    if (t !== 0 && Number.isFinite(t)) state.adjustTotals.set(pid, t);
+                }
+            }
+        }
+
+        // 7) Bonus (usage + doubles de la course en cours)
+        if (state.phase) {
+            const bu = await get(ref(dbRealtime, `live/results/${state.phase}/bonusUsage`));
+            const usedObj = bu.val() || {};
+            state.bonusUsed = new Set(Object.keys(usedObj));
+
+            if (state.raceId) {
+                const brc = await get(ref(dbRealtime, `live/results/${state.phase}/byRace/${state.raceId}`));
+                const data = brc.val() || {};
+                state.doublesLocked = !!data.doublesLocked;
+                const doubles = data.doubles || {};
+                const set = new Set();
+                Object.keys(doubles).forEach(pid => { if (doubles[pid] === true) set.add(pid); });
+                state.doublesSet = set;
+            } else {
+                state.doublesLocked = false;
+                state.doublesSet = new Set();
+            }
+        }
+
+        // 8) Rendus
+        updateRaceStateDisplay();
+        chooseAndApplyMode();
+        renderList();
+        updateBonusCellsOnly();
+
+        clDebug(`resync done (${reason}) @ ${nowHHMMSS()}`);
+    } catch (e) {
+        console.warn('[classement] syncNow error:', e);
+    }
+}
+
+function setupResilience() {
+    // .info/connected → logs + resync à la reconnexion
+    try {
+        const infoRef = ref(dbRealtime, '.info/connected');
+        RES.unsubConnected = onValue(infoRef, (snap) => {
+            const isConn = !!snap.val();
+            if (isConn) {
+                console.log(`[classement] RTDB connected @ ${nowHHMMSS()}`);
+                markEvent();
+                // Un petit “tap” pour reprendre l’état courant
+                syncNow('connected');
+            } else {
+                console.log(`[classement] RTDB disconnected @ ${nowHHMMSS()}`);
+            }
+        });
+    } catch (e) {
+        console.warn('[classement] setupResilience .info/connected:', e);
+    }
+
+    // Visibilité → si on revient visible, resync
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            console.log(`[classement] tab visible → resync @ ${nowHHMMSS()}`);
+            syncNow('visible');
+        }
+    });
+
+    // Réseau navigateur
+    window.addEventListener('online', () => {
+        console.log(`[classement] navigator online → goOnline+resync @ ${nowHHMMSS()}`);
+        try { goOnline(dbRealtime); } catch(_) {}
+        syncNow('online');
+    });
+    window.addEventListener('offline', () => {
+        console.log(`[classement] navigator offline @ ${nowHHMMSS()}`);
+    });
+
+    // Watchdog anti-sommeil (1 min)
+    if (RES.watchdogId) { clearInterval(RES.watchdogId); RES.watchdogId = null; }
+    RES.watchdogId = setInterval(() => {
+        const idleMs = Date.now() - RES.lastEventAt;
+        if (document.visibilityState === 'visible' && idleMs > 120000) { // > 2 min sans event
+            console.log(`[classement] watchdog: stale ${Math.round(idleMs/1000)}s → cycle conn @ ${nowHHMMSS()}`);
+            try {
+                goOffline(dbRealtime);
+                setTimeout(() => {
+                    try { goOnline(dbRealtime); } catch(_) {}
+                    syncNow('watchdog');
+                }, 250);
+            } catch (e) {
+                console.warn('[classement] watchdog error:', e);
+            }
+        }
+    }, 60000);
 }
 
 // ----------------------
@@ -718,6 +920,7 @@ async function preloadFirestore() {
 function subscribeContext() {
     const ctxRef = ref(dbRealtime, 'context/current');
     onValue(ctxRef, (snap) => {
+        markEvent();
         const v = snap.val() || {};
         const phase = (v.phase || 'mk8').toString().toLowerCase();
         const raceId = v.raceId || null;
@@ -757,6 +960,7 @@ function subscribeContext() {
     // 👇 NOUVEAU : source unique du mode d’affichage (2 valeurs seulement)
     const clModeRef = ref(dbRealtime, 'context/classementMode/mode');
     onValue(clModeRef, (snap) => {
+        markEvent();
         const raw = snap.val();
         const mode = (typeof raw === 'string' ? raw.toLowerCase() : 'indiv');
 
@@ -776,6 +980,7 @@ function subscribeContext() {
 function subscribeFinals() {
     const mk8ref = ref(dbRealtime, 'live/races/mk8');
     onValue(mk8ref, (snap) => {
+        markEvent();
         const data = snap.val() || {};
         const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
         state.mk8LastFinalized = Boolean(data['8'] && data['8'].finalized);
@@ -789,6 +994,7 @@ function subscribeFinals() {
 
     const mkwref = ref(dbRealtime, 'live/races/mkw');
     onValue(mkwref, (snap) => {
+        markEvent();
         const data = snap.val() || {};
         const finals = Object.entries(data).filter(([rid, v]) => v && v.finalized);
         state.mkwFinalFinalized = Boolean(data['SF'] && data['SF'].finalized);
@@ -811,6 +1017,7 @@ function resubscribeTotals() {
 
     let debounceTimer = null;
     const unsubscribe = onValue(totalsRef, (snap) => {
+        markEvent();
         if (debounceTimer) clearTimeout(debounceTimer);
 
         debounceTimer = setTimeout(() => {
@@ -844,6 +1051,7 @@ function resubscribeBonusChannels() {
     {
         const usageRef = ref(dbRealtime, `live/results/${phase}/bonusUsage`);
         const unsub = onValue(usageRef, (snap) => {
+            markEvent();
             const obj = snap.val() || {};
             const used = new Set();
             Object.keys(obj).forEach(pid => used.add(pid));
@@ -857,6 +1065,7 @@ function resubscribeBonusChannels() {
     if (raceId) {
         const byRaceRef = ref(dbRealtime, `live/results/${phase}/byRace/${raceId}`);
         const unsub = onValue(byRaceRef, (snap) => {
+            markEvent();
             const data = snap.val() || {};
             state.doublesLocked = !!data.doublesLocked;
             const doubles = data.doubles || {};
@@ -879,6 +1088,7 @@ function resubscribeBonusChannels() {
 function subscribeByRace() {
     const byRaceRef = ref(dbRealtime, `live/points/${state.phase}/byRace`);
     onValue(byRaceRef, (snap) => {
+        markEvent();
         state.byRaceSnapshot = snap.val() || {};
         recomputeTieBreaks();
         renderList(); // relancer le rendu avec nouveaux tie-breaks
@@ -944,6 +1154,7 @@ function resubscribeAdjustments() {
     // /live/adjustments/{phase}/pilot/{pilotId}/total
     const adjRef = ref(dbRealtime, `live/adjustments/${phase}/pilot`);
     const unsub = onValue(adjRef, (snap) => {
+        markEvent();
         const obj = snap.val() || {};
         state.adjustTotals.clear();
 
@@ -957,7 +1168,6 @@ function resubscribeAdjustments() {
 
         // (log debug non bloquant)
         clDebug('adjustments totals updated → size:', state.adjustTotals.size);
-
         requestRender();
     });
 
@@ -1909,6 +2119,9 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     });
     // Premier choix
     chooseAndApplyMode();
+
+    // Noyau de résilience (détection déco/reco, resync actif, watchdog)
+    setupResilience();
 })();
 
 // ----------------------------------------------------

@@ -187,6 +187,18 @@ const state = {
     doublesSet: new Set(),       // Set<pilotId> armés sur la course courante
     bonusUsed: new Set(),        // Set<pilotId> bonus déjà consommé (définitif)
 
+        // --- Totaux par phase (permanents) pour le cumul équipes
+    totalsMK8: new Map(),
+    totalsMKW: new Map(),
+    unsubTotalsMK8: null,
+    unsubTotalsMKW: null,
+
+    // --- Ajustements par phase (permanents) pour le cumul équipes
+    adjustTotalsMK8: new Map(),
+    adjustTotalsMKW: new Map(),
+    unsubAdjustMK8: null,
+    unsubAdjustMKW: null,
+
     adjustTotals: new Map(),      // Map<pilotId, number> — somme des ajustements (bonus/malus)
     unsubAdjustments: null,       // unsubscribe live/adjustments/... listener
 
@@ -1072,34 +1084,60 @@ function subscribeFinals() {
 }
 
 function resubscribeTotals() {
-    if (state.unsubTotals) {
-        try { state.unsubTotals(); } catch (_) {}
-        state.unsubTotals = null;
+    // Couper anciens listeners
+    if (state.unsubTotals) { try { state.unsubTotals(); } catch(_) {} state.unsubTotals = null; }
+    if (state.unsubTotalsMK8) { try { state.unsubTotalsMK8(); } catch(_) {} state.unsubTotalsMK8 = null; }
+    if (state.unsubTotalsMKW) { try { state.unsubTotalsMKW(); } catch(_) {} state.unsubTotalsMKW = null; }
+
+    // ---- MK8
+    {
+        const refMK8 = ref(dbRealtime, 'live/points/mk8/totals');
+        let timer = null;
+        state.unsubTotalsMK8 = onValue(refMK8, (snap) => {
+            markEvent();
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                const obj = snap.val() || {};
+                state.totalsMK8.clear();
+                Object.entries(obj).forEach(([pid, pts]) => state.totalsMK8.set(pid, Number(pts) || 0));
+
+                // Si la phase courante est mk8 → alimente la map "active" pour les vues pilotes
+                if (state.phase === 'mk8') {
+                    state.totals = new Map(state.totalsMK8);
+                    // Tie-breaks / byRace pour la phase active seulement
+                    subscribeByRace();
+                }
+
+                chooseAndApplyMode();
+                renderList(); // déclenche team/pilot selon mode
+            }, CFG.totalsDebounceMs);
+        });
     }
 
-    const totalsRef = ref(dbRealtime, `live/points/${state.phase}/totals`);
+    // ---- MKW
+    {
+        const refMKW = ref(dbRealtime, 'live/points/mkw/totals');
+        let timer = null;
+        state.unsubTotalsMKW = onValue(refMKW, (snap) => {
+            markEvent();
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+                const obj = snap.val() || {};
+                state.totalsMKW.clear();
+                Object.entries(obj).forEach(([pid, pts]) => state.totalsMKW.set(pid, Number(pts) || 0));
 
-    let debounceTimer = null;
-    const unsubscribe = onValue(totalsRef, (snap) => {
-        markEvent();
-        if (debounceTimer) clearTimeout(debounceTimer);
+                // Si la phase courante est mkw → alimente la map "active" pour les vues pilotes
+                if (state.phase === 'mkw') {
+                    state.totals = new Map(state.totalsMKW);
+                    // Tie-breaks / byRace pour la phase active seulement
+                    subscribeByRace();
+                }
 
-        debounceTimer = setTimeout(() => {
-            const obj = snap.val() || {};
-            state.totals.clear();
-            Object.entries(obj).forEach(([pilotId, pts]) => {
-                state.totals.set(pilotId, Number(pts) || 0);
-            });
-
-            // NEW: relancer aussi l'abonnement byRace
-            subscribeByRace();
-
-            chooseAndApplyMode();
-            renderList(); // si mode lignes
-        }, CFG.totalsDebounceMs);
-    });
-
-    state.unsubTotals = unsubscribe;
+                chooseAndApplyMode();
+                renderList();
+            }, CFG.totalsDebounceMs);
+        });
+    }
 }
 
 function resubscribeBonusChannels() {
@@ -1201,41 +1239,50 @@ function requestRender() {
 }
 
 function resubscribeAdjustments() {
-    // Couper ancien listener si besoin
-    if (state.unsubAdjustments) {
-        try { state.unsubAdjustments(); } catch(_) {}
-        state.unsubAdjustments = null;
-    }
+    // Couper anciens
+    if (state.unsubAdjustments) { try { state.unsubAdjustments(); } catch(_) {} state.unsubAdjustments = null; }
+    if (state.unsubAdjustMK8) { try { state.unsubAdjustMK8(); } catch(_) {} state.unsubAdjustMK8 = null; }
+    if (state.unsubAdjustMKW) { try { state.unsubAdjustMKW(); } catch(_) {} state.unsubAdjustMKW = null; }
 
-    const phase = state.phase;
-    if (!phase) {
-        state.adjustTotals.clear();
-        requestRender();
-        return;
-    }
-
-    // On lit UNIQUEMENT le total cumulé par pilote :
-    // /live/adjustments/{phase}/pilot/{pilotId}/total
-    const adjRef = ref(dbRealtime, `live/adjustments/${phase}/pilot`);
-    const unsub = onValue(adjRef, (snap) => {
-        markEvent();
-        const obj = snap.val() || {};
-        state.adjustTotals.clear();
-
-        for (const [pid, v] of Object.entries(obj)) {
-            if (!v || typeof v !== 'object') continue;
-            const t = (v.total != null) ? Number(v.total) : 0;
-            if (t !== 0 && Number.isFinite(t)) {
-                state.adjustTotals.set(pid, t);
+    // ---- MK8
+    {
+        const refMK8 = ref(dbRealtime, 'live/adjustments/mk8/pilot');
+        state.unsubAdjustMK8 = onValue(refMK8, (snap) => {
+            markEvent();
+            const obj = snap.val() || {};
+            state.adjustTotalsMK8.clear();
+            for (const [pid, v] of Object.entries(obj)) {
+                if (!v || typeof v !== 'object') continue;
+                const t = (v.total != null) ? Number(v.total) : 0;
+                if (t !== 0 && Number.isFinite(t)) state.adjustTotalsMK8.set(pid, t);
             }
-        }
+            if (state.phase === 'mk8') {
+                state.adjustTotals = new Map(state.adjustTotalsMK8);
+            }
+            clDebug('adjustments MK8 updated → size:', state.adjustTotalsMK8.size);
+            requestRender();
+        });
+    }
 
-        // (log debug non bloquant)
-        clDebug('adjustments totals updated → size:', state.adjustTotals.size);
-        requestRender();
-    });
-
-    state.unsubAdjustments = unsub;
+    // ---- MKW
+    {
+        const refMKW = ref(dbRealtime, 'live/adjustments/mkw/pilot');
+        state.unsubAdjustMKW = onValue(refMKW, (snap) => {
+            markEvent();
+            const obj = snap.val() || {};
+            state.adjustTotalsMKW.clear();
+            for (const [pid, v] of Object.entries(obj)) {
+                if (!v || typeof v !== 'object') continue;
+                const t = (v.total != null) ? Number(v.total) : 0;
+                if (t !== 0 && Number.isFinite(t)) state.adjustTotalsMKW.set(pid, t);
+            }
+            if (state.phase === 'mkw') {
+                state.adjustTotals = new Map(state.adjustTotalsMKW);
+            }
+            clDebug('adjustments MKW updated → size:', state.adjustTotalsMKW.size);
+            requestRender();
+        });
+    }
 }
 
 // ----------------------
@@ -1305,28 +1352,48 @@ function updateRaceStateDisplay() {
 // Sélection du mode
 // ----------------------
 function computeModeKeyAuto() {
-    // 1) État "pas de phase active"
-    if (!state.raceId) {
-        // Quel que soit le mode (indiv/team), pas de course → message "pré tournoi"
+    const hasScores = !totalsWithAdjAllZeroOrEmpty();
+
+    // Finals connus (sert juste à distinguer "pré-tournoi" du reste)
+    const anyFinals =
+        (state.mk8FinalizedRaceIds && state.mk8FinalizedRaceIds.size > 0) ||
+        (state.mkwFinalizedRaceIds && state.mkwFinalizedRaceIds.size > 0) ||
+        !!state.mk8LastFinalized ||
+        !!state.mkwFinalFinalized;
+
+    // 0) Tout début de tournoi : aucune course, aucun score, aucune finale → pré-start
+    if (!state.raceId && !hasScores && !anyFinals) {
         return 'msg-prestart';
     }
 
-    // 2) Pas de scores agrégés (totaux + ajustements == 0 partout)
-    if (totalsWithAdjAllZeroOrEmpty()) {
-        return (state.phase === 'mk8') ? 'msg-mk8-noscores' : 'msg-mkw-noscores';
+    // Phase courante (par défaut 'mk8' si non définie quelque part)
+    const phase = (state.phase === 'mkw') ? 'mkw' : 'mk8';
+
+    // 1) Pas de course active
+    if (!state.raceId) {
+        // S'il y a des scores (fin de phase ou pause), on garde le classement affiché
+        if (hasScores) {
+            if (state.viewScope === 'team') {
+                if (phase === 'mk8') return 'teams-6';
+                return state.revealEnabled ? 'teams-8' : 'teams-6';
+            }
+            return (phase === 'mk8') ? 'mk8-12' : 'mkw-24';
+        }
+        // Pas de scores → message "no scores" de la phase courante
+        return (phase === 'mk8') ? 'msg-mk8-noscores' : 'msg-mkw-noscores';
     }
 
-    // 3) Il y a des scores → on rend selon le scope
+    // 2) Course active mais pas encore de scores → message "no scores"
+    if (!hasScores) {
+        return (phase === 'mk8') ? 'msg-mk8-noscores' : 'msg-mkw-noscores';
+    }
+
+    // 3) Il y a des scores → on affiche les classements selon le scope demandé
     if (state.viewScope === 'team') {
-        if (state.phase === 'mk8') {
-            return 'teams-6';
-        }
-        // MKW → 6 avant reveal, 8 après reveal
+        if (phase === 'mk8') return 'teams-6';
         return state.revealEnabled ? 'teams-8' : 'teams-6';
     }
-
-    // 4) Scope "pilot"
-    return (state.phase === 'mk8') ? 'mk8-12' : 'mkw-24';
+    return (phase === 'mk8') ? 'mk8-12' : 'mkw-24';
 }
 
 function computeModeKey() {
@@ -1634,37 +1701,47 @@ function renderTeamList() {
     const $list = document.getElementById('cw-list');
     if (!$list) return;
 
-    // 1) Aggrégat par équipe à partir des totaux (base + ajustements)
+    // 1) Agrégat par équipe = (MK8 base+adj) + (MKW base+adj)
     const teamAgg = new Map(); // teamName => { name, tag, logo, c1, c2, points }
 
-    state.totals.forEach((basePoints, pilotId) => {
+    // Helper local d'accumulation
+    const addToTeam = (teamName, pts) => {
+        if (!teamName) return;
+        if (!Number.isFinite(pts) || pts <= 0) return;
+        if (!teamAgg.has(teamName)) {
+            const t = state.teamsByName.get(teamName) || {};
+            teamAgg.set(teamName, {
+                name: teamName,
+                tag: t.tag || teamName.slice(0,3).toUpperCase(),
+                logo: t.urlLogo ? resolveAssetPath(t.urlLogo) : '',
+                c1: t.c1 || '#ffd43b',
+                c2: t.c2 || '#00b4d8',
+                points: 0
+            });
+        }
+        teamAgg.get(teamName).points += pts;
+    };
+
+    // ---- Boucle MK8 : toujours l'équipe "classique"
+    state.totalsMK8.forEach((basePoints, pilotId) => {
         const p = state.pilotsById.get(pilotId);
         if (!p) return;
-
-        // Filtre MK8/MKW selon le mode actif (6 ou 8 équipes → toujours toutes équipes)
-        // On agrège tous les pilotes de la phase (MK8 & MKW) — logique définie par teamKeysForPilot
         const base = Number(basePoints) || 0;
-        const adj  = Number(state.adjustTotals.get(pilotId) || 0);
+        const adj  = Number(state.adjustTotalsMK8.get(pilotId) || 0);
         const eff  = base + adj;
-        if (eff <= 0) return; // optionnel : ignorer 0
+        addToTeam(p.teamName || '', eff);
+    });
 
-        const keys = teamKeysForPilot(p);
-        keys.forEach((teamName) => {
-            if (!teamName) return;
-            if (!teamAgg.has(teamName)) {
-                const t = state.teamsByName.get(teamName) || {};
-                teamAgg.set(teamName, {
-                    name: teamName,
-                    tag: t.tag || teamName.slice(0,3).toUpperCase(),
-                    logo: t.urlLogo ? resolveAssetPath(t.urlLogo) : '',
-                    c1: t.c1 || '#ffd43b',
-                    c2: t.c2 || '#00b4d8',
-                    points: 0
-                });
-            }
-            const obj = teamAgg.get(teamName);
-            obj.points += eff;
-        });
+    // ---- Boucle MKW : reveal influence l'équipe créditée
+    state.totalsMKW.forEach((basePoints, pilotId) => {
+        const p = state.pilotsById.get(pilotId);
+        if (!p) return;
+        const base = Number(basePoints) || 0;
+        const adj  = Number(state.adjustTotalsMKW.get(pilotId) || 0);
+        const eff  = base + adj;
+
+        const teamShown = state.revealEnabled ? (p.secretTeamName || p.teamName || '') : (p.teamName || '');
+        addToTeam(teamShown, eff);
     });
 
     // 2) Liste triée

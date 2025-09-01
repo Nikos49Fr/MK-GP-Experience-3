@@ -589,6 +589,9 @@ function setRaceStateTextWithMarquee($state, text) {
 function ensureScaffold($root) {
     $root.innerHTML = '';
 
+    // Reset du cache "dernier texte" pour forcer un rerender propre
+    state.raceStateLastText = null;
+
     const $header = document.createElement('div');
     $header.className = 'cw-header';
 
@@ -996,16 +999,18 @@ function computeRaceStateText() {
 }
 
 function updateRaceStateDisplay() {
-    const $state = document.getElementById('race-state');
+    const $host = document.querySelector('.classement-widget');
+    if (!$host) return;
+    const $state = $host.querySelector('.race-state'); // ← scope local au widget
     if (!$state) return;
 
     const text = computeRaceStateText();
 
-    // Dédup strict : si le texte n'a pas changé, on évite tout rerender
+    // Dédup strict
     if (text === state.raceStateLastText) return;
     state.raceStateLastText = text;
 
-    // Coalescing : si plusieurs calls arrivent dans la même frame, on ne rend qu'une fois
+    // Coalescing par frame
     if (state.raceStateRaf) cancelAnimationFrame(state.raceStateRaf);
     state.raceStateRaf = requestAnimationFrame(() => {
         state.raceStateRaf = null;
@@ -1104,22 +1109,45 @@ function applyMode(modeKey) {
                 <span>⚡ En attente des résultats.⚡</span>
               `
         );
-        // S'assure que le header affiche le bon state aussi en mode message
         updateRaceStateDisplay();
+        collapseBonusColumn(false); // messages → layout normal
         return;
     }
 
-    // Sinon: lignes
+    // Lignes
     renderRowsSkeleton(m.rows);
 
-    // 🔁 Ré-applique le state maintenant que le DOM est en place
+    // Ré-applique le state dès que le DOM est prêt
     updateRaceStateDisplay();
+
+    // NEW: compacter la colonne bonus en mode Équipe
+    collapseBonusColumn(m.type === 'team');
 
     if (m.type === 'team') {
         renderTeamList();
     } else {
         renderList();
     }
+}
+
+function collapseBonusColumn(enable) {
+    const $host = document.querySelector('.classement-widget');
+    if (!$host) return;
+    const $cells = $host.querySelectorAll('.col-bonus');
+    $cells.forEach(($c) => {
+        if (enable) {
+            $c.style.flex = '0 0 0px';
+            $c.style.width = '0';
+            $c.style.padding = '0';
+            $c.style.margin = '0';
+            $c.textContent = ''; // sécurité: aucun contenu résiduel
+        } else {
+            $c.style.flex = '';
+            $c.style.width = '';
+            $c.style.padding = '';
+            $c.style.margin = '';
+        }
+    });
 }
 
 // Debug helpers
@@ -1771,7 +1799,6 @@ function backToTeamTagAll() {
         const $tagCell = $row.querySelector('.col-tag');
         const $bnCell  = $row.querySelector('.col-bonus');
         const tag      = $row.dataset.teamTag || '';
-        const name     = $row.dataset.teamName || '';
 
         // col-tag → TAG (en conservant la teinte équipe)
         if ($tagCell) {
@@ -1779,20 +1806,12 @@ function backToTeamTagAll() {
             renderTagTextInto($tagCell, tag);
         }
 
-        // col-bonus → NOM (statique)
+        // BONUS désormais inutilisé en mode équipe → le laisser vide
         if ($bnCell) {
             $bnCell.innerHTML = '';
-            if (name) {
-                const span = document.createElement('span');
-                span.className = 'team-full-name';
-                span.textContent = name;
-                span.style.color = 'var(--team-c1)';
-                $bnCell.appendChild(span);
-            }
         }
     });
 
-    // redémarrer un cycle
     restartSwapCycle();
 }
 

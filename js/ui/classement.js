@@ -1138,6 +1138,14 @@ function resubscribeTotals() {
             }, CFG.totalsDebounceMs);
         });
     }
+    // 👉 Alias combiné (compat) : débranche MK8 + MKW d'un seul appel
+    state.unsubTotals = function () {
+        try { state.unsubTotalsMK8 && state.unsubTotalsMK8(); } catch (_) {}
+        try { state.unsubTotalsMKW && state.unsubTotalsMKW(); } catch (_) {}
+        state.unsubTotalsMK8 = null;
+        state.unsubTotalsMKW = null;
+        state.unsubTotals = null;
+    };
 }
 
 function resubscribeBonusChannels() {

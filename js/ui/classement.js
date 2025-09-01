@@ -16,7 +16,6 @@ import {
     ref,
     onValue,
     get,
-    child,
     goOnline,
     goOffline
 } from 'https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js';
@@ -65,11 +64,11 @@ const _authReady = (async () => {
 // ----------------------
 const CFG = {
     // swap TAG ↔ FICHE
-    tagStandbyMs: 1000,        // 15000
+    tagStandbyMs: 30000,        // 30000
     pilotScrollMs: 8000,        // 8000
-    pilotStartDelayMs: 10000,    // 3000
-    pilotPauseEndMs: 10000,      // 3000
-    pilotBackPauseMs: 1000,     // 3000
+    pilotStartDelayMs: 4000,    // 4000
+    pilotPauseEndMs: 2000,      // 2000
+    pilotBackPauseMs: 4000,     // 4000
 
     // marges visuelles du scroll (STATE header)
     stateGutterLeftPx: 20,
@@ -87,11 +86,15 @@ const CFG = {
     // - gLeft = 0 ⇒ le texte qui défile démarre **aligné** avec les textes statiques.
     // - edgeRight = marge de sécurité côté droit à la fin du scroll (effet “justify-right”).
     pilotGutterLeftPx: 0,
-    pilotGutterRightPx: -6,
-    pilotEdgeRightPx: 16,     // ajustable (13–24px typiquement)
+    pilotGutterRightPx: -2,
+    pilotEdgeRightPx: 6,     // ajustable (13–24px typiquement)
     teamGutterLeftPx: 0,
-    teamGutterRightPx: 10,
-    teamEdgeRightPx: 16,
+    teamGutterRightPx: -2,
+    teamEdgeRightPx: 6,
+
+    // Tolérance de détection d'overflow (px) : traite les cas "presque égaux"
+    pilotOverflowDetectSlackPx: 1.0,
+    teamOverflowDetectSlackPx: 1.0,
 
     // (optionnel) durée dédiée au scroll équipe ; sinon on reprend pilotScrollMs
     teamScrollMs: null,
@@ -511,44 +514,62 @@ function renderTagTextInto($tagCell, tag) {
 }
 
 function renderTeamNameInto($tagCell, teamName) {
-    const { gL } = getScrollParams('team');
+    const { gL, gR } = getScrollParams('team');
     const safeName = (teamName || '').toString().toUpperCase();
 
     $tagCell.classList.remove('mode-pilot');
     $tagCell.innerHTML = `
-        <div class="tagcard-scroller" style="
-            display:inline-flex;align-items:center;gap:6px;
-            will-change: transform;
-            transform: translateX(${gL}px);
-            transition: none;
-            flex: 0 0 auto;
-            width: max-content;
-            max-width: none;
-            color: var(--team-c1);
-        ">
-            <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+        <div class="tagcard-outer" style="position:relative;overflow:hidden;width:100%;">
+            <div class="tagcard-window" style="
+                position:relative;
+                left:-${gL}px;           /* décale la fenêtre pour garder l'alignement initial */
+                padding-left:${gL}px;    /* zone de masque à gauche */
+                padding-right:${gR}px;   /* marge à droite dans la fenêtre */
+            ">
+                <div class="tagcard-scroller" style="
+                    display:inline-flex;align-items:center;gap:6px;
+                    will-change: transform;
+                    transform: translateX(0);
+                    transition: none;
+                    flex: 0 0 auto;
+                    width: max-content;
+                    max-width: none;
+                    color: var(--team-c1);
+                ">
+                    <span class="tagcard-name" style="white-space:nowrap;display:inline-block;">${safeName}</span>
+                </div>
+            </div>
         </div>
     `;
 }
 
 function renderPilotNameInto($tagCell, { num, name }) {
-    const { gL } = getScrollParams('pilot');
+    const { gL, gR } = getScrollParams('pilot');
     const safeNum = (num || '').toString();
     const safeName = (name || '').toString().toUpperCase().replace(/\s+/g, '');
 
     $tagCell.classList.add('mode-pilot');
     $tagCell.innerHTML = `
-        <div class="tagcard-scroller" style="
-            display:inline-flex;align-items:center;gap:6px;
-            will-change: transform;
-            transform: translateX(${gL}px);
-            transition: none;
-            flex: 0 0 auto;
-            width: max-content;
-            max-width: none;
-        ">
-            ${safeNum ? `<span class="tagcard-num" style="font-weight:700;color: var(--team-c1);">${safeNum}.</span>` : ''}
-            <span class="tagcard-name" style="white-space:nowrap;display:inline-block;color: var(--team-c1);">${safeName}</span>
+        <div class="tagcard-outer" style="position:relative;overflow:hidden;width:100%;">
+            <div class="tagcard-window" style="
+                position:relative;
+                left:-${gL}px;           /* garde l'alignement initial */
+                padding-left:${gL}px;    /* masque gauche */
+                padding-right:${gR}px;   /* marge droite */
+            ">
+                <div class="tagcard-scroller" style="
+                    display:inline-flex;align-items:center;gap:6px;
+                    will-change: transform;
+                    transform: translateX(0);
+                    transition: none;
+                    flex: 0 0 auto;
+                    width: max-content;
+                    max-width: none;
+                ">
+                    ${safeNum ? `<span class="tagcard-num" style="font-weight:700;color: var(--team-c1);">${safeNum}.</span>` : ''}
+                    <span class="tagcard-name" style="white-space:nowrap;display:inline-block;color: var(--team-c1);">${safeName}</span>
+                </div>
+            </div>
         </div>
     `;
 }
@@ -1927,10 +1948,29 @@ function getOverflowForCell($tagCell, kind) {
     const scroller = $tagCell.querySelector('.tagcard-scroller');
     if (!scroller) return 0;
 
+    const win = $tagCell.querySelector('.tagcard-window') || $tagCell;
+
+    // Mesures en sous-pixel (évite les arrondis à l'entier de scrollWidth)
+    const rectWin = win.getBoundingClientRect();
+    const rectScroll = scroller.getBoundingClientRect();
+
     const { gL, gR } = getScrollParams(kind);
-    const visible = Math.max(0, $tagCell.clientWidth - (gL + gR));
-    const full = measureIntrinsicWidth(scroller);
-    return Math.max(0, full - visible);
+    const visible = Math.max(0, rectWin.width - (gL + gR));
+    const full = rectScroll.width;
+
+    // Débordement "réel"
+    let overflow = full - visible;
+
+    // Slack : si overflow est légèrement négatif (≈ -1px ... 0), on force un tout petit scroll
+    const slack = (kind === 'team')
+        ? (Number(CFG.teamOverflowDetectSlackPx) || 0)
+        : (Number(CFG.pilotOverflowDetectSlackPx) || 0);
+
+    if (overflow <= 0 && overflow > -slack) {
+        overflow = 1; // => défilement minimal, donc pas de coupe visuelle à droite
+    }
+
+    return Math.max(0, overflow);
 }
 
 function backToTagAll() {
@@ -1999,19 +2039,47 @@ function startTeamNamePhaseAll() {
     });
     const maxOverflow = Math.max(...overflows, 0);
 
+    // Durée de scroll spécifique équipe si définie, sinon on reprend la durée "pilot"
+    const { durMs: teamDurMs } = getScrollParams('team');
+    const scrollMs = Number.isFinite(teamDurMs) && teamDurMs > 0 ? teamDurMs : CFG.pilotScrollMs;
+
     setTimeout(() => {
         rows.forEach(($row, idx) => {
             const $tagCell = $row.querySelector('.col-tag');
-            const { durMs } = getScrollParams('team');
-            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, durMs, 'team');
+            runPilotScrollWithGlobal($tagCell, overflows[idx], maxOverflow, scrollMs, 'team');
         });
     }, CFG.pilotStartDelayMs);
 
-    // 3) planifier retour à TAG
+    // 3) planifier la phase "retour" (scroll droite), puis le retour aux TAGs
     swapCtrl.tStartBackPhase = setTimeout(
-        backToTeamTagAll,
-        CFG.pilotStartDelayMs + CFG.pilotScrollMs + CFG.pilotPauseEndMs
+        startTeamBackPhaseAll,
+        CFG.pilotStartDelayMs + scrollMs + CFG.pilotPauseEndMs
     );
+    swapCtrl.tBackToTag = setTimeout(
+        backToTeamTagAll,
+        CFG.pilotStartDelayMs + scrollMs + CFG.pilotPauseEndMs + scrollMs + CFG.pilotBackPauseMs
+    );
+}
+
+function startTeamBackPhaseAll() {
+    swapCtrl.tStartBackPhase = null;
+
+    const rows = getActiveRows();
+    if (rows.length === 0) return;
+
+    const overflows = rows.map(($row) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        return getOverflowForCell($tagCell, 'team');
+    });
+    const maxOverflow = Math.max(...overflows, 0);
+
+    const { durMs: teamDurMs } = getScrollParams('team');
+    const scrollMs = Number.isFinite(teamDurMs) && teamDurMs > 0 ? teamDurMs : CFG.pilotScrollMs;
+
+    rows.forEach(($row, idx) => {
+        const $tagCell = $row.querySelector('.col-tag');
+        runPilotScrollBackWithGlobal($tagCell, overflows[idx], maxOverflow, scrollMs, 'team');
+    });
 }
 
 function backToTeamTagAll() {
@@ -2046,20 +2114,20 @@ function runPilotScrollWithGlobal($tagCell, overflow, maxOverflow, maxDurationMs
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
 
-    const { gL, eR } = getScrollParams(kind);
+    const { eR } = getScrollParams(kind);
 
     scroller.style.flex = '0 0 auto';
     scroller.style.width = 'max-content';
     scroller.style.maxWidth = 'none';
 
-    // Départ aligné visuellement
+    // Départ aligné
     scroller.style.transition = 'none';
-    scroller.style.transform = `translateX(${gL}px)`;
+    scroller.style.transform = 'translateX(0)';
 
     if (overflow <= 0 || maxOverflow <= 0) return;
 
     const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
-    const targetX = gL - overflow - eR; // ← fin "justify-right"
+    const targetX = -(overflow + eR); // ← fin “justify-right” exacte, indépendante des paddings
 
     void scroller.getBoundingClientRect();
     requestAnimationFrame(() => {
@@ -2072,7 +2140,7 @@ function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurati
     const scroller = $tagCell ? $tagCell.querySelector('.tagcard-scroller') : null;
     if (!scroller) return;
 
-    const { gL, eR } = getScrollParams(kind);
+    const { eR } = getScrollParams(kind);
 
     scroller.style.flex = '0 0 auto';
     scroller.style.width = 'max-content';
@@ -2080,13 +2148,13 @@ function runPilotScrollBackWithGlobal($tagCell, overflow, maxOverflow, maxDurati
 
     if (overflow <= 0 || maxOverflow <= 0) {
         scroller.style.transition = 'none';
-        scroller.style.transform = `translateX(${gL}px)`;
+        scroller.style.transform = 'translateX(0)';
         return;
     }
 
     const durationMs = Math.max(50, Math.round((overflow / maxOverflow) * maxDurationMs));
-    const startX  = gL - overflow - eR; // même extrémité que l'aller
-    const targetX = gL;
+    const startX  = -(overflow + eR); // même extrémité que l’aller
+    const targetX = 0;
 
     scroller.style.transition = 'none';
     scroller.style.transform = `translateX(${startX}px)`;

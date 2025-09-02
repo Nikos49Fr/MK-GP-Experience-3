@@ -1,5 +1,5 @@
 // js/home-teams.js
-import { dbFirestore, dbRealtime } from "./firebase-config.js";
+import { dbFirestore, dbRealtime, auth } from "./firebase-config.js";
 import {
     collection, getDocs, query, orderBy
 } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
@@ -140,9 +140,49 @@ function nowHHMMSS() {
 }
 function markEvent() { RES.lastEventAt = Date.now(); }
 
+/* --------- auth ready helpers --------- */
+function isAuthReady() {
+    return !!(auth && auth.currentUser);
+}
+function waitForAuthReady(timeoutMs = 5000) {
+    if (isAuthReady()) return Promise.resolve();
+    return new Promise((resolve) => {
+        const start = Date.now();
+        const id = setInterval(() => {
+            if (isAuthReady() || Date.now() - start >= timeoutMs) {
+                clearInterval(id);
+                resolve();
+            }
+        }, 100);
+    });
+}
+
+/* --------- UI bandeau reconnexion --------- */
+let _reauthBanner = null;
+function showReauthBanner() {
+    if (_reauthBanner) return;
+    const div = document.createElement("div");
+    div.className = "home-reauth";
+    div.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:9999;background:#222;color:#fff;padding:10px 12px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.2);display:flex;gap:10px;align-items:center;font:14px/1.2 system-ui,Segoe UI,Roboto,sans-serif";
+    div.innerHTML = `<strong style="font-weight:600">Session expirée</strong><span style="opacity:.8">Veuillez vous reconnecter.</span><button type="button" class="home-reauth__btn" style="background:#fff;color:#000;border:0;border-radius:6px;padding:6px 10px;cursor:pointer">Se reconnecter</button>`;
+    document.body.appendChild(div);
+    const btn = div.querySelector(".home-reauth__btn");
+    if (btn) btn.addEventListener("click", () => location.reload());
+    _reauthBanner = div;
+}
+function hideReauthBanner() {
+    if (_reauthBanner && _reauthBanner.parentNode) {
+        _reauthBanner.parentNode.removeChild(_reauthBanner);
+        _reauthBanner = null;
+    }
+}
+
 // Relit le contexte/reveal (et peut recharger Firestore si 'forceFs' = true)
 async function syncNow(reason = "manual", forceFs = false) {
     try {
+        // Attendre que l’auth soit prête (y compris anonyme sur l’accueil)
+        await waitForAuthReady();
+        hideReauthBanner();
         // RTDB — contexte + reveal
         const sCtx = await get(ref(dbRealtime, "context/current"));
         const ctx = sCtx.val() || {};
@@ -163,6 +203,11 @@ async function syncNow(reason = "manual", forceFs = false) {
         console.log(`[home] resync done (${reason}) @ ${nowHHMMSS()}`);
     } catch (e) {
         console.warn("[home] syncNow error:", e);
+        const msg = String(e && (e.message || e.code || e)) || "";
+        if (msg.toLowerCase().includes("permission denied")) {
+            // Ne pas spammer → on montre un CTA et on arrête les relances agressives
+            showReauthBanner();
+        }
     }
 }
 
@@ -175,7 +220,12 @@ function setupResilience() {
             if (isConn) {
                 console.log(`[home] RTDB connected @ ${nowHHMMSS()}`);
                 markEvent();
-                syncNow("connected", /*forceFs*/ true);
+                // S’assurer que l’auth est prête avant de relire (évite les Permission denied “au réveil”)
+                waitForAuthReady(5000).then(() => {
+                    syncNow("connected", /*forceFs*/ true);
+                    hideReauthBanner();
+                });
+                return; // on ne tombe pas sur l’ancien appel syncNow plus bas
             } else {
                 console.log(`[home] RTDB disconnected @ ${nowHHMMSS()}`);
             }
@@ -197,7 +247,10 @@ function setupResilience() {
         console.log(`[home] navigator online → goOnline+resync @ ${nowHHMMSS()}`);
         try { goOnline(dbRealtime); } catch {}
         // Quand on revient online, on recharge aussi Firestore une fois
-        syncNow("online", /*forceFs*/ true);
+        waitForAuthReady(5000).then(() => {
+            syncNow("online", /*forceFs*/ true);
+            hideReauthBanner();
+        });
     });
     window.addEventListener("offline", () => {
         console.log(`[home] navigator offline @ ${nowHHMMSS()}`);
@@ -213,7 +266,10 @@ function setupResilience() {
                 goOffline(dbRealtime);
                 setTimeout(() => {
                     try { goOnline(dbRealtime); } catch {}
-                    syncNow("watchdog", /*forceFs*/ false);
+                    waitForAuthReady(5000).then(() => {
+                        syncNow("watchdog", /*forceFs*/ false);
+                        hideReauthBanner();
+                    });
                 }, 250);
             } catch (e) {
                 console.warn("[home] watchdog error:", e);
@@ -383,6 +439,9 @@ function subscribeRevealAndPhase() {
     }
 
     try {
+        // ✅ Attendre que l’auth soit prête (anonyme ou non)
+        await waitForAuthReady();
+        
         const { teams, pilots } = await loadData();
 
         // cache local

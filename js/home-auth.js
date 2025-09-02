@@ -13,6 +13,14 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 provider.setCustomParameters({ prompt: "select_account" });
 
+// ---------------- Page flags (où l’anonyme est autorisé ?) ----------------
+// Public: index.html (ou racine) → autoriser l’anonyme
+// Privé: /pages/admin.html, /pages/control-panel.html → interdire l’anonyme
+const PATH = location.pathname || "/";
+const IS_ADMIN_PAGE = /\/pages\/admin\.html$/i.test(PATH);
+const IS_CONTROL_PAGE = /\/pages\/control-panel\.html$/i.test(PATH);
+const ALLOW_ANON = !(IS_ADMIN_PAGE || IS_CONTROL_PAGE); // true seulement hors pages protégées
+
 // Whitelist (emails normalisés)
 const ALLOWED_EMAILS = new Set(
     ["nicolas4980@gmail.com", "guillaume.b.fouche@gmail.com"].map(e => e.trim().toLowerCase())
@@ -51,7 +59,8 @@ setPersistence(auth, browserLocalPersistence).catch(() => { /* noop */ });
 let signing = false;
 
 // ---- Helpers ----
-async function ensureAnonymousAuth() {
+async function ensureAnonymousAuthIfAllowed() {
+    if (!ALLOW_ANON) return; // ⛔️ interdit ici
     try {
         if (!auth.currentUser) {
             await signInAnonymously(auth);
@@ -68,9 +77,7 @@ function isAdminOrCaster(user) {
 
 function setHidden(el, hidden) {
     if (!el) return;
-    // Attribut HTML
     el.hidden = !!hidden;
-    // Classe CSS (au cas où le style repose dessus)
     el.classList.toggle("hidden", !!hidden);
 }
 
@@ -96,7 +103,8 @@ async function doLogout() {
         await signOut(auth);
     } finally {
         toggleUiForUser(null);
-        ensureAnonymousAuth();
+        // ⚠️ Ne relance l’anonyme qu’en pages publiques
+        ensureAnonymousAuthIfAllowed();
     }
 }
 
@@ -112,8 +120,10 @@ onAuthStateChanged(auth, (user) => {
     signing = false; // réarme le bouton login
 
     if (!user) {
-        // Si aucun user → ouvrir/ancrer une session anonyme (lecture publique)
-        ensureAnonymousAuth();
+        // Si aucun user :
+        // - page publique → session anonyme ok
+        // - page protégée → rester déconnecté, montrer CTA Login
+        ensureAnonymousAuthIfAllowed();
         toggleUiForUser(null);
         return;
     }
@@ -132,8 +142,10 @@ function toggleUiForUser(user) {
     );
 
     // Boutons
-    if (loginBtn)  setHidden(loginBtn, !!user && !isAnon);
-    if (logoutBtn) setHidden(logoutBtn, !user || isAnon);
+    // - si anonyme → montrer Login, cacher Logout
+    // - si connecté normal → cacher Login, montrer Logout
+    if (loginBtn)  setHidden(loginBtn, !!user && !isAnon ? true : false);
+    if (logoutBtn) setHidden(logoutBtn, !user || isAnon ? true : false);
 
     // Liens Admin / Direction (emails autorisés uniquement)
     const adminLinks = $allAdminLinks();
@@ -151,4 +163,10 @@ function toggleUiForUser(user) {
     document.documentElement.classList.toggle("is-logged-in", !!user && !isAnon);
     document.documentElement.classList.toggle("is-anon", isAnon);
     document.documentElement.classList.toggle("is-admin", allowed);
+
+    // Sur page protégée : si anonyme, on force l’affichage du CTA Login
+    if (!ALLOW_ANON) {
+        if (loginBtn) setHidden(loginBtn, !!user && !isAnon);
+        if (logoutBtn) setHidden(logoutBtn, !user || isAnon);
+    }
 }

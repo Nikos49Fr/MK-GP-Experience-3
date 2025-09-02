@@ -1,11 +1,48 @@
+@charset "UTF-8";
+/* ==========================================================================
+   0) Variables globales
+   ========================================================================== */
+/* sass/_fonts.scss */
+@font-face {
+  font-family: "MarioKartF2";
+  src: url("../assets/fonts/mario_kart_f2.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1";
+  src: url("../assets/fonts/Formula1-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Formula1 Wide";
+  src: url("../assets/fonts/Formula1-Wide.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 .race-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  width: 100%;
+  display: grid;
+  grid-template-columns: 2fr 4fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.75rem;
+  row-gap: 0.25rem;
+  align-items: start;
 }
 .race-strip__nav {
-  display: flex;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
@@ -47,9 +84,34 @@
   background: #fff;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15);
 }
-.race-strip__inner {
+.race-strip__subtitle {
+  grid-column: 1;
+  grid-row: 1/span 2;
+  align-self: start;
+  justify-self: center;
   display: flex;
   flex-direction: column;
+  gap: 0.25rem;
+  margin: auto;
+  text-align: center;
+}
+.race-strip__subtitle-line {
+  line-height: 1.15;
+  font-family: "Orbitron", sans-serif;
+}
+.race-strip__subtitle-line--phase { /* taille/poids à définir chez toi */
+  font-size: 1.4rem;
+}
+.race-strip__subtitle-line--info { /* taille/poids à définir chez toi */
+  font-size: 1.1rem;
+}
+.race-strip__subtitle-line--final { /* taille/poids à définir chez toi */
+  font-size: 1.25rem;
+}
+.race-strip__inner {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
   gap: 0.5rem;
   width: 100%;
 }
@@ -58,6 +120,7 @@
   justify-content: center;
   gap: 0.5rem;
   flex-wrap: nowrap;
+  margin-bottom: 0.5rem;
 }
 .race-strip__cell {
   display: flex;

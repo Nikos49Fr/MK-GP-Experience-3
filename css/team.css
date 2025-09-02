@@ -445,13 +445,12 @@ body {
   /* Header du centre = host du race-strip (mode viewer) */
 }
 .panel--center .panel__header {
-  flex: 0 0 auto;
   min-height: 150px;
-  display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border-bottom: 1px solid var(--sep);
+  align-items: stretch;
 }
 .panel--center .race-strip-host {
   width: 100%;
@@ -459,6 +458,14 @@ body {
   align-items: center;
   justify-content: center;
   padding-block: 4px;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin: auto;
+}
+.panel--center .race-strip-host > .race-strip {
+  width: 100%;
 }
 .panel--center .race-strip__tile {
   pointer-events: none;

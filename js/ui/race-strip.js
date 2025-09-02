@@ -45,14 +45,16 @@ const CLASSNAMES = Object.freeze({
     NAV: 'race-strip__nav',
     NAV_BTN: 'race-strip__nav-btn',
     NAV_LABEL: 'race-strip__nav-label',
+    SUBTITLE: 'race-strip__subtitle',
+    SUBLINE: 'race-strip__subtitle-line',
     STATE: {
         INSPECTED: 'is-inspected',
         ACTIVE: 'is-active',
         FILLED: 'is-filled',
         CONFLICT: 'is-conflict',
         ACTIVE_EMPTY: 'is-active-empty',
-        COMPLETE_PENDING: 'is-complete-pending', // complete (non finalisée)
-        COMPLETE_FINAL: 'is-complete-final'       // complete + finalisée
+        COMPLETE_PENDING: 'is-complete-pending',
+        COMPLETE_FINAL: 'is-complete-final'
     }
 });
 
@@ -136,6 +138,66 @@ function computeLayout(phaseView) {
     ];
 }
 
+function phasePrettyLabel(phaseLike) {
+    const p = String(phaseLike).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    return p === 'mkw' ? 'MK World' : 'MK 8';
+}
+
+function coursePrettyLabel(phaseLike, raceId) {
+    const p = String(phaseLike).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    const id = String(raceId || '').toUpperCase();
+    if (p === 'mkw') {
+        if (id === 'S')  return 'Survie';
+        if (id === 'SF') return 'Survie Finale';
+        const n = Number(id);
+        if (Number.isInteger(n) && n >= 7 && n <= 12) return String(n + 1); // 7..12 → 8..13
+        return id;
+    }
+    return id;
+}
+
+function allRacesFinalized(state, phaseLike) {
+    const p = String(phaseLike).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    const order = buildRaceList(p);
+    const finals = state.finalizedByRace?.[p] || {};
+    return order.length > 0 && order.every(rid => !!finals[rid]?.finalized === true);
+}
+
+function computeSubtitleLines(state, phaseView) {
+    const p = String(phaseView).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+    const phaseLabel = `Phase : ${p === 'mkw' ? 'MK World' : 'MK 8'}`;
+
+    // 1) Phase terminée ? (toutes les courses finalisées pour la phase VUE)
+    {
+        const order = buildRaceList(p);
+        const finals = state.finalizedByRace?.[p] || {};
+        const allDone = order.length > 0 && order.every(rid => finals[rid]?.finalized === true);
+        if (allDone) return [phaseLabel, 'Tournoi terminé', 'Bravo à toutes et tous'];
+    }
+
+    // 2) Phase démarrée pour la VUE courante (même logique que les tuiles)
+    //    → on s’aligne sur state.activeRaceId, nulle si la phase vue ≠ phase active.
+    {
+        const activeId = state.activeRaceId ?? null;
+        if (activeId != null) {
+            let label = String(activeId).toUpperCase();
+            const p = String(phaseView).toLowerCase() === 'mkw' ? 'mkw' : 'mk8';
+            if (p === 'mkw') {
+                if (label === 'S') label = 'Survie';
+                else if (label === 'SF') label = 'Survie Finale';
+                else {
+                    const n = Number(label);
+                    if (Number.isInteger(n) && n >= 7 && n <= 12) label = String(n + 1);
+                }
+            }
+            return [phaseLabel, `Course : ${label}`];
+        }
+    }
+
+    // 3) Sinon : départ imminent
+    return [phaseLabel, 'Départ imminent'];
+}
+
 function renderHeaderNav(host, state, getPhaseView, setPhaseView) {
     if (!state.showPhaseNav) {
         host.querySelector(`.${CLASSNAMES.NAV}`)?.remove();
@@ -159,6 +221,31 @@ function renderHeaderNav(host, state, getPhaseView, setPhaseView) {
     $btnNext.addEventListener('click', togglePhase);
 
     $nav.append($btnPrev, $label, $btnNext);
+}
+
+function renderSubtitle(hostEl, state, getPhaseView) {
+    const phaseView = String(getPhaseView() || 'mk8').toLowerCase();
+    const lines = computeSubtitleLines(state, phaseView);
+
+    let $sub = hostEl.querySelector(`.${CLASSNAMES.SUBTITLE}`);
+    if (!$sub) {
+        $sub = el('div', { class: CLASSNAMES.SUBTITLE, role: 'note' });
+        hostEl.prepend($sub);
+    } else {
+        $sub.replaceChildren();
+    }
+
+    const $l1 = el('div', { class: `${CLASSNAMES.SUBLINE} ${CLASSNAMES.SUBLINE}--phase` }, lines[0] || '');
+    $sub.appendChild($l1);
+
+    if (lines[1]) {
+        const $l2 = el('div', { class: `${CLASSNAMES.SUBLINE} ${CLASSNAMES.SUBLINE}--info` }, lines[1]);
+        $sub.appendChild($l2);
+    }
+    if (lines[2]) {
+        const $l3 = el('div', { class: `${CLASSNAMES.SUBLINE} ${CLASSNAMES.SUBLINE}--final` }, lines[2]);
+        $sub.appendChild($l3);
+    }
 }
 
 function renderRows(host, state, getPhaseView) {
@@ -516,7 +603,7 @@ function attachFirebaseController(state, getPhaseView, setPhaseView, setStateAnd
 
     // Variables “globales” du control-panel (scopées à l’instance)
     state.__activeTournamentPhase = 'mk8';
-    state.__activeRaceId = '1';
+    state.__activeRaceId = null;
     state.__pointsMatrices = { mk8: null, mkw: null, __loaded: false };
 
     // Sélection inspectée mémorisée par phase (alignement cp)
@@ -958,6 +1045,9 @@ export function initRaceStrip(container, options = {}) {
 
         // ⚠️ IMPORTANT : passer l'objet state + la phase vue
         ensureRacesForPhase(state, pv);
+
+        // ✅ Sous-titre (juste avant nav + tiles)
+        renderSubtitle(host, state, getPhaseView);
 
         // En-tête (nav) + grille des tuiles
         renderHeaderNav(host, state, getPhaseView, setPhaseView);

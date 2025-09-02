@@ -538,9 +538,9 @@ body.cp-body {
     flex: 0 0 var(--races-h);
     display: flex;
     align-items: center;
-    justify-content: center;
     padding: 0;
     border-bottom: 1px solid rgba(255,255,255,0.08);
+    align-items: stretch;
 }
 
 .cp-center-body {
@@ -553,13 +553,23 @@ body.cp-body {
 .cp-races-section {
     width: 100%;
     padding: 4px 0;
-    display: flex;
     align-items: center;
     justify-content: center;
+    flex: 1 1 100%;
+    min-width: 0;   // important dans un contexte flex pour laisser s’étirer .race-strip
+
+    .cp-race-strip-host {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+        margin: 0;      // neutralise d’éventuels auto-centres
+
+        &> .race-strip { width: 100%; }
+    }
 
     .cp-races-inner {
         display: flex;
-        flex-direction: column;
         align-items: center;
         gap: 6px;
         width: 100%;

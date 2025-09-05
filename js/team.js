@@ -810,25 +810,54 @@ function subBonusUsage(phase, cb) {
                 renderLeftColumn(team, pilots, phase, /* revealOn */ (phase === "mkw" && revealEnabled));
                 syncActivePilotCardHeight();
                 if (freezeCenter) {
-                    // Totaux → rangs finaux
+                    // Totaux → rangs finaux (avec tie-breaks : 1ers, 2es, 3es, …)
                     try {
                         const st = await get(ref(dbRealtime, `live/points/${phase}/byRace`));
                         const root = st.val() || {};
-                        const totals = new Map();
+
+                        const gridMax = (phase === "mkw") ? 24 : 12;
+                        const totals = new Map();    // pilotId -> total points
+                        const posCounts = new Map(); // pilotId -> Array(gridMax+1) des comptes par rang
+
                         for (const perRace of Object.values(root)) {
                             if (!perRace || typeof perRace !== "object") continue;
                             for (const [pid, obj] of Object.entries(perRace)) {
+                                // cumul points finaux
                                 const pts = Number(obj?.final ?? 0);
-                                if (!Number.isFinite(pts)) continue;
-                                totals.set(pid, (totals.get(pid) || 0) + pts);
+                                if (Number.isFinite(pts)) {
+                                    totals.set(pid, (totals.get(pid) || 0) + pts);
+                                }
+                                // comptage des positions
+                                const rk = Number(obj?.rank);
+                                if (Number.isFinite(rk) && rk >= 1 && rk <= gridMax) {
+                                    let arr = posCounts.get(pid);
+                                    if (!arr) { arr = Array(gridMax + 1).fill(0); posCounts.set(pid, arr); }
+                                    arr[rk] += 1;
+                                }
                             }
                         }
-                        const sorted = Array.from(totals.entries())
-                            .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
+
+                        // Tri : points desc, puis victoires, 2e, 3e, … desc ; fallback déterministe
+                        const sortedIds = Array.from(totals.keys()).sort((a, b) => {
+                            const pa = totals.get(a) || 0;
+                            const pb = totals.get(b) || 0;
+                            if (pb !== pa) return pb - pa;
+
+                            const ca = posCounts.get(a) || [];
+                            const cb = posCounts.get(b) || [];
+                            for (let pos = 1; pos <= gridMax; pos++) {
+                                const da = ca[pos] || 0;
+                                const db = cb[pos] || 0;
+                                if (db !== da) return db - da;
+                            }
+                            return (a < b) ? -1 : 1;
+                        });
+
                         const rankMap = {};
-                        let pos = 1; for (const [pid] of sorted) rankMap[pid] = pos++;
+                        let pos = 1; for (const pid of sortedIds) rankMap[pid] = pos++;
                         finalRanksByPilot = rankMap;
                     } catch {}
+
                     renderActivePilotsEnded(team, pilots, phase, allowed, finalRanksByPilot);
                     updateInfoBanner(null, null, true);
                 } else {
@@ -1015,24 +1044,50 @@ function subBonusUsage(phase, cb) {
                 markEvent();
                 const root = snap.val() || {};
 
-                // Somme des points "final" par pilote
-                const totals = new Map(); // pilotId -> total points
+                // Somme des points "final" par pilote + comptage des positions (tie-break)
+                const gridMax = (phase === "mkw") ? 24 : 12;
+                const totals = new Map();          // pilotId -> total points
+                const posCounts = new Map();       // pilotId -> Array(gridMax+1) des comptes par rang
+
                 for (const perRace of Object.values(root)) {
                     if (!perRace || typeof perRace !== "object") continue;
                     for (const [pid, obj] of Object.entries(perRace)) {
+                        // cumul points finaux
                         const pts = Number(obj?.final ?? 0);
-                        if (!Number.isFinite(pts)) continue;
-                        totals.set(pid, (totals.get(pid) || 0) + pts);
+                        if (Number.isFinite(pts)) {
+                            totals.set(pid, (totals.get(pid) || 0) + pts);
+                        }
+                        // comptage des positions (rang de course)
+                        const rk = Number(obj?.rank);
+                        if (Number.isFinite(rk) && rk >= 1 && rk <= gridMax) {
+                            let arr = posCounts.get(pid);
+                            if (!arr) { arr = Array(gridMax + 1).fill(0); posCounts.set(pid, arr); }
+                            arr[rk] += 1;
+                        }
                     }
                 }
 
-                // Classement global (desc par points, tie-break simple par id)
-                const sorted = Array.from(totals.entries())
-                    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
+                // Tri : points desc, puis victoires, 2e, 3e, … desc ; fallback déterministe
+                const sortedIds = Array.from(totals.keys()).sort((a, b) => {
+                    const pa = totals.get(a) || 0;
+                    const pb = totals.get(b) || 0;
+                    if (pb !== pa) return pb - pa;
+
+                    const ca = posCounts.get(a) || [];
+                    const cb = posCounts.get(b) || [];
+                    for (let pos = 1; pos <= gridMax; pos++) {
+                        const da = ca[pos] || 0;
+                        const db = cb[pos] || 0;
+                        if (db !== da) return db - da; // plus de meilleures places => mieux classé
+                    }
+
+                    // Fallback déterministe : id
+                    return (a < b) ? -1 : 1;
+                });
 
                 const rankMap = {};
                 let pos = 1;
-                for (const [pid] of sorted) rankMap[pid] = pos++;
+                for (const pid of sortedIds) rankMap[pid] = pos++;
                 finalRanksByPilot = rankMap;
 
                 // Si on est dans l'état gelé (fin de phase), on re-rend la vue finale avec les bons rangs
